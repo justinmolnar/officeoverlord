@@ -1,0 +1,1028 @@
+-- Employee Definitions
+-- baseFocus is now 1.0 for all. Focus modifiers are multiplicative (value is the 'plus' part, e.g., 0.5 means 1.5x)
+return {
+
+    -- RARE & LEGENDARY EMPLOYEES
+    {
+        id = 'corporate_lawyer1', name = 'Corporate Lawyer', icon = '👨‍⚖️', rarity = 'Rare',
+        hiringBonus = 3000, weeklySalary = 700,
+        baseProductivity = 10, baseFocus = 1.1,
+        description = "If your budget would be depleted, this employee is 'sacrificed' (fired) to prevent a Game Over once.",
+        special = { type = 'negates_budget_game_over_once' },
+        listeners = {
+            onBudgetDepleted = function(self, gameState, eventArgs)
+                if eventArgs.gameOverPrevented then return end
+
+                eventArgs.gameOverPrevented = true
+                eventArgs.message = "Objection!\nThe Corporate Lawyer, " .. self.fullName .. ", was sacrificed to settle the debt, preventing bankruptcy... this time."
+                
+                for i = #gameState.hiredEmployees, 1, -1 do
+                    if gameState.hiredEmployees[i].instanceId == self.instanceId then
+                        if self.deskId and gameState.deskAssignments[self.deskId] then
+                            gameState.deskAssignments[self.deskId] = nil
+                        end
+                        table.remove(gameState.hiredEmployees, i)
+                        break
+                    end
+                end
+            end
+        }
+    },
+    {
+        id = 'vc_nephew1', name = 'VC\'s Nephew', icon = '💰🤔', rarity = 'Rare',
+        hiringBonus = 5000, weeklySalary = 2000,
+        baseProductivity = 0, baseFocus = 1.0,
+        description = 'Does nothing, and has a very high salary. However, at the end of each Sprint, there\'s a 25% chance of a massive budget injection "from his dad."',
+        special = { type = 'sprint_end_budget_injection', chance = 0.25, amount = 25000, does_not_work = true },
+        listeners = {
+            onSprintStart = function(self, gameState, eventArgs)
+                if love.math.random() < self.special.chance then
+                    if not gameState.ventureCapitalActive then
+                        gameState.budget = gameState.budget + self.special.amount
+                    end
+                    _G.showMessage("A Call From Dad", self.fullName.."'s father was impressed by your progress and made a 'small' donation of $"..self.special.amount.."!")
+                end
+            end
+        }
+    },
+    {
+        id = 'masseuse1', name = 'In-House Masseuse', icon = '💆‍♀️', rarity = 'Rare',
+        hiringBonus = 2200, weeklySalary = 450,
+        baseProductivity = 0, baseFocus = 1.0,
+        description = 'Does not contribute to workload. Instead, all adjacent employees have their Focus multiplied by 1.5x per level.',
+        special = { does_not_work = true },
+        positionalEffects = { all_adjacent = { focus_mult = 1.5, scales_with_level = true } }
+    },
+    {
+        id = 'wfh_advocate1', name = 'Work from Home Advocate', icon = '🏠', rarity = 'Rare',
+        hiringBonus = 2600, weeklySalary = 500,
+        baseProductivity = 10, baseFocus = 1.1,
+        description = 'Must be placed in the office. Doubles the Productivity and Focus of all remote workers.',
+        special = { type = 'boost_remote_workers', prod_mult = 2.0, focus_mult = 2.0 }
+    },
+    {
+        id = 'organizer1', name = 'The Organizer', icon = '🗂️', rarity = 'Rare',
+        hiringBonus = 2400, weeklySalary = 480,
+        baseProductivity = 7, baseFocus = 1.2,
+        description = 'All positional effects (positive and negative) of employees in the same row AND column are increased by 25% per level.',
+        special = { type = 'amplify_positional_effects', multiplier = 1.25, scales_with_level = true }
+    },
+    {
+        id = 'cobol_coder1', name = 'Old-School Coder', icon = '💾', rarity = 'Rare',
+        hiringBonus = 2800, weeklySalary = 600,
+        baseProductivity = 10, baseFocus = 1.0,
+        description = 'Productivity is 5x on "Database Migration" or "Refactor Legacy Code" work items, but only 0.2x on all other items.',
+        special = { type = 'conditional_productivity_by_work_item', prod_mult = 5.0, penalty_mult = 0.2, target_work_items = { s4_item1 = true, s4_item2 = true } }
+    },
+    {
+        id = 'efficiency_expert1', name = 'Efficiency Expert', icon = '✂️', rarity = 'Rare',
+        hiringBonus = 3000, weeklySalary = 650,
+        baseProductivity = 15, baseFocus = 1.3,
+        description = 'At the end of each Sprint, downsizes by firing one of the two lowest-level Common employees and gives the other a permanent +5 Productivity boost per level.',
+        special = { type = 'cull_the_weak_on_sprint_end', target_rarity = 'Common', prod_boost = 5, scales_with_level = true },
+        listeners = {
+            onSprintStart = function(self, gameState, eventArgs)
+                local targets = {}
+                for _, emp in ipairs(gameState.hiredEmployees) do
+                    if emp.rarity == self.special.target_rarity and emp.instanceId ~= self.instanceId then
+                        table.insert(targets, emp)
+                    end
+                end
+                
+                if #targets >= 2 then
+                    -- Sort by contribution; contributionThisItem holds the value from the last completed item
+                    table.sort(targets, function(a,b) return (a.contributionThisItem or 0) < (b.contributionThisItem or 0) end)
+                    
+                    local fired = targets[1]
+                    local survivor = targets[#targets] -- The highest contributor among the targets
+                    
+                    for i = #gameState.hiredEmployees, 1, -1 do
+                        if gameState.hiredEmployees[i].instanceId == fired.instanceId then
+                            table.remove(gameState.hiredEmployees, i)
+                            if fired.deskId and gameState.deskAssignments[fired.deskId] then
+                                gameState.deskAssignments[fired.deskId] = nil
+                            end
+                            break
+                        end
+                    end
+                    
+                    local boost = self.special.prod_boost
+                    if self.special.scales_with_level then boost = boost * (self.level or 1) end
+                    survivor.baseProductivity = survivor.baseProductivity + boost
+                    
+                    _G.showMessage("Restructuring", self.fullName .. " 'optimized' the team.\n" .. fired.fullName .. " was let go, and " .. survivor.fullName .. " was rewarded!")
+                end
+            end
+        }
+    },
+    {
+        id = 'agile_coach1', name = 'The Agile Coach', icon = '🔄', rarity = 'Rare',
+        hiringBonus = 2500, weeklySalary = 550,
+        baseProductivity = 8, baseFocus = 1.1,
+        description = 'Employees work in a random order each cycle. The first employee to work gets a 2x productivity boost per level.',
+        special = { type = 'randomize_work_order', first_worker_mult = 2.0, scales_with_level = true }
+    },
+    {
+        id = 'office_plant1', name = 'Office Plant (Sentient)', icon = '🪴', rarity = 'Rare',
+        hiringBonus = 1500, weeklySalary = 50,
+        baseProductivity = 0, baseFocus = 1.0,
+        description = 'A low-maintenance, photosynthetic colleague. Passively clears 5 workload per level at the end of each round. Does not work otherwise.',
+        special = { type = 'passive_workload_clear', amount = 5, does_not_work = true, scales_with_level = true },
+        listeners = {
+            onEndOfRound = function(self, gameState, eventArgs)
+                local amount = self.special.amount or 5
+                if self.special.scales_with_level then amount = amount * (self.level or 1) end
+                
+                -- This check for the watering can upgrade is part of the original logic
+                local hasWateringCan = false
+                for _, upgId in ipairs(gameState.purchasedPermanentUpgrades) do
+                    if upgId == 'watering_can' then
+                        hasWateringCan = true
+                        break
+                    end
+                end
+
+                if hasWateringCan and not (gameState.temporaryEffectFlags.disabledUpgrades and gameState.temporaryEffectFlags.disabledUpgrades['watering_can']) then
+                    amount = amount * 2
+                end
+                
+                gameState.currentWeekWorkload = gameState.currentWeekWorkload - amount
+                print(self.fullName .. " cleared " .. amount .. " workload passively.")
+            end
+        }
+    },
+    {
+        id = 'ghost1', name = 'A Literal Ghost', icon = '👻', rarity = 'Rare',
+        hiringBonus = 2000, weeklySalary = 0,
+        baseProductivity = 0, baseFocus = 0,
+        description = 'Drag onto an office worker to "haunt" them, permanently granting them +10 Prod and +0.5x Focus. The Ghost is consumed on use. This effect stacks.',
+        special = { type = 'haunt_target_on_hire', prod_boost = 10, focus_add = 0.5 }
+    },
+    {
+        id = 'conspiracy_theorist1', name = 'Conspiracy Theorist', icon = '🤔', rarity = 'Rare',
+        hiringBonus = 2300, weeklySalary = 400,
+        baseProductivity = 10, baseFocus = 1.8,
+        description = 'High focus, but ignores bonuses from managers. Has a 5% chance each turn to "expose a conspiracy," disabling a random positive upgrade for the rest of the sprint.',
+        special = { type = 'expose_conspiracy', chance = 0.05, ignores_manager_bonus = true },
+        listeners = {
+            onTurnStart = function(self, gameState, eventArgs)
+                if love.math.random() < self.special.chance then
+                    local potentialUpgrades = {}
+                    local positiveUpgradeTypes = { 
+                        focus_boost_all_flat_permanent = true, productivityMultiplierAll = true, focusMultiplierAllFlat = true, 
+                        special_office_dog = true, productivity_boost_all_flat_permanent = true, budget_generation_per_win = true, 
+                        ignore_negative_focus_positional = true, reduce_all_salaries_flat = true, productivity_boost_remote_flat = true, 
+                        increase_positive_positional_focus_percent = true, reduce_all_salaries_percent = true, team_score_multiplier_first_round = true, 
+                        chance_avoid_bailout_cost = true, special_plant_boost = true 
+                    }
+                    
+                    for _, upgId in ipairs(gameState.purchasedPermanentUpgrades) do
+                        if not (gameState.temporaryEffectFlags.disabledUpgrades and gameState.temporaryEffectFlags.disabledUpgrades[upgId]) then
+                            for _, upgData in ipairs(require("data").ALL_UPGRADES) do
+                                if upgData.id == upgId and upgData.effect and positiveUpgradeTypes[upgData.effect.type] then
+                                    table.insert(potentialUpgrades, upgData)
+                                end
+                            end
+                        end
+                    end
+                    
+                    if #potentialUpgrades > 0 then
+                        local upgradeToDisable = potentialUpgrades[love.math.random(#potentialUpgrades)]
+                        gameState.temporaryEffectFlags.disabledUpgrades[upgradeToDisable.id] = true
+                        _G.showMessage("A Conspiracy!", self.fullName .. " has convinced the team that '"..upgradeToDisable.name.."' is a corporate plot and they will no longer use it this sprint!")
+                    end
+                end
+            end
+        }
+    },
+    {
+        id = 'time_traveling_intern1', name = 'Time-Traveling Intern', icon = '⏳', rarity = 'Rare',
+        hiringBonus = 1800, weeklySalary = 350,
+        baseProductivity = 8, baseFocus = 1.0,
+        description = 'Arrives with knowledge of the future. The modifier for the final work item of the current sprint is revealed.',
+        special = { type = 'reveals_modifier' }
+    },
+    {
+        id = 'dog_walker1', name = 'Office Dog Walker', icon = '🚶🐕', rarity = 'Rare',
+        hiringBonus = 1600, weeklySalary = 300,
+        baseProductivity = 0, baseFocus = 1.0,
+        description = 'Has 0 productivity, but ensures the "Office Dog" has a 100% chance to motivate an employee each turn.',
+        special = { type = 'enhances_office_dog', does_not_work = true }
+    },
+    {
+        id = 'barista1', name = 'The Barista', icon = '☕️🤲', rarity = 'Rare',
+        hiringBonus = 2000, weeklySalary = 400,
+        baseProductivity = 0, baseFocus = 1.0,
+        description = 'Does not work. If you own an Espresso Machine, serves coffee to 3 random employees at the start of each Sprint, giving them a permanent +2 Productivity per level.',
+        special = { type = 'sprint_start_prod_boost', target_count = 3, prod_boost = 2, required_upgrade = 'coffee1', does_not_work = true, scales_with_level = true },
+        listeners = {
+            onSprintStart = function(self, gameState, eventArgs)
+                -- The upgrade check is now part of the self-contained logic
+                if _G.Shop:isUpgradePurchased(gameState.purchasedPermanentUpgrades, self.special.required_upgrade) then
+                    local boostedNames = {}
+                    local potentialTargets = {}
+                    for _, emp in ipairs(gameState.hiredEmployees) do
+                        if emp.instanceId ~= self.instanceId then table.insert(potentialTargets, emp) end
+                    end
+                    
+                    for i = 1, self.special.target_count do
+                        if #potentialTargets > 0 then
+                            local targetIndex = love.math.random(#potentialTargets)
+                            local target = potentialTargets[targetIndex]
+                            local boost = self.special.prod_boost
+                            if self.special.scales_with_level then boost = boost * (self.level or 1) end
+                            target.baseProductivity = target.baseProductivity + boost
+                            table.insert(boostedNames, target.fullName)
+                            table.remove(potentialTargets, targetIndex)
+                        end
+                    end
+                    
+                    if #boostedNames > 0 then
+                        _G.showMessage("Coffee Break!", self.fullName .. " served coffee, boosting the productivity of: " .. table.concat(boostedNames, ", "))
+                    end
+                end
+            end
+        }
+    },
+    {
+        id = 'dwight1', name = 'Dwight, Asst. to the R.M.', icon = '🤓', rarity = 'Rare',
+        hiringBonus = 2600, weeklySalary = 500,
+        baseProductivity = 18, baseFocus = 1.2,
+        description = 'Gains +1.5x Focus per level when adjacent to a Project Manager. After each completed work item, has a 25% chance to "train" a random employee, disabling them for the next item but giving them a permanent +3 Productivity per level.',
+        special = { type = 'dwight_behavior', manager_id = 'project_manager', focus_mult = 1.5, train_chance = 0.25, train_prod_boost = 3, scales_with_level = true },
+        listeners = {
+            onWorkItemComplete = function(self, gameState, eventArgs)
+                if eventArgs.isBossItem and love.math.random() < self.special.train_chance then
+                    local potentialTargets = {}
+                    for _, targetEmp in ipairs(gameState.hiredEmployees) do
+                        if targetEmp.instanceId ~= self.instanceId then table.insert(potentialTargets, targetEmp) end
+                    end
+                    if #potentialTargets > 0 then
+                        local trainee = potentialTargets[love.math.random(#potentialTargets)]
+                        local boost = self.special.train_prod_boost
+                        if self.special.scales_with_level then boost = boost * (self.level or 1) end
+                        trainee.isTraining = true
+                        trainee.baseProductivity = trainee.baseProductivity + boost
+                        print(self.fullName .. " has put " .. trainee.fullName .. " into safety training.")
+                    end
+                end
+            end
+        }
+    },
+    {
+        id = 'red_shirt_intern1', name = 'Red-Shirt Intern', icon = '🧑‍🚀', rarity = 'Rare',
+        hiringBonus = 1000, weeklySalary = 200,
+        baseProductivity = 15, baseFocus = 1.1,
+        description = 'Has decent stats, but if you would get a Game Over from budget depletion, this employee is automatically fired to absorb the penalty, preventing the loss.',
+        special = { type = 'sacrificial_intern' },
+        listeners = {
+            onBudgetDepleted = function(self, gameState, eventArgs)
+                if eventArgs.gameOverPrevented then return end
+
+                if gameState.bailOutsRemaining <= 0 then
+                    eventArgs.gameOverPrevented = true
+                    eventArgs.message = "A Noble Sacrifice!\nRed-Shirt Intern " .. self.fullName .. " was fired to cover the budget shortfall, preventing a Game Over!"
+                    
+                    for i = #gameState.hiredEmployees, 1, -1 do
+                        if gameState.hiredEmployees[i].instanceId == self.instanceId then
+                            if self.deskId and gameState.deskAssignments[self.deskId] then
+                                gameState.deskAssignments[self.deskId] = nil
+                            end
+                            table.remove(gameState.hiredEmployees, i)
+                            break
+                        end
+                    end
+                end
+            end
+        }
+    },
+    {
+        id = 'admiral1', name = 'The "It\'s a Trap!" Admiral', icon = '🦑', rarity = 'Rare',
+        hiringBonus = 2200, weeklySalary = 450,
+        baseProductivity = 10, baseFocus = 1.2,
+        description = 'Allows you to see the "Boss Modifier" of the NEXT sprint\'s boss.',
+        special = { type = 'reveals_next_sprint_modifier' }
+    },
+    {
+        id = 'quartermaster_q1', name = 'The Quartermaster "Q"', icon = '🛠️', rarity = 'Rare',
+        hiringBonus = 2800, weeklySalary = 550,
+        baseProductivity = 5, baseFocus = 1.0,
+        description = 'Does not work. Provides one random "gadget" (a temporary, single-sprint bonus) at the start of each Sprint.',
+        special = { type = 'provides_gadget', does_not_work = true },
+        listeners = {
+            onSprintStart = function(self, gameState, eventArgs)
+                if #require("data").ALL_GADGETS > 0 then
+                    local gadget = require("data").ALL_GADGETS[love.math.random(#require("data").ALL_GADGETS)]
+                    
+                    if gadget and gadget.listeners and gadget.listeners.onUse then
+                        gadget.listeners.onUse(gadget, gameState)
+                    else
+                        print("Warning: Gadget '" .. (gadget.name or "unknown") .. "' has no onUse listener.")
+                    end
+                end
+            end
+        }
+    },
+    {
+        id = 'csm1', name = 'The Cigarette Smoking Man', icon = '🚬', rarity = 'Rare',
+        hiringBonus = 3500, weeklySalary = 100,
+        baseProductivity = 13, baseFocus = 1.3,
+        description = 'His effects are hidden. Secretly buffs a random employee with +15 Prod per level each Sprint, but also secretly adds 5% to ALL salaries.',
+        special = { type = 'secret_effects', salary_increase = 1.05, prod_boost = 15, scales_with_level = true },
+        listeners = {
+            onSprintStart = function(self, gameState, eventArgs)
+                local potentialTargets = {}
+                for _, emp in ipairs(gameState.hiredEmployees) do
+                    if emp.instanceId ~= self.instanceId then
+                        table.insert(potentialTargets, emp)
+                    end
+                end
+                if #potentialTargets > 0 then
+                    local target = potentialTargets[love.math.random(#potentialTargets)]
+                    target.isSecretlyBuffed = true
+                    print("CSM secretly buffed " .. target.fullName)
+                end
+            end
+        }
+    },
+    {
+        id = 'pen_tester1', name = 'Penetration Tester', icon = '🕵️', rarity = 'Rare',
+        hiringBonus = 2500, weeklySalary = 550,
+        baseProductivity = 15, baseFocus = 1.2,
+        description = 'Once per sprint, upon completing a work item, they test the firewalls. 50% chance to gain $2000, 50% chance to lose $1000 and disable the shop for the next item.',
+        special = { type = 'firewall_test_on_win', success_chance = 0.5, success_gain = 2000, failure_loss = 1000 },
+        listeners = {
+            onWorkItemComplete = function(self, gameState, eventArgs)
+                if gameState.temporaryEffectFlags.penTesterUsedInSprint ~= gameState.currentSprintIndex then
+                    if love.math.random() < self.special.success_chance then
+                        if not gameState.ventureCapitalActive then
+                            gameState.budget = gameState.budget + self.special.success_gain
+                        end
+                        _G.showMessage("Firewall Bypassed!", self.fullName .. " found a vulnerability, gaining $" .. self.special.success_gain .. "!")
+                    else
+                        gameState.budget = gameState.budget - self.special.failure_loss
+                        gameState.temporaryEffectFlags.shopDisabledNextWorkItem = true
+                        _G.showMessage("Firewall Alert!", self.fullName .. " tripped an alarm, losing $" .. self.special.failure_loss .. "! The shop is locked down for the next work item.")
+                    end
+                    gameState.temporaryEffectFlags.penTesterUsedInSprint = gameState.currentSprintIndex
+                end
+            end
+        }
+    },
+    {
+        id = 'vampire1', name = 'A Vampire', icon = '🧛', rarity = 'Legendary',
+        hiringBonus = 5000, weeklySalary = 0,
+        baseProductivity = 75, baseFocus = 2.5,
+        description = "Insane stats. Instead of a salary, lose 5% of your current budget after each work item. Cannot be placed in the top row.",
+        special = { type = 'vampire_budget_drain', drain_percent = 0.05, placement_restriction = 'not_top_row' },
+        -- NEW: Added listener for the onWorkItemComplete event
+        listeners = {
+            onWorkItemComplete = function(self, gameState, eventArgs)
+                -- This logic is now self-contained within the employee's data
+                if self.special and self.special.type == 'vampire_budget_drain' then
+                    local drain = math.floor(gameState.budget * self.special.drain_percent)
+                    eventArgs.vampireDrain = (eventArgs.vampireDrain or 0) + drain
+                end
+            end
+        }
+    },
+    {
+        id = 'milton1', name = 'Milton, Stapler Guy', icon = '📎', rarity = 'Legendary',
+        hiringBonus = 1000, weeklySalary = 150,
+        baseProductivity = 15, baseFocus = 1.0,
+        description = "If placed in a bottom-row corner, focus becomes 5.0x. If you try to move him, there's a 50% chance he burns the office down (Game Over).",
+        special = { type = 'stapler_guy_placement', corner_focus_multiplier = 5.0, move_risk_chance = 0.5 }
+    },
+    {
+        id = 'mimic1', name = 'The Mimic', icon = '💧', rarity = 'Legendary',
+        hiringBonus = 4000, weeklySalary = 200,
+        baseProductivity = 1, baseFocus = 1.0,
+        description = 'Appears as a water cooler. When placed, it copies the name, icon, stats, and abilities of a random adjacent employee for the rest of the Sprint.',
+        special = { type = 'mimic' },
+        listeners = {
+            onCalculateStats = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId == self.instanceId and self.copiedState then
+                    -- Create a temporary effective instance for this calculation
+                    local effectiveInstance = {}
+                    for k, v in pairs(self) do effectiveInstance[k] = v end
+                    for k, v in pairs(self.copiedState) do effectiveInstance[k] = v end
+                    eventArgs.employee = effectiveInstance
+                end
+            end
+        }
+    },
+    {
+        id = 'golem1', name = 'Paperwork Golem', icon = '🗿', rarity = 'Legendary',
+        hiringBonus = 1000, weeklySalary = 0,
+        baseProductivity = 200, baseFocus = 0.1,
+        description = 'Insane base productivity, but very unfocused. Has no salary, but permanently loses 10 base productivity after each work item it contributes to.',
+        special = { type = 'degrading_productivity', degradation_amount = 10 },
+        listeners = {
+            onWorkItemComplete = function(self, gameState, eventArgs)
+                if self.contributionThisItem and self.contributionThisItem > 0 then
+                    local oldProd = self.baseProductivity
+                    self.baseProductivity = math.max(0, self.baseProductivity - (self.special.degradation_amount or 10))
+                    print(self.fullName .. " has degraded from " .. oldProd .. " to " .. self.baseProductivity)
+                end
+            end
+        }
+    },
+    {
+        id = 'ai_overlord1', name = 'The AI Overlord', icon = '🤖', rarity = 'Legendary',
+        hiringBonus = 6000, weeklySalary = 1000,
+        baseProductivity = 25, baseFocus = 1.5,
+        description = 'Must be a Remote worker. Doubles the Productivity and Focus of all other remote workers. All upgrades cost 10% more per level.',
+        special = { type = 'boost_other_remotes', prod_mult = 2.0, focus_mult = 2.0, upgrade_cost_increase = 1.1, scales_with_level = true },
+        forceVariant = 'remote'
+    },
+    {
+        id = 'muse1', name = 'The Muse', icon = '✨', rarity = 'Legendary',
+        hiringBonus = 4500, weeklySalary = 500,
+        baseProductivity = 0, baseFocus = 1.0,
+        description = 'Does not work. Once per Sprint, inspires a random employee, granting them 3x their normal stats per level for a single turn.',
+        special = { type = 'inspire_teammate', multiplier = 3, does_not_work = true, scales_with_level = true }
+    },
+    {
+        id = 'glitch1', name = 'Glitch in the Matrix', icon = '🐈', rarity = 'Legendary',
+        hiringBonus = 7500, weeklySalary = 600,
+        baseProductivity = 10, baseFocus = 1.0,
+        description = 'Has a 1% chance each turn to instantly complete the current Work Item.',
+        special = { type = 'glitch_in_the_matrix', chance = 0.01 },
+        listeners = {
+            onBeforeContribution = function(self, gameState, eventArgs)
+                if love.math.random() < self.special.chance then
+                    print("A GLITCH IN THE MATRIX! Work item instantly completed!")
+                    eventArgs.wasInstaWin = true
+                end
+            end
+        }
+    },
+    {
+        id = 'developer1', name = 'The Developer', icon = '😂', rarity = 'Legendary',
+        hiringBonus = 5000, weeklySalary = 800,
+        baseProductivity = 60, baseFocus = 1.2,
+        description = 'A fourth-wall-breaking employee. Their productivity is equal to the game\'s current frames-per-second.',
+        special = { type = 'developer_fps_prod' },
+        listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId == self.instanceId then
+                    eventArgs.stats.productivity = love.timer.getFPS()
+                    eventArgs.stats.log.productivity = {"Base: " .. eventArgs.stats.productivity .. " (from FPS)"}
+                end
+            end
+        }
+    },
+    {
+        id = 'benevolent_slime1', name = 'A Benevolent Slime', icon = '🦠', rarity = 'Legendary',
+        hiringBonus = 6000, weeklySalary = 250,
+        baseProductivity = 5, baseFocus = 1.0,
+        description = 'Drag from the shop onto another employee to merge. The Slime is consumed, but the target\'s base stats are doubled and they become Legendary. This effect stacks.',
+        special = { type = 'slime_merge' }
+    },
+    {
+        id = 'narrator1', name = 'The Narrator', icon = '🎤', rarity = 'Legendary',
+        hiringBonus = 3000, weeklySalary = 400,
+        baseProductivity = 0, baseFocus = 1.0,
+        description = 'Does not work. At the start of each employee\'s turn, gives them a +0.1x Focus boost per level for that turn.',
+        special = { type = 'narrator_boost', focus_add = 0.1, does_not_work = true, scales_with_level = true },
+        listeners = {
+            onTurnStart = function(self, gameState, eventArgs)
+                if eventArgs.currentEmployee then
+                    eventArgs.currentEmployee.narratorBoostActive = true
+                    print("The Narrator encourages " .. eventArgs.currentEmployee.fullName .. "...")
+                end
+            end
+        }
+    },
+    {
+        id = 'lumbergh1', name = 'Bill Lumbergh', icon = '☕', rarity = 'Legendary',
+        hiringBonus = 4000, weeklySalary = 750,
+        baseProductivity = 10, baseFocus = 1.0,
+        description = 'Adjacent employees get -0.5x Focus per level. Forces each to work 1 extra time per round for each of his levels. Yeah... that\'d be great.',
+        remoteDescription = 'Forces two random remote employees to work 1 extra time per round for each of his levels. Yeah... that\'d be great.',
+        positionalEffects = { all_adjacent = { focus_mult = 0.5, scales_with_level = true } },
+        special = { type = 'forces_double_work' }
+    },
+    {
+        id = 'ron_swanson1', name = 'Ron Swanson', icon = '👨🏻', rarity = 'Legendary',
+        hiringBonus = 3500, weeklySalary = 500,
+        baseProductivity = 15, baseFocus = 1.0,
+        description = 'Refuses to work if budget is over $50k. If budget is under $5k, his productivity is x10. Ignores all positional bonuses.',
+        special = { type = 'ron_swanson_behavior', upper_budget_threshold = 50000, lower_budget_threshold = 5000, prod_mult = 10, ignores_positional_bonuses = true }
+    },
+    {
+        id = 'agent_smith1', name = 'Agent Smith', icon = '🕴️', rarity = 'Legendary',
+        hiringBonus = 6000, weeklySalary = 300,
+        baseProductivity = 25, baseFocus = 1.2,
+        description = 'Grants +5 Productivity per level to adjacent employees. When hired, turns two other random employees into copies of Agent Smith for the rest of the Sprint. Copies do not stack positional effects with each other.',
+        special = { type = 'virus_on_hire' },
+        positionalEffects = { all_adjacent = { productivity_add = 5, scales_with_level = true } },
+        listeners = {
+            onCalculateStats = function(self, gameState, eventArgs)
+                if eventArgs.employee.isSmithCopy then
+                    local smithData = self -- The listener is on the base Smith, so 'self' is the correct data
+                    local effectiveInstance = {}
+                    for k, v in pairs(eventArgs.employee) do effectiveInstance[k] = v end
+                    for k, v in pairs(smithData) do
+                        if k ~= 'id' and k ~= 'instanceId' and k ~= 'fullName' then
+                            effectiveInstance[k] = v
+                        end
+                    end
+                    eventArgs.employee = effectiveInstance
+                end
+            end
+        }
+    },
+    {
+        id = 'glados1', name = 'GLaDOS', icon = '👁️', rarity = 'Legendary',
+        hiringBonus = 5000, weeklySalary = 0,
+        baseProductivity = 0, baseFocus = 1.0,
+        description = 'Provides a +50% productivity boost to ALL employees. At the end of each work item, she will "test" you by forcing you to choose one of two negative modifiers for the next item.',
+        special = { type = 'ai_test_on_win', prod_boost_all = 1.5, does_not_work = true }
+    },
+    {
+        id = 'borg_drone', name = 'Borg Drone', icon = '🤖', rarity = 'Legendary',
+        hiringBonus = 0, weeklySalary = 0,
+        baseProductivity = 0, baseFocus = 0,
+        description = 'We are the Borg. Resistance is futile. Your technological and biological distinctiveness will be added to our own.',
+        special = { type = 'borg_drone_special' },
+        isNotPurchasable = true
+    },
+    {
+        id = 'corporate_personhood_employee', name = 'The Corporation', icon = '🏛️', rarity = 'Legendary',
+        hiringBonus = 0, weeklySalary = 0,
+        baseProductivity = 0, baseFocus = 1.0,
+        description = 'The company itself, manifest. Its power grows with your assets. Provides massive bonuses to all adjacent employees.',
+        positionalEffects = { all_adjacent = { productivity_add = 50, focus_add = 1.0 } },
+        special = { type = 'corporate_personhood_special' } -- This is a temporary battle entity
+    },
+    -- UNCOMMON EMPLOYEES
+    {
+        id = 'it_guy1', name = 'IT "Reboot" Guy', icon = '🔌', rarity = 'Uncommon',
+        hiringBonus = 1700, weeklySalary = 380,
+        baseProductivity = 7, baseFocus = 1.0,
+        description = 'Once per work item, has a 50% chance at the end of a round to "reboot" a random coworker, tripling their contribution on their next turn.',
+        special = { type = 'chance_reboot_teammate', chance = 0.5, multiplier = 3 },
+        listeners = {
+            onEndOfRound = function(self, gameState, eventArgs)
+                if not gameState.temporaryEffectFlags.itGuyUsedThisItem and love.math.random() < self.special.chance then
+                    local potentialTargets = {}
+                    for _, emp in ipairs(gameState.hiredEmployees) do
+                        if emp.instanceId ~= self.instanceId and not emp.isRebooted and not emp.isTraining then
+                            table.insert(potentialTargets, emp)
+                        end
+                    end
+                    if #potentialTargets > 0 then
+                        local target = potentialTargets[love.math.random(#potentialTargets)]
+                        target.isRebooted = true
+                        gameState.temporaryEffectFlags.itGuyUsedThisItem = true
+                        print(self.fullName .. " has rebooted " .. target.fullName)
+                    end
+                end
+            end
+        }
+    },
+    {
+        id = 'accountant1', name = 'The Accountant', icon = '🧾', rarity = 'Uncommon',
+        hiringBonus = 1600, weeklySalary = 350,
+        baseProductivity = 5, baseFocus = 1.0,
+        description = 'Reduces all salaries by 3%. Total salaries paid this item are rounded to the nearest $100.',
+        special = { type = 'salary_reduction_percent_team', value = 0.03, rounds_salaries = true }
+    },
+    {
+        id = 'salesperson1', name = 'The Salesperson', icon = '💼', rarity = 'Uncommon',
+        hiringBonus = 1800, weeklySalary = 400,
+        baseProductivity = 10, baseFocus = 1.0,
+        description = 'Generates no workload progress. Instead, generates budget equal to 1.5x their Productivity score per level each cycle.',
+        special = { type = 'budget_gen_no_workload', multiplier = 1.5, scales_with_level = true },
+        listeners = {
+            onBeforeContribution = function(self, gameState, eventArgs)
+                -- This employee's entire turn is replaced by this logic.
+                local stats = require("employee"):calculateStatsWithPosition(self, gameState.hiredEmployees, gameState.deskAssignments, gameState.purchasedPermanentUpgrades, gameState.desks, gameState)
+                local multiplier = self.special.multiplier or 1
+                if self.special.scales_with_level then multiplier = multiplier * (self.level or 1) end
+                local budgetGain = math.floor(stats.currentProductivity * multiplier)
+                
+                if not gameState.ventureCapitalActive then
+                    gameState.budget = gameState.budget + budgetGain
+                end
+                
+                print(self.fullName .. " generated $" .. budgetGain .. " instead of working on the item!")
+                eventArgs.shouldSkipWorkload = true
+                eventArgs.productivity = stats.currentProductivity -- For logging/display purposes
+            end
+        }
+    },
+    {
+        id = 'union_rep1', name = 'The Union Rep', icon = '✊', rarity = 'Uncommon',
+        hiringBonus = 2000, weeklySalary = 450,
+        baseProductivity = 2, baseFocus = 1.0,
+        description = 'All employees gain +2 base Productivity per level. Employee salaries cannot be reduced by any means.',
+        special = { type = 'global_prod_boost_flat', value = 2, prevents_salary_reduction = true, scales_with_level = true },
+        listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                local bonus = self.special.value
+                if self.special.scales_with_level then
+                    bonus = bonus * (self.level or 1)
+                end
+                eventArgs.stats.productivity = eventArgs.stats.productivity + bonus
+                table.insert(eventArgs.stats.log.productivity, string.format("+%d from %s", bonus, self.name))
+            end
+        }
+    },
+    {
+        id = 'marketer1', name = 'Marketing Whiz', icon = '📈', rarity = 'Uncommon',
+        hiringBonus = 2000, weeklySalary = 350,
+        baseProductivity = 10, baseFocus = 1.0,
+        description = 'Generates +$750 Budget/win per level.',
+        special = { type = 'budget_per_win', value = 750, scales_with_level = true },
+        listeners = {
+            onWorkItemComplete = function(self, gameState, eventArgs)
+                if not (eventArgs and eventArgs.budgetBonus) then return end
+
+                local bonus = self.special.value
+                if self.special.scales_with_level then bonus = bonus * (self.level or 1) end
+                
+                -- This employee has a hardcoded synergy check, which can be refactored later
+                if self.id == 'marketer1' and _G.Shop:isUpgradePurchased(gameState.purchasedPermanentUpgrades, 'advanced_crm') then
+                    -- In a future refactor, this could also be an event
+                    for _, upgData in ipairs(require("data").ALL_UPGRADES) do
+                        if upgData.id == 'advanced_crm' then 
+                            bonus = bonus + (upgData.effect.budget_per_win_bonus or 0)
+                            break 
+                        end
+                    end
+                end
+                
+                eventArgs.budgetBonus = eventArgs.budgetBonus + bonus
+            end
+        }
+    },
+    {
+        id = 'hr1', name = 'HR Coordinator', icon = '👥', rarity = 'Uncommon',
+        hiringBonus = 1800, weeklySalary = 320,
+        baseProductivity = 5, baseFocus = 1.0,
+        description = 'Reduces ALL salaries by 10% per level.',
+        special = { type = 'salary_reduction_percent_team', value = 0.10, scales_with_level = true }
+    },
+    {
+        id = 'senior_dev', name = 'Senior Developer', icon = '🚀', rarity = 'Uncommon',
+        hiringBonus = 3000, weeklySalary = 600,
+        baseProductivity = 30, baseFocus = 1.0,
+        description = 'Productive, high salary. Up: -3 Prod, -0.15x Focus.',
+        positionalEffects = { up = { productivity_add = -3, focus_add = -0.15 } } 
+    },
+    {
+        id = 'project_manager', name = 'Project Manager', icon = '📋', rarity = 'Uncommon',
+        hiringBonus = 2500, weeklySalary = 500,
+        baseProductivity = 10, baseFocus = 1.0,
+        description = '+0.3x focus per level to ALL PLACED staff.',
+        special = { type = 'focus_boost_all_placed_flat', value = 0.3, scales_with_level = true } 
+    },
+    {
+        id = 'lone_wolf', name = 'Lone Wolf Coder', icon = '🐺', rarity = 'Uncommon',
+        hiringBonus = 2200, weeklySalary = 450,
+        baseProductivity = 20, baseFocus = 1.0,
+        description = 'Highly focused when alone. +0.5x Focus per level for each empty adjacent desk.',
+        special = { type = 'focus_per_empty_adjacent_desk', value_per_desk = 0.5, scales_with_level = true } 
+    },
+    {
+        id = 'the_synergist', name = 'The Synergist', icon = '🤝', rarity = 'Uncommon',
+        hiringBonus = 1800, weeklySalary = 400,
+        baseProductivity = 8, baseFocus = 1.0,
+        description = 'Boosts adjacent non-Synergists (+2P, +0.2x F per level).',
+        positionalEffects = { all_adjacent = { focus_add = 0.2, productivity_add = 2, condition_not_id = 'the_synergist', scales_with_level = true } }
+    },
+    {
+        id = 'data_analyst', name = 'Data Analyst', icon = '📊', rarity = 'Uncommon',
+        hiringBonus = 2000, weeklySalary = 420,
+        baseProductivity = 3, baseFocus = 1.0,
+        description = 'Productivity scales with Budget (+1P per level per $1k).',
+        special = { type = 'prod_scales_with_budget', per_1k_budget = 1, scales_with_level = true }
+    },
+    {
+        id = 'the_mentor', name = 'The Mentor', icon = '🧑‍🏫', rarity = 'Uncommon',
+        hiringBonus = 2600, weeklySalary = 550,
+        baseProductivity = 10, baseFocus = 1.0,
+        description = 'Boosts Productivity of employee directly below by +10 per level.',
+        positionalEffects = { down = { productivity_add = 10, scales_with_level = true } }
+    },
+    {
+        id = 'creative_genius', name = 'Creative Genius', icon = '💡', rarity = 'Uncommon',
+        hiringBonus = 2800, weeklySalary = 580,
+        baseProductivity = 10, baseFocus = 1.0, 
+        description = 'Starts with 1.5x Focus. Salary increases $50 each week.',
+        special = { type = 'salary_increase_weekly', amount = 50, initial_focus_multiplier = 1.5 },
+        listeners = {
+            onWorkItemComplete = function(self, gameState, eventArgs)
+                self.weeklySalary = self.weeklySalary + (self.special.amount or 50)
+            end
+        }
+    },
+    {
+        id = 'the_grinder', name = 'The Grinder', icon = '⚙️', rarity = 'Uncommon',
+        hiringBonus = 1900, weeklySalary = 380,
+        baseProductivity = 25, baseFocus = 1.0, 
+        description = 'High Prod, but Focus is fixed at 0.8x.',
+        special = { type = 'fixed_focus_multiplier', value = 0.8 },
+        listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId == self.instanceId then
+                    eventArgs.stats.focus = self.special.value
+                    eventArgs.stats.log.focus = {string.format("Fixed to %.2fx by ability", self.special.value)}
+                end
+            end
+        }
+    },
+    {
+        id = 'night_owl', name = 'Night Owl Developer', icon = '🦉', rarity = 'Uncommon',
+        hiringBonus = 2400, weeklySalary = 480,
+        baseProductivity = 18, baseFocus = 1.0,
+        description = 'Higher Focus if placed in bottom row.',
+        special = { type = 'focus_if_in_row', rowIndex = 2, focus_multiplier = 1.5 } 
+    },
+    {
+        id = 'corner_office_exec', name = 'Corner Office Exec', icon = '👑', rarity = 'Uncommon',
+        hiringBonus = 4000, weeklySalary = 800,
+        baseProductivity = 20, baseFocus = 1.0,
+        description = '+1 Prod per level to all employees for each owned corner desk.',
+        special = { type = 'prod_boost_per_corner_desk_owned', value_per_corner = 1, scales_with_level = true }
+    },
+    {
+        id = 'hr_rep_by_the_book1', name = 'HR Rep (by the book)', icon = '📕', rarity = 'Uncommon',
+        hiringBonus = 1700, weeklySalary = 360,
+        baseProductivity = 5, baseFocus = 1.0,
+        description = 'Normalizes the workplace. All other employees cannot receive any positive or negative Focus modifiers from positional effects.',
+        special = { type = 'neutralize_positional_focus_mods' },
+        listeners = {
+            onCalculatePositionalBonuses = function(self, gameState, eventArgs)
+                -- This signals to the main calculation function to ignore focus mods.
+                eventArgs.neutralizeFocus = true
+            end
+        }
+    },
+    {
+        id = 'office_dj1', name = 'The Office DJ', icon = '🎧🎶', rarity = 'Uncommon',
+        hiringBonus = 1600, weeklySalary = 340,
+        baseProductivity = 6, baseFocus = 1.0,
+        description = 'Employees in the same row gain +0.2x Focus. All other employees get -0.1x Focus. Effect strength scales per level. Has no effect if remote.',
+        special = { type = 'row_based_focus_mod', same_row_bonus = 0.2, other_row_penalty = -0.1, scales_with_level = true }
+    },
+    {
+        id = 'micromanager1', name = 'The Micromanager', icon = '🧐', rarity = 'Uncommon',
+        hiringBonus = 1900, weeklySalary = 420,
+        baseProductivity = 8, baseFocus = 1.0,
+        description = 'Adjacent employees have their productivity doubled and their focus is halved. Effect strength scales per level.',
+        positionalEffects = { all_adjacent = { productivity_mult = 2.0, focus_mult = 0.5, scales_with_level = true } }
+    },
+    {
+        id = 'seo_wizard1', name = 'SEO Wizard', icon = '🧙', rarity = 'Uncommon',
+        hiringBonus = 1800, weeklySalary = 380,
+        baseProductivity = 12, baseFocus = 1.0,
+        description = 'Every 3rd time they contribute in a work item, their contribution is converted directly into budget instead of clearing workload.',
+        special = { type = 'contribute_to_budget_every_n_cycles', n = 3 },
+        listeners = {
+            onBeforeContribution = function(self, gameState, eventArgs)
+                if self.workCyclesThisItem % self.special.n == 0 then
+                    local stats = require("employee"):calculateStatsWithPosition(self, gameState.hiredEmployees, gameState.deskAssignments, gameState.purchasedPermanentUpgrades, gameState.desks, gameState)
+                    local budgetGain = math.floor(stats.currentProductivity * stats.currentFocus)
+                    
+                    if not gameState.ventureCapitalActive then
+                        gameState.budget = gameState.budget + budgetGain
+                    end
+                    
+                    print("SEO Magic!", self.fullName .. " found a keyword goldmine, generating $" .. budgetGain .. " for the budget!")
+                    eventArgs.shouldSkipWorkload = true
+                    eventArgs.productivity = stats.currentProductivity
+                    eventArgs.focus = stats.currentFocus
+                end
+            end
+        }
+    },
+    {
+        id = 'snacker1', name = 'Person Who\'s Always Snacking', icon = '🥨', rarity = 'Uncommon',
+        hiringBonus = 1000, weeklySalary = 200,
+        baseProductivity = 5, baseFocus = 1.0,
+        description = 'After every 3 contributions in a work item, they give a "Snack" to a random employee, boosting their Focus by 1.5x per level for their next turn.',
+        special = { type = 'generates_snack_every_n_cycles', n = 3, focus_mult = 1.5, scales_with_level = true },
+        listeners = {
+            onAfterContribution = function(self, gameState, eventArgs)
+                if self.workCyclesThisItem % self.special.n == 0 and #gameState.hiredEmployees > 1 then
+                    local potentialTargets = {}
+                    for _, emp in ipairs(gameState.hiredEmployees) do
+                        if emp.instanceId ~= self.instanceId then
+                            table.insert(potentialTargets, emp)
+                        end
+                    end
+                    if #potentialTargets > 0 then
+                        local target = potentialTargets[love.math.random(#potentialTargets)]
+                        target.snackBoostActive = true
+                        print(self.fullName .. " shared a snack with " .. target.name)
+                    end
+                end
+            end
+        }
+    },
+    {
+        id = 'company_historian1', name = 'Company Historian', icon = '🏛️', rarity = 'Uncommon',
+        hiringBonus = 1500, weeklySalary = 300,
+        baseProductivity = 8, baseFocus = 1.0,
+        description = 'Gains +1 base Productivity per level for every Sprint completed so far in this run. (Bonus begins in Sprint 2).',
+        special = { type = 'prod_per_sprint_completed', value = 1, scales_with_level = true },
+        listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId == self.instanceId then
+                    local sprintBonus = (gameState.currentSprintIndex - 1) * (self.special.value or 1)
+                    if self.special.scales_with_level then
+                        sprintBonus = sprintBonus * (self.level or 1)
+                    end
+
+                    if sprintBonus > 0 then
+                        eventArgs.stats.productivity = eventArgs.stats.productivity + sprintBonus
+                        table.insert(eventArgs.stats.log.productivity, string.format("+%d from historical knowledge", sprintBonus))
+                    end
+                end
+            end
+        }
+    },
+    -- COMMON EMPLOYEES
+    {
+        id = 'admin1', name = 'Dependable Admin', icon = '🧑‍💼', rarity = 'Common',
+        hiringBonus = 1100, weeklySalary = 220,
+        baseProductivity = 6, baseFocus = 1.0,
+        description = '+1 Productivity per level to all adjacent employees.',
+        positionalEffects = { all_adjacent = { productivity_add = 1, scales_with_level = true } }
+    },
+    {
+        id = 'data_clerk1', name = 'Data Entry Clerk', icon = '📠', rarity = 'Common',
+        hiringBonus = 900, weeklySalary = 180,
+        baseProductivity = 4, baseFocus = 1.0,
+        description = 'Low productivity, but generates +$50 budget per level per cycle they work.',
+        special = { type = 'budget_per_cycle', value = 50, scales_with_level = true },
+        listeners = {
+            onAfterContribution = function(self, gameState, eventArgs)
+                local budgetGain = self.special.value
+                if self.special.scales_with_level then budgetGain = budgetGain * (self.level or 1) end
+                if not gameState.ventureCapitalActive then
+                    gameState.budget = gameState.budget + budgetGain
+                end
+                print(self.fullName .. " generated $" .. budgetGain .. " this cycle.")
+            end
+        }
+    },
+    {
+        id = 'caffeinated_intern1', name = 'Over-Caffeinated Intern', icon = '🏃💨', rarity = 'Common',
+        hiringBonus = 300, weeklySalary = 80,
+        baseProductivity = 8, baseFocus = 1.0,
+        description = 'Fast, but has a 10% chance each cycle to have 0 productivity.',
+        special = { type = 'chance_zero_prod', chance = 0.10 },
+        listeners = {
+            onBeforeContribution = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId ~= self.instanceId then return end
+                
+                if love.math.random() < self.special.chance then
+                    print(self.fullName .. " got distracted! Zero productivity this cycle.")
+                    eventArgs.overrideContribution = { productivity = 0, focus = 0, totalContribution = 0 }
+                end
+            end
+        }
+    },
+    {
+        id = 'intern1', name = 'Eager Intern', icon = '🧑‍💻', rarity = 'Common',
+        hiringBonus = 500, weeklySalary = 100,
+        baseProductivity = 5, baseFocus = 1.0,
+        description = 'Cheap, enthusiastic. Right: +0.5x Focus per level.',
+        positionalEffects = { right = { focus_add = 0.5, scales_with_level = true } } 
+    },
+    {
+        id = 'dev1', name = 'Junior Developer', icon = '💻', rarity = 'Common',
+        hiringBonus = 1500, weeklySalary = 300,
+        baseProductivity = 15, baseFocus = 1.0,
+        description = 'Solid coder. Down: +8 Prod per level.',
+        positionalEffects = { down = { productivity_add = 8, scales_with_level = true } }
+    },
+    {
+        id = 'designer1', name = 'Graphic Designer', icon = '🎨', rarity = 'Common',
+        hiringBonus = 1200, weeklySalary = 250,
+        baseProductivity = 12, baseFocus = 1.0,
+        description = 'Great eye for detail. Sides: +0.6x Focus per level.',
+        positionalEffects = { left = { focus_add = 0.6, scales_with_level = true }, right = { focus_add = 0.6, scales_with_level = true } }
+    },
+    {
+        id = 'va1', name = 'Office Assistant', icon = '📞', rarity = 'Common',
+        hiringBonus = 1000, weeklySalary = 200,
+        baseProductivity = 8, baseFocus = 1.0,
+        description = 'Handles small stuff.'
+    },
+    {
+        id = 'support_agent', name = 'Support Agent', icon = '🎧', rarity = 'Common',
+        hiringBonus = 1400, weeklySalary = 280,
+        baseProductivity = 10, baseFocus = 1.0,
+        description = 'Keeps clients happy.'
+    },
+    {
+        id = 'office_clown', name = 'Office Clown', icon = '🤡', rarity = 'Common',
+        hiringBonus = 500, weeklySalary = 100,
+        baseProductivity = 3, baseFocus = 1.0,
+        description = 'Up: +0.4x F per level, Down: -0.2x F per level.',
+        positionalEffects = { up = { focus_add = 0.4, scales_with_level = true }, down = { focus_add = -0.2, scales_with_level = true } }
+    },
+    {
+        id = 'the_minimalist', name = 'The Minimalist', icon = '🧘', rarity = 'Common',
+        hiringBonus = 600, weeklySalary = 120,
+        baseProductivity = 10, baseFocus = 1.0,
+        description = '+10 Prod per level if no adjacent employees.',
+        special = { type = 'prod_if_no_adjacent', prod_bonus = 10, scales_with_level = true }
+    },
+    {
+        id = 'team_player', name = 'Team Player', icon = '🙌', rarity = 'Common',
+        hiringBonus = 1700, weeklySalary = 330,
+        baseProductivity = 9, baseFocus = 1.0,
+        description = '+0.1x Focus per level for each adjacent employee.',
+        special = { type = 'focus_per_adjacent_employee_mult', value_per_emp = 0.1, scales_with_level = true }
+    },
+    {
+        id = 'ideas_person', name = 'Ideas Person', icon = '🗣️', rarity = 'Common',
+        hiringBonus = 1300, weeklySalary = 280,
+        baseProductivity = 2, baseFocus = 1.0,
+        description = '+0.5x Focus per level to employees left & right.',
+        positionalEffects = { left = { focus_add = 0.5, scales_with_level = true }, right = { focus_add = 0.5, scales_with_level = true } }
+    },
+    {
+        id = 'the_intern_classic', name = 'The Intern (Classic)', icon = '☕➡️📄', rarity = 'Common',
+        hiringBonus = 200, weeklySalary = 50,
+        baseProductivity = 2, baseFocus = 1.0,
+        description = 'Very cheap. Gains +1 Prod each week.',
+        special = { type = 'prod_increase_weekly', amount = 1 },
+        listeners = {
+            onWorkItemComplete = function(self, gameState, eventArgs)
+                self.baseProductivity = self.baseProductivity + (self.special.amount or 1)
+            end
+        }
+    },
+    {
+        id = 'pen_collector1', name = 'Pen Collector', icon = '✒️', rarity = 'Common',
+        hiringBonus = 800, weeklySalary = 160,
+        baseProductivity = 5, baseFocus = 1.0,
+        description = 'Gains +0.1x Focus for each unique type of employee on the floor (including themselves).',
+        special = { type = 'focus_per_unique_employee_type', value_per_type = 0.1 }
+    },
+    {
+        id = 'quick_question1', name = 'Quick Question?', icon = '❓', rarity = 'Common',
+        hiringBonus = 700, weeklySalary = 150,
+        baseProductivity = 6, baseFocus = 1.0,
+        description = 'Reduces their own Focus by 0.1x, but increases the Focus of all adjacent employees by +0.2x per level.',
+        special = { type = 'self_focus_reduction', value = 0.1 },
+        positionalEffects = { all_adjacent = { focus_add = 0.2, scales_with_level = true } }
+    },
+    {
+        id = 'procedural_thinker1', name = 'Procedural Thinker', icon = '→🧑‍💼→', rarity = 'Common',
+        hiringBonus = 1400, weeklySalary = 280,
+        baseProductivity = 10, baseFocus = 1.0,
+        description = 'Gains +5 Productivity per level if placed directly between two other employees (horizontally or vertically).',
+        special = { type = 'between_bonus', prod_bonus = 5, scales_with_level = true }
+    },
+    {
+        id = 'cartoonist1', name = 'Syndicated Cartoonist', icon = '✍️', rarity = 'Common',
+        hiringBonus = 950, weeklySalary = 190,
+        baseProductivity = 3, baseFocus = 1.0,
+        description = 'At the end of each Sprint, permanently boosts a random employee\'s base Focus by +0.05x per level.',
+        special = { type = 'permanent_sprint_end_focus_boost', focus_add = 0.05, scales_with_level = true },
+        listeners = {
+            onSprintStart = function(self, gameState, eventArgs)
+                if #gameState.hiredEmployees > 0 then
+                    local target = gameState.hiredEmployees[love.math.random(#gameState.hiredEmployees)]
+                    local boost = self.special.focus_add
+                    if self.special.scales_with_level then boost = boost * (self.level or 1) end
+                    target.baseFocus = target.baseFocus + boost
+                    print("Cartoonist " .. self.fullName .. " boosted " .. target.fullName)
+                end
+            end
+        }
+    },
+    {
+        id = 'luddite1', name = 'Office Luddite', icon = '🗿', rarity = 'Common',
+        hiringBonus = 1800, weeklySalary = 320,
+        baseProductivity = 20, baseFocus = 1.0,
+        description = 'Has high base productivity but cannot benefit from any tech-based upgrades (e.g. Internet, CRM, Scripts).',
+        special = { type = 'tech_upgrade_immunity' },
+        listeners = {
+            onApplyUpgrades = function(self, gameState, eventArgs)
+                -- This listener only cares if it's being run for the Luddite itself.
+                if eventArgs.employee.instanceId ~= self.instanceId then return end
+                
+                -- Populate the blocklist for the main calculation function to use.
+                eventArgs.blockedUpgrades['automation_scripts'] = true
+                eventArgs.blockedUpgrades['advanced_crm'] = true
+                eventArgs.blockedUpgrades['fast_internet'] = true
+            end
+        }
+    },
+    {
+        id = 'per_my_last_email1', name = '"Per My Last Email" Specialist', icon = '📧', rarity = 'Common',
+        hiringBonus = 1500, weeklySalary = 300,
+        baseProductivity = 12, baseFocus = 1.0,
+        description = 'Ignores the first negative positional effect applied to them each time stats are calculated.',
+        special = { type = 'ignore_first_negative_positional' }
+    },
+}
