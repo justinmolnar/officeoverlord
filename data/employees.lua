@@ -69,7 +69,48 @@ return {
         hiringBonus = 2600, weeklySalary = 500,
         baseProductivity = 10, baseFocus = 1.1,
         description = 'Must be placed in the office. Doubles the Productivity and Focus of all remote workers.',
-        special = { type = 'boost_remote_workers', prod_mult = 2.0, focus_mult = 2.0 }
+        special = { type = 'boost_remote_workers', prod_mult = 2.0, focus_mult = 2.0 },
+        listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                if eventArgs.employee.variant == 'remote' and eventArgs.employee.instanceId ~= self.instanceId then
+                    eventArgs.stats.productivity = eventArgs.stats.productivity * self.special.prod_mult
+                    eventArgs.stats.focus = eventArgs.stats.focus * self.special.focus_mult
+                    table.insert(eventArgs.stats.log.productivity, string.format("*%.1fx from WFH Advocate", self.special.prod_mult))
+                    table.insert(eventArgs.stats.log.focus, string.format("*%.1fx from WFH Advocate", self.special.focus_mult))
+                end
+            end
+        }
+    },
+    {
+        id = 'office_dog1', name = 'Office Dog', icon = '🐶', rarity = 'Rare',
+        hiringBonus = 1500, weeklySalary = 100,
+        baseProductivity = 0, baseFocus = 1.0,
+        description = 'Does not work. Each turn, has a 50% chance to "motivate" a random employee, granting them +5 Productivity per level for that turn.',
+        special = { type = 'office_dog_motivation', chance = 0.5, prod_boost = 5, does_not_work = true, scales_with_level = true },
+        listeners = {
+            onEmployeeContextCheck = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId == self.instanceId then
+                    eventArgs.context = "worker_training"
+                end
+            end,
+            onTurnStart = function(self, gameState, eventArgs)
+                if love.math.random() < self.special.chance then
+                    local potentialTargets = {}
+                    for _, emp in ipairs(gameState.hiredEmployees) do
+                        if emp.instanceId ~= self.instanceId then table.insert(potentialTargets, emp) end
+                    end
+                    
+                    if #potentialTargets > 0 then
+                        local targetIndex = love.math.random(#potentialTargets)
+                        local targetEmp = potentialTargets[targetIndex]
+                        local boost = self.special.prod_boost
+                        if self.special.scales_with_level then boost = boost * (self.level or 1) end
+                        targetEmp.baseProductivity = targetEmp.baseProductivity + boost
+                        print(self.fullName .. " motivated " .. targetEmp.fullName .. " with a productivity boost of " .. boost)
+                    end
+                end
+            end
+        }
     },
     {
         id = 'organizer1', name = 'The Organizer', icon = '🗂️', rarity = 'Rare',
@@ -83,7 +124,22 @@ return {
         hiringBonus = 2800, weeklySalary = 600,
         baseProductivity = 10, baseFocus = 1.0,
         description = 'Productivity is 5x on "Database Migration" or "Refactor Legacy Code" work items, but only 0.2x on all other items.',
-        special = { type = 'conditional_productivity_by_work_item', prod_mult = 5.0, penalty_mult = 0.2, target_work_items = { s4_item1 = true, s4_item2 = true } }
+        special = { type = 'conditional_productivity_by_work_item', prod_mult = 5.0, penalty_mult = 0.2, target_work_items = { s4_item1 = true, s4_item2 = true } },
+        listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId == self.instanceId then
+                    local currentSprint = require("data").ALL_SPRINTS[gameState.currentSprintIndex]
+                    local currentWorkItem = currentSprint and currentSprint.workItems[gameState.currentWorkItemIndex]
+                    
+                    if currentWorkItem then
+                        local multiplier = self.special.target_work_items[currentWorkItem.id] and self.special.prod_mult or self.special.penalty_mult
+                        eventArgs.stats.productivity = math.floor(eventArgs.stats.productivity * multiplier)
+                        local description = multiplier > 1 and "legacy code expertise" or "modern tech confusion"
+                        table.insert(eventArgs.stats.log.productivity, string.format("*%.1fx from %s", multiplier, description))
+                    end
+                end
+            end
+        }
     },
     {
         id = 'efficiency_expert1', name = 'Efficiency Expert', icon = '✂️', rarity = 'Rare',
@@ -229,6 +285,18 @@ return {
         description = 'High focus, but ignores bonuses from managers. Has a 5% chance each turn to "expose a conspiracy," disabling a random positive upgrade for the rest of the sprint.',
         special = { type = 'expose_conspiracy', chance = 0.05, ignores_manager_bonus = true },
         listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId == self.instanceId and self.special.ignores_manager_bonus then
+                    local filteredLog = {}
+                    for _, logEntry in ipairs(eventArgs.stats.log.focus) do
+                        if not logEntry:find("Project Manager") then
+                            table.insert(filteredLog, logEntry)
+                        end
+                    end
+                    eventArgs.stats.log.focus = filteredLog
+                    eventArgs.stats.focus = eventArgs.employee.baseFocus
+                end
+            end,
             onTurnStart = function(self, gameState, eventArgs)
                 if love.math.random() < self.special.chance then
                     local potentialUpgrades = {}
@@ -253,10 +321,10 @@ return {
                     if #potentialUpgrades > 0 then
                         local upgradeToDisable = potentialUpgrades[love.math.random(#potentialUpgrades)]
                         gameState.temporaryEffectFlags.disabledUpgrades[upgradeToDisable.id] = true
-                    eventArgs.showModal = {
-                        title = "A Conspiracy!",
-                        message = self.fullName .. " has convinced the team that '"..upgradeToDisable.name.."' is a corporate plot and they will no longer use it this sprint!"
-                    }
+                        eventArgs.showModal = {
+                            title = "A Conspiracy!",
+                            message = self.fullName .. " has convinced the team that '"..upgradeToDisable.name.."' is a corporate plot and they will no longer use it this sprint!"
+                        }
                     end
                 end
             end
@@ -321,6 +389,31 @@ return {
         description = 'Gains +1.5x Focus per level when adjacent to a Project Manager. After each completed work item, has a 25% chance to "train" a random employee, disabling them for the next item but giving them a permanent +3 Productivity per level.',
         special = { type = 'dwight_behavior', manager_id = 'project_manager', focus_mult = 1.5, train_chance = 0.25, train_prod_boost = 3, scales_with_level = true },
         listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId == self.instanceId and eventArgs.employee.deskId then
+                    local hasAdjacentManager = false
+                    local directions = {"up", "down", "left", "right"}
+                    for _, dir in ipairs(directions) do
+                        local neighborDeskId = require("employee"):getNeighboringDeskId(eventArgs.employee.deskId, dir, require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
+                        if neighborDeskId and gameState.deskAssignments[neighborDeskId] then
+                            local neighbor = require("employee"):getFromState(gameState, gameState.deskAssignments[neighborDeskId])
+                            if neighbor and neighbor.id == self.special.manager_id then
+                                hasAdjacentManager = true
+                                break
+                            end
+                        end
+                    end
+                    
+                    if hasAdjacentManager then
+                        local focusBonus = self.special.focus_mult
+                        if self.special.scales_with_level then
+                            focusBonus = 1 + ((focusBonus - 1) * (self.level or 1))
+                        end
+                        eventArgs.stats.focus = eventArgs.stats.focus * focusBonus
+                        table.insert(eventArgs.stats.log.focus, string.format("*%.1fx from adjacent manager", focusBonus))
+                    end
+                end
+            end,
             onWorkItemComplete = function(self, gameState, eventArgs)
                 if eventArgs.isBossItem and love.math.random() < self.special.train_chance then
                     local potentialTargets = {}
@@ -338,7 +431,7 @@ return {
                 end
             end
         }
-    },
+        },
     {
         id = 'red_shirt_intern1', name = 'Red-Shirt Intern', icon = '🧑‍🚀', rarity = 'Rare',
         hiringBonus = 1000, weeklySalary = 200,
@@ -394,31 +487,34 @@ return {
         }
     },
     {
-        id = 'csm1', name = 'The Cigarette Smoking Man', icon = '🚬', rarity = 'Rare',
-        hiringBonus = 3500, weeklySalary = 100,
-        baseProductivity = 13, baseFocus = 1.3,
-        description = 'His effects are hidden. Secretly buffs a random employee with +15 Prod per level each Sprint, but also secretly adds 5% to ALL salaries.',
-        special = { type = 'secret_effects', salary_increase = 1.05, prod_boost = 15, scales_with_level = true },
-        listeners = {
-            onSprintStart = function(self, gameState, eventArgs)
-                local potentialTargets = {}
-                for _, emp in ipairs(gameState.hiredEmployees) do
-                    if emp.instanceId ~= self.instanceId then
-                        table.insert(potentialTargets, emp)
-                    end
+    id = 'csm1', name = 'The Cigarette Smoking Man', icon = '🚬', rarity = 'Rare',
+    hiringBonus = 3500, weeklySalary = 100,
+    baseProductivity = 13, baseFocus = 1.3,
+    description = 'His effects are hidden. Secretly buffs a random employee with +15 Prod per level each Sprint, but also secretly adds 5% to ALL salaries.',
+    special = { type = 'secret_effects', salary_increase = 1.05, prod_boost = 15, scales_with_level = true },
+    listeners = {
+        onSprintStart = function(self, gameState, eventArgs)
+            local potentialTargets = {}
+            for _, emp in ipairs(gameState.hiredEmployees) do
+                if emp.instanceId ~= self.instanceId then
+                    table.insert(potentialTargets, emp)
                 end
-                if #potentialTargets > 0 then
-                    local target = potentialTargets[love.math.random(#potentialTargets)]
-                    target.isSecretlyBuffed = true
-                    print("CSM secretly buffed " .. target.fullName)
-                end
-            end,
-            onCalculateSalaries = function(self, gameState, eventArgs)
-                local multiplier = self.special.salary_increase or 1.05
-                eventArgs.cumulativePercentReduction = eventArgs.cumulativePercentReduction * multiplier
-                print("Salaries secretly increased by CSM...")
             end
-        }
+            if #potentialTargets > 0 then
+                local target = potentialTargets[love.math.random(#potentialTargets)]
+                target.isSecretlyBuffed = true
+                local boost = self.special.prod_boost
+                if self.special.scales_with_level then boost = boost * (self.level or 1) end
+                target.baseProductivity = target.baseProductivity + boost
+                print("CSM secretly buffed " .. target.fullName)
+            end
+        end,
+        onCalculateSalaries = function(self, gameState, eventArgs)
+            local multiplier = self.special.salary_increase or 1.05
+            eventArgs.cumulativePercentReduction = eventArgs.cumulativePercentReduction * multiplier
+            print("Salaries secretly increased by CSM...")
+        end
+    }
     },
     {
         id = 'pen_tester1', name = 'Penetration Tester', icon = '🕵️', rarity = 'Rare',
@@ -505,7 +601,18 @@ return {
         hiringBonus = 1000, weeklySalary = 150,
         baseProductivity = 15, baseFocus = 1.0,
         description = "If placed in a bottom-row corner, focus becomes 5.0x. If you try to move him, there's a 50% chance he burns the office down (Game Over).",
-        special = { type = 'stapler_guy_placement', corner_focus_multiplier = 5.0, move_risk_chance = 0.5 }
+        special = { type = 'stapler_guy_placement', corner_focus_multiplier = 5.0, move_risk_chance = 0.5 },
+        listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId == self.instanceId and eventArgs.employee.deskId then
+                    local deskIndex = tonumber(string.match(eventArgs.employee.deskId, "desk%-(%d+)"))
+                    if deskIndex and (deskIndex == 6 or deskIndex == 8) then
+                        eventArgs.stats.focus = self.special.corner_focus_multiplier
+                        eventArgs.stats.log.focus = {string.format("Fixed to %.1fx in corner", self.special.corner_focus_multiplier)}
+                    end
+                end
+            end
+        }
     },
     {
         id = 'mimic1', name = 'The Mimic', icon = '💧', rarity = 'Legendary',
@@ -514,13 +621,51 @@ return {
         description = 'Appears as a water cooler. When placed, it copies the name, icon, stats, and abilities of a random adjacent employee for the rest of the Sprint.',
         special = { type = 'mimic' },
         listeners = {
+            onGetEffectiveCardData = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId == self.instanceId and self.copiedState then
+                    local effectiveData = {}
+                    for k, v in pairs(eventArgs.employee) do effectiveData[k] = v end
+                    for k, v in pairs(self.copiedState) do effectiveData[k] = v end
+                    eventArgs.effectiveData = effectiveData
+                end
+            end,
             onCalculateStats = function(self, gameState, eventArgs)
                 if eventArgs.employee.instanceId == self.instanceId and self.copiedState then
-                    -- Create a temporary effective instance for this calculation
                     local effectiveInstance = {}
                     for k, v in pairs(self) do effectiveInstance[k] = v end
                     for k, v in pairs(self.copiedState) do effectiveInstance[k] = v end
                     eventArgs.employee = effectiveInstance
+                end
+            end
+        }
+    },
+    {
+        id = 'office_cat1', name = 'Office Cat', icon = '🐱', rarity = 'Legendary',
+        hiringBonus = 3000, weeklySalary = 100,
+        baseProductivity = 0, baseFocus = 1.0,
+        description = 'Does not work. Each turn, has a 50% chance to "pounce" on a random employee, granting them +10 Productivity per level for that turn.',
+        special = { type = 'office_cat_pounce', chance = 0.5, prod_boost = 10, does_not_work = true, scales_with_level = true },
+        listeners = {
+            onEmployeeContextCheck = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId == self.instanceId then
+                    eventArgs.context = "worker_training"
+                end
+            end,
+            onTurnStart = function(self, gameState, eventArgs)
+                if love.math.random() < self.special.chance then
+                    local potentialTargets = {}
+                    for _, emp in ipairs(gameState.hiredEmployees) do
+                        if emp.instanceId ~= self.instanceId then table.insert(potentialTargets, emp) end
+                    end
+                    
+                    if #potentialTargets > 0 then
+                        local targetIndex = love.math.random(#potentialTargets)
+                        local targetEmp = potentialTargets[targetIndex]
+                        local boost = self.special.prod_boost
+                        if self.special.scales_with_level then boost = boost * (self.level or 1) end
+                        targetEmp.baseProductivity = targetEmp.baseProductivity + boost
+                        print(self.fullName .. " pounced on " .. targetEmp.fullName .. ", boosting their productivity by " .. boost)
+                    end
                 end
             end
         }
@@ -551,7 +696,17 @@ return {
         baseProductivity = 25, baseFocus = 1.5,
         description = 'Must be a Remote worker. Doubles the Productivity and Focus of all other remote workers. All upgrades cost 10% more per level.',
         special = { type = 'boost_other_remotes', prod_mult = 2.0, focus_mult = 2.0, upgrade_cost_increase = 1.1, scales_with_level = true },
-        forceVariant = 'remote'
+        forceVariant = 'remote',
+        listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                if eventArgs.employee.variant == 'remote' and eventArgs.employee.instanceId ~= self.instanceId then
+                    eventArgs.stats.productivity = eventArgs.stats.productivity * self.special.prod_mult
+                    eventArgs.stats.focus = eventArgs.stats.focus * self.special.focus_mult
+                    table.insert(eventArgs.stats.log.productivity, string.format("*%.1fx from AI Overlord", self.special.prod_mult))
+                    table.insert(eventArgs.stats.log.focus, string.format("*%.1fx from AI Overlord", self.special.focus_mult))
+                end
+            end
+        }
     },
     {
         id = 'muse1', name = 'The Muse', icon = '✨', rarity = 'Legendary',
@@ -735,6 +890,12 @@ return {
                     end
                 end
             end,
+            onCalculatePositionalBonuses = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId == self.instanceId then
+                    eventArgs.override = true
+                    eventArgs.results = { prod = 0, focusMult = 1.0, log = { productivity = {"Ignores positional bonuses"}, focus = {"Ignores positional bonuses"} } }
+                end
+            end,
             onFinalizeStats = function(self, gameState, eventArgs)
                 if eventArgs.employee.instanceId == self.instanceId then
                     if gameState.budget < self.special.lower_budget_threshold then
@@ -782,6 +943,20 @@ return {
                     end
                 end
             end,
+            onGetEffectiveCardData = function(self, gameState, eventArgs)
+                if eventArgs.employee.isSmithCopy then
+                    local smithData = self
+                    local effectiveData = {}
+                    for k, v in pairs(eventArgs.employee) do effectiveData[k] = v end
+                    for k, v in pairs(smithData) do
+                        if k ~= 'id' and k ~= 'instanceId' and k ~= 'fullName' and k ~= 'level' then
+                            effectiveData[k] = v
+                        end
+                    end
+                    effectiveData.weeklySalary = smithData.weeklySalary
+                    eventArgs.effectiveData = effectiveData
+                end
+            end,
             onCalculateStats = function(self, gameState, eventArgs)
                 if eventArgs.employee.isSmithCopy then
                     local smithData = self
@@ -802,7 +977,40 @@ return {
         hiringBonus = 5000, weeklySalary = 0,
         baseProductivity = 0, baseFocus = 1.0,
         description = 'Provides a +50% productivity boost to ALL employees. At the end of each work item, she will "test" you by forcing you to choose one of two negative modifiers for the next item.',
-        special = { type = 'ai_test_on_win', prod_boost_all = 1.5, does_not_work = true }
+        special = { type = 'ai_test_on_win', prod_boost_all = 1.5, does_not_work = true },
+        listeners = {
+            onApplyUpgradeModifiers = function(self, gameState, eventArgs)
+                eventArgs.productivity = eventArgs.productivity * 1.5
+                table.insert(eventArgs.log.productivity, "*1.5x from GLaDOS")
+            end,
+            onWorkItemComplete = function(self, gameState, eventArgs)
+                local modifiers = require("data").GLADOS_NEGATIVE_MODIFIERS
+                if #modifiers >= 2 then
+                    local mod1 = modifiers[love.math.random(#modifiers)]
+                    local mod2 = modifiers[love.math.random(#modifiers)]
+                    while mod2 == mod1 do
+                        mod2 = modifiers[love.math.random(#modifiers)]
+                    end
+                    
+                    gameState.temporaryEffectFlags.gladosModifierForNextItem = mod1
+                    
+                    eventArgs.showModal = {
+                        title = "GLaDOS Test Chamber",
+                        message = "GLaDOS has prepared a test for you. Choose your 'reward':\n\nOption A: " .. mod1.description .. "\n\nOption B: " .. mod2.description,
+                        buttons = {
+                            {text = "Option A", onClick = function()
+                                gameState.temporaryEffectFlags.gladosModifierForNextItem = mod1
+                                require("drawing").hideModal()
+                            end},
+                            {text = "Option B", onClick = function()
+                                gameState.temporaryEffectFlags.gladosModifierForNextItem = mod2
+                                require("drawing").hideModal()
+                            end}
+                        }
+                    }
+                end
+            end
+        }
     },
     {
         id = 'borg_drone', name = 'Borg Drone', icon = '🤖', rarity = 'Legendary',
@@ -882,10 +1090,8 @@ return {
         special = { type = 'budget_gen_no_workload', multiplier = 1.5, scales_with_level = true },
         listeners = {
             onBeforeContribution = function(self, gameState, eventArgs)
-                -- FIX: Add guard clause to ensure this only runs for this specific employee
                 if eventArgs.employee.instanceId ~= self.instanceId then return end
 
-                -- This employee's entire turn is replaced by this logic.
                 local stats = require("employee"):calculateStatsWithPosition(self, gameState.hiredEmployees, gameState.deskAssignments, gameState.purchasedPermanentUpgrades, gameState.desks, gameState)
                 local multiplier = self.special.multiplier or 1
                 if self.special.scales_with_level then multiplier = multiplier * (self.level or 1) end
@@ -897,8 +1103,8 @@ return {
                 
                 print(self.fullName .. " generated $" .. budgetGain .. " instead of working on the item!")
                 eventArgs.shouldSkipWorkload = true
-                eventArgs.productivity = stats.currentProductivity -- For logging/display purposes
-                eventArgs.focus = stats.currentFocus -- Also need to set focus for display
+                eventArgs.productivity = stats.currentProductivity
+                eventArgs.focus = stats.currentFocus
             end
         }
     },
@@ -938,9 +1144,7 @@ return {
                 local bonus = self.special.value
                 if self.special.scales_with_level then bonus = bonus * (self.level or 1) end
                 
-                -- This employee has a hardcoded synergy check, which can be refactored later
-                if self.id == 'marketer1' and _G.Shop:isUpgradePurchased(gameState.purchasedPermanentUpgrades, 'advanced_crm') then
-                    -- In a future refactor, this could also be an event
+                if self.id == 'marketer1' and require("shop"):isUpgradePurchased(gameState.purchasedPermanentUpgrades, 'advanced_crm') then
                     for _, upgData in ipairs(require("data").ALL_UPGRADES) do
                         if upgData.id == 'advanced_crm' then 
                             bonus = bonus + (upgData.effect.budget_per_win_bonus or 0)
@@ -958,7 +1162,17 @@ return {
         hiringBonus = 1800, weeklySalary = 320,
         baseProductivity = 5, baseFocus = 1.0,
         description = 'Reduces ALL salaries by 10% per level.',
-        special = { type = 'salary_reduction_percent_team', value = 0.10, scales_with_level = true }
+        special = { type = 'salary_reduction_percent_team', value = 0.10, scales_with_level = true },
+        listeners = {
+            onCalculateSalaries = function(self, gameState, eventArgs)
+                local reduction = self.special.value or 0.10
+                if self.special.scales_with_level then 
+                    reduction = reduction * (self.level or 1)
+                    reduction = math.min(reduction, 0.95)
+                end
+                eventArgs.cumulativePercentReduction = eventArgs.cumulativePercentReduction * (1 - reduction)
+            end
+        }
     },
     {
         id = 'senior_dev', name = 'Senior Developer', icon = '🚀', rarity = 'Uncommon',
@@ -972,14 +1186,59 @@ return {
         hiringBonus = 2500, weeklySalary = 500,
         baseProductivity = 10, baseFocus = 1.0,
         description = '+0.3x focus per level to ALL PLACED staff.',
-        special = { type = 'focus_boost_all_placed_flat', value = 0.3, scales_with_level = true } 
+        special = { type = 'focus_boost_all_placed_flat', value = 0.3, scales_with_level = true },
+        listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                if eventArgs.employee.deskId and eventArgs.employee.instanceId ~= self.instanceId then
+                    local bonus = self.special.value
+                    if self.special.scales_with_level then
+                        bonus = bonus * (self.level or 1)
+                    end
+                    eventArgs.stats.focus = eventArgs.stats.focus * (1 + bonus)
+                    table.insert(eventArgs.stats.log.focus, string.format("+%.1f%% from Project Manager", bonus * 100))
+                end
+            end
+        }
     },
     {
         id = 'lone_wolf', name = 'Lone Wolf Coder', icon = '🐺', rarity = 'Uncommon',
         hiringBonus = 2200, weeklySalary = 450,
         baseProductivity = 20, baseFocus = 1.0,
         description = 'Highly focused when alone. +0.5x Focus per level for each empty adjacent desk.',
-        special = { type = 'focus_per_empty_adjacent_desk', value_per_desk = 0.5, scales_with_level = true } 
+        special = { type = 'focus_per_empty_adjacent_desk', value_per_desk = 0.5, scales_with_level = true },
+        listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId == self.instanceId and eventArgs.employee.deskId then
+                    local emptyAdjacentCount = 0
+                    local directions = {"up", "down", "left", "right"}
+                    for _, dir in ipairs(directions) do
+                        local neighborDeskId = require("employee"):getNeighboringDeskId(eventArgs.employee.deskId, dir, require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
+                        if neighborDeskId then
+                            local neighborDesk = nil
+                            for _, desk in ipairs(gameState.desks) do
+                                if desk.id == neighborDeskId then
+                                    neighborDesk = desk
+                                    break
+                                end
+                            end
+                            if neighborDesk and neighborDesk.status == "owned" and not gameState.deskAssignments[neighborDeskId] then
+                                emptyAdjacentCount = emptyAdjacentCount + 1
+                            end
+                        end
+                    end
+                    
+                    if emptyAdjacentCount > 0 then
+                        local bonusPerDesk = self.special.value_per_desk
+                        if self.special.scales_with_level then
+                            bonusPerDesk = bonusPerDesk * (self.level or 1)
+                        end
+                        local totalBonus = emptyAdjacentCount * bonusPerDesk
+                        eventArgs.stats.focus = eventArgs.stats.focus * (1 + totalBonus)
+                        table.insert(eventArgs.stats.log.focus, string.format("+%.1f%% from %d empty desks", totalBonus * 100, emptyAdjacentCount))
+                    end
+                end
+            end
+        }
     },
     {
         id = 'the_synergist', name = 'The Synergist', icon = '🤝', rarity = 'Uncommon',
@@ -993,7 +1252,21 @@ return {
         hiringBonus = 2000, weeklySalary = 420,
         baseProductivity = 3, baseFocus = 1.0,
         description = 'Productivity scales with Budget (+1P per level per $1k).',
-        special = { type = 'prod_scales_with_budget', per_1k_budget = 1, scales_with_level = true }
+        special = { type = 'prod_scales_with_budget', per_1k_budget = 1, scales_with_level = true },
+        listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId == self.instanceId then
+                    local budgetInThousands = math.floor(gameState.budget / 1000)
+                    local multiplier = self.special.per_1k_budget or 1
+                    if self.special.scales_with_level then
+                        multiplier = multiplier * (self.level or 1)
+                    end
+                    local bonus = budgetInThousands * multiplier
+                    eventArgs.stats.productivity = eventArgs.stats.productivity + bonus
+                    table.insert(eventArgs.stats.log.productivity, string.format("+%d from budget scaling", bonus))
+                end
+            end
+        }
     },
     {
         id = 'the_mentor', name = 'The Mentor', icon = '🧑‍🏫', rarity = 'Uncommon',
@@ -1034,14 +1307,52 @@ return {
         hiringBonus = 2400, weeklySalary = 480,
         baseProductivity = 18, baseFocus = 1.0,
         description = 'Higher Focus if placed in bottom row.',
-        special = { type = 'focus_if_in_row', rowIndex = 2, focus_multiplier = 1.5 } 
+        special = { type = 'focus_if_in_row', rowIndex = 2, focus_multiplier = 1.5 },
+        listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId == self.instanceId and eventArgs.employee.deskId then
+                    local deskIndex = tonumber(string.match(eventArgs.employee.deskId, "desk%-(%d+)"))
+                    if deskIndex then
+                        local row = math.floor(deskIndex / require("data").GRID_WIDTH)
+                        if row == self.special.rowIndex then
+                            eventArgs.stats.focus = eventArgs.stats.focus * self.special.focus_multiplier
+                            table.insert(eventArgs.stats.log.focus, string.format("*%.1fx from night owl bonus", self.special.focus_multiplier))
+                        end
+                    end
+                end
+            end
+        }
     },
     {
         id = 'corner_office_exec', name = 'Corner Office Exec', icon = '👑', rarity = 'Uncommon',
         hiringBonus = 4000, weeklySalary = 800,
         baseProductivity = 20, baseFocus = 1.0,
         description = '+1 Prod per level to all employees for each owned corner desk.',
-        special = { type = 'prod_boost_per_corner_desk_owned', value_per_corner = 1, scales_with_level = true }
+        special = { type = 'prod_boost_per_corner_desk_owned', value_per_corner = 1, scales_with_level = true },
+        listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                local cornerDeskIds = {"desk-0", "desk-2", "desk-6", "desk-8"}
+                local ownedCorners = 0
+                for _, deskId in ipairs(cornerDeskIds) do
+                    for _, desk in ipairs(gameState.desks) do
+                        if desk.id == deskId and desk.status == "owned" then
+                            ownedCorners = ownedCorners + 1
+                            break
+                        end
+                    end
+                end
+                
+                if ownedCorners > 0 then
+                    local bonusPerCorner = self.special.value_per_corner
+                    if self.special.scales_with_level then
+                        bonusPerCorner = bonusPerCorner * (self.level or 1)
+                    end
+                    local totalBonus = ownedCorners * bonusPerCorner
+                    eventArgs.stats.productivity = eventArgs.stats.productivity + totalBonus
+                    table.insert(eventArgs.stats.log.productivity, string.format("+%d from %d corner offices", totalBonus, ownedCorners))
+                end
+            end
+        }
     },
     {
         id = 'hr_rep_by_the_book1', name = 'HR Rep (by the book)', icon = '📕', rarity = 'Uncommon',
@@ -1051,8 +1362,9 @@ return {
         special = { type = 'neutralize_positional_focus_mods' },
         listeners = {
             onCalculatePositionalBonuses = function(self, gameState, eventArgs)
-                -- This signals to the main calculation function to ignore focus mods.
-                eventArgs.neutralizeFocus = true
+                if eventArgs.employee.instanceId ~= self.instanceId then
+                    eventArgs.neutralizeFocus = true
+                end
             end
         }
     },
@@ -1061,7 +1373,30 @@ return {
         hiringBonus = 1600, weeklySalary = 340,
         baseProductivity = 6, baseFocus = 1.0,
         description = 'Employees in the same row gain +0.2x Focus. All other employees get -0.1x Focus. Effect strength scales per level. Has no effect if remote.',
-        special = { type = 'row_based_focus_mod', same_row_bonus = 0.2, other_row_penalty = -0.1, scales_with_level = true }
+        special = { type = 'row_based_focus_mod', same_row_bonus = 0.2, other_row_penalty = -0.1, scales_with_level = true },
+        listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                if self.variant == 'remote' or not self.deskId then return end
+                
+                local djRow = math.floor((tonumber(string.match(self.deskId, "desk%-(%d+)")) or 0) / require("data").GRID_WIDTH)
+                local targetRow = nil
+                
+                if eventArgs.employee.deskId then
+                    targetRow = math.floor((tonumber(string.match(eventArgs.employee.deskId, "desk%-(%d+)")) or 0) / require("data").GRID_WIDTH)
+                end
+                
+                if targetRow ~= nil and eventArgs.employee.instanceId ~= self.instanceId then
+                    local modifier = (targetRow == djRow) and self.special.same_row_bonus or self.special.other_row_penalty
+                    if self.special.scales_with_level then
+                        modifier = modifier * (self.level or 1)
+                    end
+                    
+                    eventArgs.stats.focus = eventArgs.stats.focus * (1 + modifier)
+                    local description = (targetRow == djRow) and "good music" or "annoying music"
+                    table.insert(eventArgs.stats.log.focus, string.format("%+.1f%% from %s", modifier * 100, description))
+                end
+            end
+        }
     },
     {
         id = 'micromanager1', name = 'The Micromanager', icon = '🧐', rarity = 'Uncommon',
@@ -1078,7 +1413,6 @@ return {
         special = { type = 'contribute_to_budget_every_n_cycles', n = 3 },
         listeners = {
             onBeforeContribution = function(self, gameState, eventArgs)
-                -- FIX: Add guard clause to ensure this only runs for this specific employee
                 if eventArgs.employee.instanceId ~= self.instanceId then return end
 
                 if self.workCyclesThisItem % self.special.n == 0 then
@@ -1115,18 +1449,23 @@ return {
                     if #potentialTargets > 0 then
                         local target = potentialTargets[love.math.random(#potentialTargets)]
                         target.snackBoostActive = true
+                        target.snackBoostMultiplier = self.special.focus_mult
+                        target.snackBoostLevel = self.level or 1
                         print(self.fullName .. " shared a snack with " .. target.name)
                     end
                 end
             end,
             onBeforeContribution = function(self, gameState, eventArgs)
                 if eventArgs.employee.snackBoostActive then
-                    local focusMultiplier = self.special.focus_mult or 1.5
+                    local focusMultiplier = eventArgs.employee.snackBoostMultiplier or 1.5
+                    local level = eventArgs.employee.snackBoostLevel or 1
                     if self.special.scales_with_level then 
-                        focusMultiplier = 1 + ((focusMultiplier - 1) * (self.level or 1)) 
+                        focusMultiplier = 1 + ((focusMultiplier - 1) * level)
                     end
                     eventArgs.focusMultiplier = eventArgs.focusMultiplier * focusMultiplier
                     eventArgs.employee.snackBoostActive = nil
+                    eventArgs.employee.snackBoostMultiplier = nil
+                    eventArgs.employee.snackBoostLevel = nil
                 end
             end
         }
@@ -1149,6 +1488,25 @@ return {
                         eventArgs.stats.productivity = eventArgs.stats.productivity + sprintBonus
                         table.insert(eventArgs.stats.log.productivity, string.format("+%d from historical knowledge", sprintBonus))
                     end
+                end
+            end
+        }
+    },
+    {
+        id = 'remote_worker1', name = 'Remote Worker', icon = '💻🌍', rarity = 'Uncommon',
+        hiringBonus = 1200, weeklySalary = 250,
+        baseProductivity = 6, baseFocus = 1.0,
+        description = 'Works remotely. Cannot be placed on a desk. +0.5x Focus per level.',
+        special = { type = 'remote_worker_focus_boost', focus_multiplier = 0.5, scales_with_level = true },
+        listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId == self.instanceId then
+                    local focusBoost = self.special.focus_multiplier or 0.5
+                    if self.special.scales_with_level then 
+                        focusBoost = focusBoost * (self.level or 1) 
+                    end
+                    eventArgs.stats.focus = eventArgs.stats.focus * (1 + focusBoost)
+                    table.insert(eventArgs.stats.log.focus, string.format("+%.1f%% from remote work", focusBoost * 100))
                 end
             end
         }
@@ -1240,14 +1598,62 @@ return {
         hiringBonus = 600, weeklySalary = 120,
         baseProductivity = 10, baseFocus = 1.0,
         description = '+10 Prod per level if no adjacent employees.',
-        special = { type = 'prod_if_no_adjacent', prod_bonus = 10, scales_with_level = true }
+        special = { type = 'prod_if_no_adjacent', prod_bonus = 10, scales_with_level = true },
+        listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId == self.instanceId and eventArgs.employee.deskId then
+                    local hasAdjacentEmployees = false
+                    local directions = {"up", "down", "left", "right"}
+                    for _, dir in ipairs(directions) do
+                        local neighborDeskId = require("employee"):getNeighboringDeskId(eventArgs.employee.deskId, dir, require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
+                        if neighborDeskId and gameState.deskAssignments[neighborDeskId] then
+                            hasAdjacentEmployees = true
+                            break
+                        end
+                    end
+                    
+                    if not hasAdjacentEmployees then
+                        local bonus = self.special.prod_bonus
+                        if self.special.scales_with_level then
+                            bonus = bonus * (self.level or 1)
+                        end
+                        eventArgs.stats.productivity = eventArgs.stats.productivity + bonus
+                        table.insert(eventArgs.stats.log.productivity, string.format("+%d from minimalist bonus", bonus))
+                    end
+                end
+            end
+        }
     },
     {
         id = 'team_player', name = 'Team Player', icon = '🙌', rarity = 'Common',
         hiringBonus = 1700, weeklySalary = 330,
         baseProductivity = 9, baseFocus = 1.0,
         description = '+0.1x Focus per level for each adjacent employee.',
-        special = { type = 'focus_per_adjacent_employee_mult', value_per_emp = 0.1, scales_with_level = true }
+        special = { type = 'focus_per_adjacent_employee_mult', value_per_emp = 0.1, scales_with_level = true },
+        listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId == self.instanceId and eventArgs.employee.deskId then
+                    local adjacentCount = 0
+                    local directions = {"up", "down", "left", "right"}
+                    for _, dir in ipairs(directions) do
+                        local neighborDeskId = require("employee"):getNeighboringDeskId(eventArgs.employee.deskId, dir, require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
+                        if neighborDeskId and gameState.deskAssignments[neighborDeskId] then
+                            adjacentCount = adjacentCount + 1
+                        end
+                    end
+                    
+                    if adjacentCount > 0 then
+                        local bonusPerEmp = self.special.value_per_emp
+                        if self.special.scales_with_level then
+                            bonusPerEmp = bonusPerEmp * (self.level or 1)
+                        end
+                        local totalBonus = adjacentCount * bonusPerEmp
+                        eventArgs.stats.focus = eventArgs.stats.focus * (1 + totalBonus)
+                        table.insert(eventArgs.stats.log.focus, string.format("+%.1f%% per adjacent teammate", totalBonus * 100))
+                    end
+                end
+            end
+        }
     },
     {
         id = 'ideas_person', name = 'Ideas Person', icon = '🗣️', rarity = 'Common',
@@ -1273,7 +1679,28 @@ return {
         hiringBonus = 800, weeklySalary = 160,
         baseProductivity = 5, baseFocus = 1.0,
         description = 'Gains +0.1x Focus for each unique type of employee on the floor (including themselves).',
-        special = { type = 'focus_per_unique_employee_type', value_per_type = 0.1 }
+        special = { type = 'focus_per_unique_employee_type', value_per_type = 0.1 },
+        listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId == self.instanceId then
+                    local uniqueTypes = {}
+                    for _, emp in ipairs(gameState.hiredEmployees) do
+                        if emp.deskId or emp.variant == 'remote' then
+                            uniqueTypes[emp.id] = true
+                        end
+                    end
+                    
+                    local typeCount = 0
+                    for _ in pairs(uniqueTypes) do
+                        typeCount = typeCount + 1
+                    end
+                    
+                    local bonus = typeCount * self.special.value_per_type
+                    eventArgs.stats.focus = eventArgs.stats.focus * (1 + bonus)
+                    table.insert(eventArgs.stats.log.focus, string.format("+%.1f%% from %d unique types", bonus * 100, typeCount))
+                end
+            end
+        }
     },
     {
         id = 'quick_question1', name = 'Quick Question?', icon = '❓', rarity = 'Common',
@@ -1281,14 +1708,98 @@ return {
         baseProductivity = 6, baseFocus = 1.0,
         description = 'Reduces their own Focus by 0.1x, but increases the Focus of all adjacent employees by +0.2x per level.',
         special = { type = 'self_focus_reduction', value = 0.1 },
-        positionalEffects = { all_adjacent = { focus_add = 0.2, scales_with_level = true } }
+        positionalEffects = { all_adjacent = { focus_add = 0.2, scales_with_level = true } },
+        listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId == self.instanceId then
+                    local reduction = self.special.value or 0.1
+                    eventArgs.stats.focus = eventArgs.stats.focus * (1 - reduction)
+                    table.insert(eventArgs.stats.log.focus, string.format("-%.1f%% from self-doubt", reduction * 100))
+                end
+            end
+        }
+    },
+    {
+        id = 'organizer1', name = 'The Organizer', icon = '🗂️', rarity = 'Rare',
+        hiringBonus = 2400, weeklySalary = 480,
+        baseProductivity = 7, baseFocus = 1.2,
+        description = 'All positional effects (positive and negative) of employees in the same row AND column are increased by 25% per level.',
+        special = { type = 'amplify_positional_effects', multiplier = 1.25, scales_with_level = true },
+        listeners = {
+            onCalculatePositionalBonuses = function(self, gameState, eventArgs)
+                if not self.deskId then return end
+                
+                local organizerDeskIndex = tonumber(string.match(self.deskId, "desk%-(%d+)"))
+                if not organizerDeskIndex then return end
+                
+                local organizerRow = math.floor(organizerDeskIndex / require("data").GRID_WIDTH)
+                local organizerCol = organizerDeskIndex % require("data").GRID_WIDTH
+                
+                local targetDeskIndex = tonumber(string.match(eventArgs.employee.deskId or "", "desk%-(%d+)"))
+                if not targetDeskIndex then return end
+                
+                local targetRow = math.floor(targetDeskIndex / require("data").GRID_WIDTH)
+                local targetCol = targetDeskIndex % require("data").GRID_WIDTH
+                
+                if targetRow == organizerRow or targetCol == organizerCol then
+                    local amplifier = self.special.multiplier
+                    if self.special.scales_with_level then
+                        amplifier = 1 + ((amplifier - 1) * (self.level or 1))
+                    end
+                    
+                    local originalApplyEffect = eventArgs.applyEffect
+                    eventArgs.applyEffect = function(effectDetails, sourceEmployee)
+                        local amplifiedEffect = {}
+                        for k, v in pairs(effectDetails) do
+                            if k == 'productivity_add' or k == 'focus_add' then
+                                amplifiedEffect[k] = v * amplifier
+                            elseif k == 'focus_mult' then
+                                amplifiedEffect[k] = 1 + ((v - 1) * amplifier)
+                            else
+                                amplifiedEffect[k] = v
+                            end
+                        end
+                        originalApplyEffect(amplifiedEffect, sourceEmployee)
+                    end
+                end
+            end
+        }
     },
     {
         id = 'procedural_thinker1', name = 'Procedural Thinker', icon = '→🧑‍💼→', rarity = 'Common',
         hiringBonus = 1400, weeklySalary = 280,
         baseProductivity = 10, baseFocus = 1.0,
         description = 'Gains +5 Productivity per level if placed directly between two other employees (horizontally or vertically).',
-        special = { type = 'between_bonus', prod_bonus = 5, scales_with_level = true }
+        special = { type = 'between_bonus', prod_bonus = 5, scales_with_level = true },
+        listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId == self.instanceId and eventArgs.employee.deskId then
+                    local isBetweenHorizontally = false
+                    local isBetweenVertically = false
+                    
+                    local leftId = require("employee"):getNeighboringDeskId(eventArgs.employee.deskId, "left", require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
+                    local rightId = require("employee"):getNeighboringDeskId(eventArgs.employee.deskId, "right", require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
+                    local upId = require("employee"):getNeighboringDeskId(eventArgs.employee.deskId, "up", require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
+                    local downId = require("employee"):getNeighboringDeskId(eventArgs.employee.deskId, "down", require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
+                    
+                    if leftId and rightId and gameState.deskAssignments[leftId] and gameState.deskAssignments[rightId] then
+                        isBetweenHorizontally = true
+                    end
+                    if upId and downId and gameState.deskAssignments[upId] and gameState.deskAssignments[downId] then
+                        isBetweenVertically = true
+                    end
+                    
+                    if isBetweenHorizontally or isBetweenVertically then
+                        local bonus = self.special.prod_bonus
+                        if self.special.scales_with_level then
+                            bonus = bonus * (self.level or 1)
+                        end
+                        eventArgs.stats.productivity = eventArgs.stats.productivity + bonus
+                        table.insert(eventArgs.stats.log.productivity, string.format("+%d from being between employees", bonus))
+                    end
+                end
+            end
+        }
     },
     {
         id = 'cartoonist1', name = 'Syndicated Cartoonist', icon = '✍️', rarity = 'Common',
@@ -1316,13 +1827,28 @@ return {
         special = { type = 'tech_upgrade_immunity' },
         listeners = {
             onApplyUpgrades = function(self, gameState, eventArgs)
-                -- This listener only cares if it's being run for the Luddite itself.
                 if eventArgs.employee.instanceId ~= self.instanceId then return end
                 
-                -- Populate the blocklist for the main calculation function to use.
                 eventArgs.blockedUpgrades['automation_scripts'] = true
                 eventArgs.blockedUpgrades['advanced_crm'] = true
                 eventArgs.blockedUpgrades['fast_internet'] = true
+            end
+        }
+    },
+    {
+        id = 'the_hoarder1', name = 'The Hoarder', icon = '💰', rarity = 'Common',
+        hiringBonus = 1300, weeklySalary = 250,
+        baseProductivity = 7, baseFocus = 1.0,
+        description = 'Gains +$100 budget per level at the end of each Sprint.',
+        special = { type = 'budget_per_sprint', value = 100, scales_with_level = true },
+        listeners = {
+            onSprintStart = function(self, gameState, eventArgs)
+                local budgetGain = self.special.value
+                if self.special.scales_with_level then budgetGain = budgetGain * (self.level or 1) end
+                if not gameState.ventureCapitalActive then
+                    gameState.budget = gameState.budget + budgetGain
+                end
+                print(self.fullName .. " hoarded $" .. budgetGain .. " this Sprint.")
             end
         }
     },
@@ -1331,6 +1857,28 @@ return {
         hiringBonus = 1500, weeklySalary = 300,
         baseProductivity = 12, baseFocus = 1.0,
         description = 'Ignores the first negative positional effect applied to them each time stats are calculated.',
-        special = { type = 'ignore_first_negative_positional' }
+        special = { type = 'ignore_first_negative_positional' },
+        listeners = {
+            onCalculatePositionalBonuses = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId == self.instanceId then
+                    local ignoredNegative = false
+                    local originalApplyEffect = eventArgs.applyEffect
+                    
+                    eventArgs.applyEffect = function(effectDetails, sourceEmployee)
+                        local isNegative = (effectDetails.productivity_add and effectDetails.productivity_add < 0) or
+                                        (effectDetails.focus_add and effectDetails.focus_add < 0) or
+                                        (effectDetails.focus_mult and effectDetails.focus_mult < 1)
+                        
+                        if isNegative and not ignoredNegative then
+                            ignoredNegative = true
+                            table.insert(eventArgs.log.productivity, "Ignored negative effect from " .. sourceEmployee.name)
+                            return
+                        end
+                        
+                        originalApplyEffect(effectDetails, sourceEmployee)
+                    end
+                end
+            end
+        }
     },
 }

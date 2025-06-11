@@ -25,37 +25,6 @@ function Battle:startChallenge(gameState, showMessage)
     gameState.temporaryEffectFlags.itGuyUsedThisItem = nil 
     gameState.temporaryEffectFlags.globalFocusMultiplier = nil 
     gameState.temporaryEffectFlags.globalSalaryMultiplier = nil
-    
-    if gameState.temporaryEffectFlags.motivationalBoostNextItem then
-        gameState.temporaryEffectFlags.globalFocusMultiplier = 2.0 
-        gameState.temporaryEffectFlags.motivationalBoostNextItem = nil 
-    end
-
-    if gameState.temporaryEffectFlags.photocopierTargetForNextItem then
-        local target = getEmployeeFromGameState(gameState, gameState.temporaryEffectFlags.photocopierTargetForNextItem)
-        local emptyDeskId = nil
-        for _, desk in ipairs(gameState.desks) do
-            if desk.status == 'owned' and not gameState.deskAssignments[desk.id] then
-                emptyDeskId = desk.id
-                break
-            end
-        end
-
-        if target and emptyDeskId then
-            local clone = Employee:new(target.id, target.variant, "Clone of " .. target.fullName)
-            clone.isTemporaryClone = true
-            clone.weeklySalary = 0
-            clone.level = target.level
-            clone.baseProductivity = target.baseProductivity
-            clone.baseFocus = target.baseFocus
-            table.insert(gameState.hiredEmployees, clone)
-            Placement:handleEmployeeDropOnDesk(gameState, clone, emptyDeskId, nil)
-            showMessage("Photocopied!", "A temporary clone of " .. target.name .. " has appeared for this work item!")
-        else
-            showMessage("Photocopy Failed", "Could not create a clone. Ensure there is an empty desk available.")
-        end
-        gameState.temporaryEffectFlags.photocopierTargetForNextItem = nil 
-    end
 
     for _, emp in ipairs(gameState.hiredEmployees) do
         emp.workCyclesThisItem = 0
@@ -89,26 +58,6 @@ function Battle:startChallenge(gameState, showMessage)
     end
 
     gameState.currentWeekWorkload = currentWorkItemData.workload
-    
-    if gameState.purchasedPermanentUpgrades then
-        for _, upgradeId in ipairs(gameState.purchasedPermanentUpgrades) do
-            if upgradeId == "consultant_visit" and gameState.temporaryEffectFlags.consultantVisitUsedThisWeek ~= true then
-                local consultantUpgrade = nil
-                for _, upg in ipairs(GameData.ALL_UPGRADES) do if upg.id == "consultant_visit" then consultantUpgrade = upg; break; end end
-                if consultantUpgrade and consultantUpgrade.effect and consultantUpgrade.effect.type == "one_time_workload_reduction_percent" then
-                    local reduction = math.floor(gameState.currentWeekWorkload * consultantUpgrade.effect.value)
-                    gameState.currentWeekWorkload = gameState.currentWeekWorkload - reduction
-                    print("Consultant Visit! Workload reduced by " .. reduction)
-                    gameState.temporaryEffectFlags.consultantVisitUsedThisWeek = true
-                end
-            end
-            if upgradeId == "team_building_event" and gameState.temporaryEffectFlags.teamBuildingFocusBoostNextWeek then
-                gameState.temporaryEffectFlags.teamBuildingActiveThisWeek = true
-                gameState.temporaryEffectFlags.teamBuildingFocusBoostNextWeek = nil 
-                print("Team Spirit High! Focus boosted this week.")
-            end
-        end
-    end
 
     if currentWorkItemData.modifier then
         local mod = currentWorkItemData.modifier

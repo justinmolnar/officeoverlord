@@ -1106,31 +1106,11 @@ end
 
 function Drawing._getEffectiveCardData(employeeData, gameState)
     local cardData = employeeData
-    -- Handle Mimic's copied state
-    if employeeData.copiedState then
-        cardData = {}
-        for k, v in pairs(employeeData) do cardData[k] = v end
-        for k, v in pairs(employeeData.copiedState) do cardData[k] = v end
-    end
-
-    -- Handle Agent Smith's assimilated state
-    if employeeData.isSmithCopy then
-        for _, card in ipairs(require("data").BASE_EMPLOYEE_CARDS) do
-            if card.id == 'agent_smith1' then
-                local agentSmithData = card
-                local smithCopyData = {}
-                for k, v in pairs(cardData) do smithCopyData[k] = v end
-                for k, v in pairs(agentSmithData) do
-                    if k ~= 'id' and k ~= 'instanceId' and k ~= 'fullName' and k ~= 'level' then
-                        smithCopyData[k] = v
-                    end
-                end
-                smithCopyData.weeklySalary = agentSmithData.weeklySalary
-                cardData = smithCopyData
-                break
-            end
-        end
-    end
+    
+    local contextArgs = { employee = employeeData, effectiveData = cardData }
+    require("effects_dispatcher").dispatchEvent("onGetEffectiveCardData", gameState, contextArgs)
+    cardData = contextArgs.effectiveData
+    
     return cardData
 end
 

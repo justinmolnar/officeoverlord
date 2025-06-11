@@ -102,12 +102,21 @@ function Employee:calculateBaseStatsWithModifiers(employeeInstance, allHiredEmpl
     currentProductivity = upgradeArgs.productivity
     currentFocus = upgradeArgs.focus
 
-    if gameState.temporaryEffectFlags.globalFocusMultiplier then
-        currentFocus = currentFocus * gameState.temporaryEffectFlags.globalFocusMultiplier
-        table.insert(calculationLog.focus, string.format("*%.0f%% from GLaDOS Test", (gameState.temporaryEffectFlags.globalFocusMultiplier) * 100))
-    end
+    local focusEventArgs = {
+        employee = employeeInstance,
+        focusMultiplier = 1.0
+    }
+    require("effects_dispatcher").dispatchEvent("onApplyGlobalFocusModifiers", gameState, focusEventArgs)
+    currentFocus = currentFocus * focusEventArgs.focusMultiplier
     
     currentProductivity = math.floor(currentProductivity)
+
+    local secretBuffEventArgs = {
+        employee = employeeInstance,
+        productivityBonus = 0
+    }
+    require("effects_dispatcher").dispatchEvent("onApplySecretBuffs", gameState, secretBuffEventArgs)
+    currentProductivity = currentProductivity + secretBuffEventArgs.productivityBonus
 
     if employeeInstance.special and employeeInstance.special.initial_focus_multiplier then
         currentFocus = currentFocus * employeeInstance.special.initial_focus_multiplier

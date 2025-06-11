@@ -92,6 +92,32 @@ return {
             end
         }
     },
+    {
+        id = 'motivational_speaker', name = 'Motivational Speaker', rarity = 'Common', cost = 1000, icon = '📢',
+        description = 'Once per sprint, pay $1000 to give all employees +100% Focus for the next work item.',
+        effect = { type = 'motivational_speaker' },
+        listeners = {
+            onActivate = function(self, gameState, eventArgs)
+                if gameState.gamePhase == 'hiring_and_upgrades' and not gameState.temporaryEffectFlags.motivationalSpeakerUsedThisSprint and gameState.budget >= 1000 then
+                    gameState.budget = gameState.budget - 1000
+                    gameState.temporaryEffectFlags.motivationalBoostNextItem = true
+                    gameState.temporaryEffectFlags.motivationalSpeakerUsedThisSprint = true
+                    eventArgs.showModal = {
+                        title = "Motivation Delivered!",
+                        message = "All employees will have doubled Focus for the next work item!"
+                    }
+                    return true
+                end
+                return false
+            end,
+            onWorkItemStart = function(self, gameState, eventArgs)
+                if gameState.temporaryEffectFlags.motivationalBoostNextItem then
+                    gameState.temporaryEffectFlags.globalFocusMultiplier = 2.0
+                    gameState.temporaryEffectFlags.motivationalBoostNextItem = nil
+                end
+            end
+        }
+        },
     { 
         id = 'headhunter', name = 'Corporate Headhunter', rarity = 'Common', cost = 500, icon = '🕵️',
         description = 'The shop is now guaranteed to have at least one \'Rare\' or \'Legendary\' employee. Restock cost is doubled.',
@@ -118,6 +144,11 @@ return {
             end
         }
     },
+    { 
+        id = 'watering_can', name = 'Watering Can', rarity = 'Common', cost = 400, icon = '🪣',
+        description = 'Doubles the effectiveness of the Office Plant.',
+        effect = { type = 'special_plant_boost' }
+    },
     {
         id = 'ballpoint_pens', name = 'Bulk-Order Ballpoint Pens', rarity = 'Common', cost = 300, icon = '✒️',
         description = 'Hiring cost of all \'Common\' employees is reduced by 25%.',
@@ -133,6 +164,42 @@ return {
 
 
     -- UNCOMMON UPGRADES --
+    { 
+        id = 'advanced_crm', name = 'Advanced CRM System', rarity = 'Uncommon', cost = 1400, icon = '📊',
+        description = 'Marketing employees gain an additional $250 per win.',
+        effect = { type = 'advanced_crm', budget_per_win_bonus = 250 }
+    },
+    { 
+        id = 'team_building_event', name = 'Team Building Event', rarity = 'Uncommon', cost = 800, icon = '🏕️',
+        description = 'Once per sprint, boosts team focus for the next work item.',
+        effect = { type = 'one_time_team_focus_boost_multiplier', value = 1.3 },
+        listeners = {
+            onActivate = function(self, gameState, eventArgs)
+                if gameState.gamePhase == 'hiring_and_upgrades' and not gameState.temporaryEffectFlags.teamBuildingUsedThisSprint then
+                    gameState.temporaryEffectFlags.teamBuildingFocusBoostNextWeek = true
+                    gameState.temporaryEffectFlags.teamBuildingUsedThisSprint = true
+                    eventArgs.showModal = {
+                        title = "Team Building Success!",
+                        message = "All employees will have boosted focus for the next work item!"
+                    }
+                    return true
+                end
+                return false
+            end,
+            onWorkItemStart = function(self, gameState, eventArgs)
+                if gameState.temporaryEffectFlags.teamBuildingFocusBoostNextWeek then
+                    gameState.temporaryEffectFlags.teamBuildingActiveThisWeek = true
+                    gameState.temporaryEffectFlags.teamBuildingFocusBoostNextWeek = nil
+                    print("Team Spirit High! Focus boosted this week.")
+                end
+            end,
+            onApplyGlobalFocusModifiers = function(self, gameState, eventArgs)
+                if gameState.temporaryEffectFlags.teamBuildingActiveThisWeek then
+                    eventArgs.focusMultiplier = eventArgs.focusMultiplier * self.effect.value
+                end
+            end
+        }
+    },
     { 
         id = 'stock_options', name = 'Stock Options', rarity = 'Uncommon', cost = 1400, icon = '💹',
         description = 'When budget is below $10,000, employees have a 10% chance to gain double productivity for a turn, motivated by their stock options.',
@@ -162,7 +229,26 @@ return {
     { 
         id = 'assembly_line', name = 'The Assembly Line', rarity = 'Uncommon', cost = 900, icon = '→',
         description = 'Employees work in a fixed top-to-bottom order. Each employee gains +0.1x Focus for each employee that acted before them.',
-        effect = { type = 'assembly_line' }
+        effect = { type = 'assembly_line' },
+        listeners = {
+            onWorkOrderDetermined = function(self, gameState, eventArgs)
+                table.sort(eventArgs.activeEmployees, function(a, b)
+                    local aIndex = tonumber(string.match(a.deskId or "desk-999", "desk%-(%d+)")) or 999
+                    local bIndex = tonumber(string.match(b.deskId or "desk-999", "desk%-(%d+)")) or 999
+                    return aIndex < bIndex
+                end)
+                
+                for i, emp in ipairs(eventArgs.activeEmployees) do
+                    emp.assemblyLinePosition = i
+                end
+            end,
+            onBeforeContribution = function(self, gameState, eventArgs)
+                if eventArgs.employee.assemblyLinePosition then
+                    local focusBonus = (eventArgs.employee.assemblyLinePosition - 1) * 0.1
+                    eventArgs.focusMultiplier = eventArgs.focusMultiplier * (1 + focusBonus)
+                end
+            end
+        }
     },
     { 
         id = 'code_debt', name = 'Code Debt', rarity = 'Uncommon', cost = 100, icon = '💻',
@@ -222,6 +308,21 @@ return {
         }
     },
     { 
+        id = 'consultant_visit', name = 'Consultant Visit', rarity = 'Uncommon', cost = 1200, icon = '👔',
+        description = 'Once per work item, reduces workload by 15% at the start.',
+        effect = { type = 'one_time_workload_reduction_percent', value = 0.15 },
+        listeners = {
+            onWorkItemStart = function(self, gameState, eventArgs)
+                if gameState.temporaryEffectFlags.consultantVisitUsedThisWeek ~= true then
+                    local reduction = math.floor(gameState.currentWeekWorkload * self.effect.value)
+                    gameState.currentWeekWorkload = gameState.currentWeekWorkload - reduction
+                    gameState.temporaryEffectFlags.consultantVisitUsedThisWeek = true
+                    print("Consultant Visit! Workload reduced by " .. reduction)
+                end
+            end
+        }
+    },
+    { 
         id = 'positional_inverter', name = 'Positional Inverter', rarity = 'Uncommon', cost = 1000, icon = '🔄',
         description = 'All positive positional effects are now negative, and all negative effects are now positive.',
         effect = { type = 'positional_inverter' }
@@ -263,12 +364,48 @@ return {
     { 
         id = 'payroll_glitch', name = 'Glitch in the Payroll', rarity = 'Uncommon', cost = 700, icon = '💸',
         description = 'Employee salaries are now randomized each pay cycle, ranging from $1 to double their normal amount.',
-        effect = { type = 'payroll_glitch' }
+        effect = { type = 'payroll_glitch' },
+        listeners = {
+            onCalculateSalaries = function(self, gameState, eventArgs)
+                local originalCalculation = eventArgs.cumulativePercentReduction
+                eventArgs.cumulativePercentReduction = function(emp)
+                    local randomMultiplier = love.math.random() * 2
+                    return math.max(1, math.floor(emp.weeklySalary * randomMultiplier))
+                end
+            end
+        }
     },
     { 
         id = 'synergy_generator', name = '"Synergy" Buzzword Generator', rarity = 'Uncommon', cost = 1100, icon = '⚡',
         description = 'Every unique type of positional bonus active on the board grants a stacking +0.1x Focus to ALL employees.',
-        effect = { type = 'synergy_generator' }
+        effect = { type = 'synergy_generator' },
+        listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                local uniqueBonusTypes = {}
+                for _, emp in ipairs(gameState.hiredEmployees) do
+                    if emp.deskId and emp.positionalEffects then
+                        for direction, effect in pairs(emp.positionalEffects) do
+                            for effectType, _ in pairs(effect) do
+                                if effectType == 'productivity_add' or effectType == 'focus_add' or effectType == 'focus_mult' then
+                                    uniqueBonusTypes[effectType] = true
+                                end
+                            end
+                        end
+                    end
+                end
+                
+                local bonusCount = 0
+                for _ in pairs(uniqueBonusTypes) do
+                    bonusCount = bonusCount + 1
+                end
+                
+                if bonusCount > 0 then
+                    local synergyBonus = bonusCount * 0.1
+                    eventArgs.stats.focus = eventArgs.stats.focus * (1 + synergyBonus)
+                    table.insert(eventArgs.stats.log.focus, string.format("+%.1f%% from synergy (%d types)", synergyBonus * 100, bonusCount))
+                end
+            end
+        }
     },
     {
         id = 'four_day_week', name = 'Four-Day Work Week', rarity = 'Uncommon', cost = 2000, icon = '🗓️',
@@ -286,10 +423,18 @@ return {
             end
         }
     },
-    {
+    { 
         id = 'delorean_espresso', name = 'Espresso Machine (DeLorean-Powered)', rarity = 'Uncommon', cost = 1800, icon = '🚀',
         description = 'The first employee to act each round gets two turns.',
-        effect = { type = 'delorean_espresso' }
+        effect = { type = 'delorean_espresso' },
+        listeners = {
+            onWorkOrderDetermined = function(self, gameState, eventArgs)
+                if #eventArgs.activeEmployees > 0 then
+                    local firstEmployee = eventArgs.activeEmployees[1]
+                    table.insert(eventArgs.activeEmployees, 2, firstEmployee)
+                end
+            end
+        }
     },
     {
         id = 'subsidized_housing', name = 'Subsidized Housing', rarity = 'Uncommon', cost = 1500, icon = '🏠',
@@ -304,6 +449,21 @@ return {
 
 
     -- RARE UPGRADES --
+    { 
+        id = 'legal_retainer', name = 'Legal Retainer', rarity = 'Rare', cost = 2200, icon = '⚖️',
+        description = '25% chance bailouts are free due to legal loopholes.',
+        effect = { type = 'chance_avoid_bailout_cost', chance = 0.25 }
+    },  
+    { 
+        id = 'office_plant', name = 'Office Plant', rarity = 'Rare', cost = 800, icon = '🌱',
+        description = 'A plant in the office boosts Focus by +0.5x for all employees.',
+        effect = { type = 'special_office_plant' },
+        listeners = {
+            onApplyGlobalFocusModifiers = function(self, gameState, eventArgs)
+                eventArgs.focusMultiplier = eventArgs.focusMultiplier * 1.5
+            end
+        }
+    },
     { 
         id = 'automation_scripts', name = 'Automation Scripts', rarity = 'Rare', cost = 2000, icon = '📜🤖',
         description = 'On the first work cycle of any item, all employees have their total contribution multiplied by 1.5x.',
