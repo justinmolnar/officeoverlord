@@ -3,6 +3,7 @@
 
 local GameData = require("data")
 local Employee = require("employee") 
+local Drawing = require("drawing")
 
 local function getEmployeeFromGameState(gs, instanceId)
     if not gs or not gs.hiredEmployees or not instanceId then return nil end
@@ -82,7 +83,6 @@ function Placement:isPotentialCombineTarget(gameState, targetEmployeeData, sourc
     -- Do not allow combining an employee with itself
     if sourceEmployeeData.instanceId == targetEmployeeData.instanceId then return false end 
     
-    -- THE FIX: Check against the dynamic max level from our new global function
     local maxLevel = _G.getCurrentMaxLevel(gameState)
     if (targetEmployeeData.level or 1) >= maxLevel then return false end 
     if (sourceEmployeeData.level or 1) >= maxLevel then return false end
@@ -100,37 +100,36 @@ function Placement:handleEmployeeDropOnDesk(gameState, employeeData, targetDeskI
     local wasSuccessfullyPlaced = false
     local fromShop = (originalDeskId == nil)
 
-    if fromShop and employeeData.special and (employeeData.special.type == 'haunt_target_on_hire' or employeeData.special.type == 'slime_merge') then
-        local occupantId = gameState.deskAssignments[targetDeskId]
-        if occupantId then
-            local targetEmployee = getEmployeeFromGameState(gameState, occupantId)
-            if targetEmployee then
-                if employeeData.special.type == 'haunt_target_on_hire' then
-                    targetEmployee.haunt_stacks = (targetEmployee.haunt_stacks or 0) + 1
-                    print(targetEmployee.name .. " is now haunted by " .. employeeData.name); return true
-                elseif employeeData.special.type == 'slime_merge' then
-                    targetEmployee.baseProductivity = targetEmployee.baseProductivity * 2; targetEmployee.baseFocus = targetEmployee.baseFocus * 2; targetEmployee.rarity = "Legendary"
-                    targetEmployee.slime_stacks = (targetEmployee.slime_stacks or 0) + 1
-                    print(targetEmployee.name .. " has merged with the slime!"); return true
-                end
-            end
+    local placementArgs = { 
+        employee = employeeData, 
+        targetDeskId = targetDeskId, 
+        fromShop = fromShop,
+        wasHandled = false,
+        success = false,
+        message = ""
+    }
+    require("effects_dispatcher").dispatchEvent("onPlacement", gameState, placementArgs)
+    
+    if placementArgs.wasHandled then
+        if not placementArgs.success and placementArgs.message ~= "" then
+            Drawing.showModal("Can't Merge", placementArgs.message)
         end
-        _G.showMessage("Can't Merge", "This must be dropped onto an existing office worker's desk."); return false
+        return placementArgs.success
     end
 
     if employeeData.special and employeeData.special.placement_restriction then
         if employeeData.special.placement_restriction == 'not_top_row' then
             local deskIndex = tonumber(string.match(targetDeskId, "desk%-(%d+)"))
             if deskIndex and math.floor(deskIndex / GameData.GRID_WIDTH) == 0 then
-                _G.showMessage("Placement Error", employeeData.name .. " is sensitive to sunlight and cannot be placed in the top row."); return false
+                Drawing.showModal("Placement Error", employeeData.name .. " is sensitive to sunlight and cannot be placed in the top row."); return false
             end
         end
     end
 
-    if employeeData.variant == 'remote' then _G.showMessage("Invalid Placement", employeeData.name .. " is a remote worker and cannot be placed on a desk."); return false end
+    if employeeData.variant == 'remote' then Drawing.showModal("Invalid Placement", employeeData.fullName .. " is a remote worker and cannot be placed on a desk."); return false end
     local targetDesk = nil
     for _,d in ipairs(gameState.desks) do if d.id == targetDeskId then targetDesk = d; break; end end
-    if not targetDesk or targetDesk.status ~= "owned" then _G.showMessage("Placement Error", "Cannot place on a locked or unpurchased desk."); return false end
+    if not targetDesk or targetDesk.status ~= "owned" then Drawing.showModal("Placement Error", "Cannot place on a locked or unpurchased desk."); return false end
     local currentOccupantInstanceId = gameState.deskAssignments[targetDeskId]
 
     if currentOccupantInstanceId then
@@ -141,9 +140,9 @@ function Placement:handleEmployeeDropOnDesk(gameState, employeeData, targetDeskI
             if occupantEmployee then
                 if Placement:isPotentialCombineTarget(gameState, occupantEmployee, employeeData) then
                     local success, msg = self:combineAndLevelUpEmployees(gameState, occupantEmployee.instanceId, employeeData.instanceId)
-                    if not success then _G.showMessage("Combine Failed", msg) end; return success 
+                    if not success then Drawing.showModal("Combine Failed", msg) end; return success 
                 else
-                    if not originalDeskId then _G.showMessage("Placement Failed", "Cannot swap with an employee from the shop. Place this employee on an empty desk first."); return false end
+                    if not originalDeskId then Drawing.showModal("Placement Failed", "Cannot swap with an employee from the shop. Place this employee on an empty desk first."); return false end
                     print("Swapping " .. employeeData.name .. " with " .. occupantEmployee.name)
                     gameState.deskAssignments[originalDeskId] = occupantEmployee.instanceId; occupantEmployee.deskId = originalDeskId
                     gameState.deskAssignments[targetDeskId] = employeeData.instanceId; employeeData.deskId = targetDeskId; wasSuccessfullyPlaced = true
@@ -154,36 +153,8 @@ function Placement:handleEmployeeDropOnDesk(gameState, employeeData, targetDeskI
         employeeData.deskId = targetDeskId; gameState.deskAssignments[targetDeskId] = employeeData.instanceId; wasSuccessfullyPlaced = true
     end
     
-    if wasSuccessfullyPlaced and fromShop and employeeData.special and employeeData.special.type == 'virus_on_hire' then
-        local potentialTargets = {}
-        for _, emp in ipairs(gameState.hiredEmployees) do if emp.instanceId ~= employeeData.instanceId and emp.rarity ~= 'Legendary' and not emp.isSmithCopy then table.insert(potentialTargets, emp) end end
-        
-        local smithData = nil
-        for _, card in ipairs(GameData.BASE_EMPLOYEE_CARDS) do if card.id == 'agent_smith1' then smithData = card; break; end end
-
-        for i=1, 2 do
-            if #potentialTargets > 0 and smithData then
-                local targetIndex = love.math.random(#potentialTargets); 
-                local victim = potentialTargets[targetIndex]
-                victim.isSmithCopy = true; 
-                victim.weeklySalary = smithData.weeklySalary -- Explicitly copy salary
-                print(victim.name .. " has been assimilated by Agent Smith."); 
-                table.remove(potentialTargets, targetIndex)
-            end
-        end
-    end
-
-    if wasSuccessfullyPlaced and employeeData.id == 'mimic1' then
-        local adjacentEmployees = {}
-        local directions = {"up", "down", "left", "right"}
-        for _, dir in ipairs(directions) do
-            local neighborDeskId = Employee:getNeighboringDeskId(employeeData.deskId, dir, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, gameState.desks)
-            if neighborDeskId and gameState.deskAssignments[neighborDeskId] then table.insert(adjacentEmployees, getEmployeeFromGameState(gameState, gameState.deskAssignments[neighborDeskId])) end
-        end
-        if #adjacentEmployees > 0 then
-            local target = adjacentEmployees[love.math.random(#adjacentEmployees)]; print("Mimic is copying " .. target.name)
-            employeeData.copiedState = { name = target.name, icon = target.icon, baseProductivity = target.baseProductivity, baseFocus = target.baseFocus, positionalEffects = target.positionalEffects, special = target.special }
-        else employeeData.copiedState = nil end
+    if wasSuccessfullyPlaced and fromShop then
+        require("effects_dispatcher").dispatchEvent("onHire", gameState, { employee = employeeData })
     end
 
     return wasSuccessfullyPlaced
@@ -192,7 +163,7 @@ end
 function Placement:handleEmployeeDropOnRemote(gameState, employeeData, originalDeskId)
     local fromShop = (originalDeskId == nil)
     if employeeData.variant ~= 'remote' then 
-        _G.showMessage("Invalid Action", employeeData.name .. " is an office worker and cannot be moved to the remote team this way.")
+        Drawing.showModal("Invalid Action", employeeData.name .. " is an office worker and cannot be moved to the remote team this way.")
         return false 
     end
     if originalDeskId then gameState.deskAssignments[originalDeskId] = nil end
@@ -236,18 +207,18 @@ function Placement:handleEmployeeDropOnRemoteEmployee(gameState, draggedEmployee
     if not targetEmployee or targetEmployee.variant ~= 'remote' then return false end
     
     if draggedEmployeeData.variant ~= 'remote' then
-        _G.showMessage("Combine Error", "Cannot combine office worker " .. draggedEmployeeData.name .. " with remote worker " .. targetEmployee.name .. ".")
+        Drawing.showModal("Combine Error", "Cannot combine office worker " .. draggedEmployeeData.name .. " with remote worker " .. targetEmployee.name .. ".")
         return false
     end
 
-    if Placement:isPotentialCombineTarget(gameState, targetEmployee, draggedEmployeeData) then
+    if self:isPotentialCombineTarget(gameState, targetEmployee, draggedEmployeeData) then
         local success, msg = self:combineAndLevelUpEmployees(gameState, targetEmployee.instanceId, draggedEmployeeData.instanceId)
         if not success then
-             _G.showMessage("Combine Failed", msg)
+             Drawing.showModal("Combine Failed", msg)
         end
         return success
     else
-        _G.showMessage("Cannot Combine", "These remote employees cannot be combined.")
+        Drawing.showModal("Cannot Combine", "These remote employees cannot be combined.")
     end
     return false
 end

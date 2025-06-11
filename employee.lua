@@ -91,37 +91,16 @@ function Employee:calculateBaseStatsWithModifiers(employeeInstance, allHiredEmpl
     local applyUpgradesEventArgs = { employee = employeeInstance, blockedUpgrades = {} }
     require("effects_dispatcher").dispatchEvent("onApplyUpgrades", gameState, applyUpgradesEventArgs)
 
-    if purchasedPermanentUpgrades then
-        for _, upgradeId in ipairs(purchasedPermanentUpgrades) do
-            if not (gameState.temporaryEffectFlags.disabledUpgrades and gameState.temporaryEffectFlags.disabledUpgrades[upgradeId]) then
-                for _, upgradeData in ipairs(GameData.ALL_UPGRADES) do
-                    if upgradeData.id == upgradeId and upgradeData.effect then
-                        if applyUpgradesEventArgs.blockedUpgrades[upgradeId] then
-                            table.insert(calculationLog.productivity, string.format("Tech upgrade '%s' ignored", upgradeData.name))
-                            goto continue_upgrade_loop
-                        end
-
-                        if upgradeData.effect.type == 'productivityMultiplierAll' then
-                            currentProductivity = currentProductivity * (1 + upgradeData.effect.value)
-                            table.insert(calculationLog.productivity, string.format("*%.0f%% from %s", upgradeData.effect.value * 100, upgradeData.name))
-                        elseif upgradeData.effect.type == 'focusMultiplierAllFlat' or upgradeData.effect.type == 'focus_boost_all_flat_permanent' then
-                            currentFocus = currentFocus * (1 + upgradeData.effect.value) 
-                            table.insert(calculationLog.focus, string.format("*%.0f%% from %s", upgradeData.effect.value * 100, upgradeData.name))
-                        elseif upgradeData.effect.type == 'productivity_boost_all_flat_permanent' then
-                            currentProductivity = currentProductivity + upgradeData.effect.value
-                            table.insert(calculationLog.productivity, string.format("+%d from %s", upgradeData.effect.value, upgradeData.name))
-                        elseif upgradeData.effect.type == 'temporary_focus_boost_all' then
-                            currentFocus = currentFocus * (1 + upgradeData.effect.value)
-                            table.insert(calculationLog.focus, string.format("*%.0f%% from %s", upgradeData.effect.value * 100, upgradeData.name))
-                        end
-                    end
-                    ::continue_upgrade_loop::
-                end
-            else
-                table.insert(calculationLog.productivity, string.format("Upgrade '%s' disabled by conspiracy!", upgradeId))
-            end
-        end
-    end
+    local upgradeArgs = {
+        employee = employeeInstance,
+        productivity = currentProductivity,
+        focus = currentFocus,
+        log = calculationLog
+    }
+    require("effects_dispatcher").dispatchEvent("onApplyUpgradeModifiers", gameState, upgradeArgs)
+    
+    currentProductivity = upgradeArgs.productivity
+    currentFocus = upgradeArgs.focus
 
     if gameState.temporaryEffectFlags.globalFocusMultiplier then
         currentFocus = currentFocus * gameState.temporaryEffectFlags.globalFocusMultiplier
@@ -216,19 +195,6 @@ function Employee:calculatePositionalBonuses(effectiveInstance, allHiredEmployee
 end
 
 function Employee:calculateStatsWithPosition(employeeInstance, allHiredEmployees, deskAssignments, purchasedPermanentUpgrades, desksData, gameState)
-    local isBrainInterfaceActive = isUpgradePurchased_local(purchasedPermanentUpgrades, 'brain_interface')
-    if isBrainInterfaceActive and gameState.temporaryEffectFlags.hiveMindStats then
-        local hiveMindStats = gameState.temporaryEffectFlags.hiveMindStats
-        return { 
-            currentProductivity = hiveMindStats.productivity, 
-            currentFocus = hiveMindStats.focus, 
-            calculationLog = {
-                productivity = {"Hive Mind Prod: " .. hiveMindStats.productivity},
-                focus = {"Hive Mind Focus: " .. string.format("%.2f", hiveMindStats.focus)}
-            }
-        }
-    end
-
     local eventArgs = { employee = employeeInstance }
     require("effects_dispatcher").dispatchEvent("onCalculateStats", gameState, eventArgs)
     local effectiveInstance = eventArgs.employee
@@ -326,6 +292,14 @@ function Employee:getNeighboringDeskId(deskId, direction, gridWidth, totalDeskSl
     if neighborIndex >= 0 and neighborIndex < totalDeskSlots then
         -- Check if the neighbor desk actually exists in our defined desks
         for _, desk in ipairs(desksData) do if desk.id == "desk-" .. neighborIndex then return desk.id end end
+    end
+    return nil
+end
+
+function Employee:getFromState(gameState, instanceId)
+    if not gameState or not gameState.hiredEmployees or not instanceId then return nil end
+    for _, emp in ipairs(gameState.hiredEmployees) do
+        if emp.instanceId == instanceId then return emp end
     end
     return nil
 end

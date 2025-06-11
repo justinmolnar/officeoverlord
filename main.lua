@@ -13,6 +13,22 @@ local Employee = require("employee")
 local EffectsDispatcher = require("effects_dispatcher")
 local InputHandler = require("input_handler")
 
+-- Component Imports
+local Button = require("components.button")
+local EmployeeCard = require("components.employee_card")
+local UpgradeCard = require("components/upgrade_card")
+local Checkbox = require("components/checkbox")
+local Dropdown = require("components/dropdown")
+local PurchasedUpgradeIcon = require("components/purchased_upgrade_icon")
+local DeskSlot = require("components/desk_slot")
+
+local StateManager = require("game_states.state_manager")
+local stateManager
+
+
+
+
+
 function _G.getCurrentMaxLevel(gameState)
     local eventArgs = { maxLevel = 3 }
     require("effects_dispatcher").dispatchEvent("onGetMaxLevel", gameState, eventArgs)
@@ -23,6 +39,10 @@ local gameState
 local tooltipsToDraw = {}
 local overlaysToDraw = {}
 
+-- UI Component Lists
+local uiComponents = {}
+local debugComponents = {}
+
 -- State variables are wrapped in tables to be passed by reference
 local sprintOverviewState = { isVisible = false }
 local sprintOverviewRects = {} -- To hold rects for the new panel UI
@@ -30,14 +50,18 @@ local sprintOverviewRects = {} -- To hold rects for the new panel UI
 local debugMenuState = { isVisible = false }
 local debug = {
     rect = {},
-    employeeDropdown = { options = {}, selected = 1, isOpen = false, rect = {} },
-    upgradeDropdown = { options = {}, selected = 1, isOpen = false, rect = {} },
+    employeeDropdown = { options = {}, selected = 1, isOpen = false, rect = {}, scrollOffset = 0 },
+    upgradeDropdown = { options = {}, selected = 1, isOpen = false, rect = {}, scrollOffset = 0 },
     checkboxes = {
         remote = { checked = false, rect = {} },
         foil = { checked = false, rect = {} },
         holo = { checked = false, rect = {} }
     },
-    buttons = {}
+    buttons = {},
+    hotkeyState = {
+        plus = { timer = 0, initial = 0.4, repeatDelay = 0.1 },
+        minus = { timer = 0, initial = 0.4, repeatDelay = 0.1 }
+    }
 }
 
 local function safeTimerAfter(delay, callback)
@@ -82,20 +106,6 @@ local battleState = {
     changedEmployeesForAnimation = {},
     nextChangedEmployeeIndex = 1
 }
-_G.battleState = battleState -- Make battleState global for Drawing module to access
-
-_G.showMessage = function(title, message, buttons, customWidth)
-    Drawing.showModal(title, message, buttons, customWidth) 
-end
-
-function getEmployeeFromGameState(gs, instanceId)
-    if not gs or not gs.hiredEmployees or not instanceId then return nil end
-    for _, emp in ipairs(gs.hiredEmployees) do
-        if emp.instanceId == instanceId then return emp end
-    end
-    return nil
-end
-_G.getEmployeeFromGameState = getEmployeeFromGameState -- Make global for Drawing module to access
 
 function initializeDebugMenu()
     -- Populate employee options
@@ -104,108 +114,310 @@ function initializeDebugMenu()
         table.insert(debug.employeeDropdown.options, { name = card.name, id = card.id })
     end
     table.sort(debug.employeeDropdown.options, function(a, b) return a.name < b.name end)
-    debug.employeeDropdown.selected = 1
-    debug.employeeDropdown.scrollOffset = 0
-
+    
     -- Populate upgrade options
     debug.upgradeDropdown.options = {}
     for _, upg in ipairs(GameData.ALL_UPGRADES) do
         table.insert(debug.upgradeDropdown.options, { name = upg.name, id = upg.id })
     end
     table.sort(debug.upgradeDropdown.options, function(a, b) return a.name < b.name end)
-    debug.upgradeDropdown.selected = 1
-    debug.upgradeDropdown.scrollOffset = 0
-    
-    -- State for hotkey repeating (only for money keys)
-    debug.hotkeyState = {
-        plus = { timer = 0, initial = 0.4, repeatDelay = 0.1 },
-        minus = { timer = 0, initial = 0.4, repeatDelay = 0.1 }
-    }
+end
+
+--- Clears and rebuilds ALL active UI components based on the current gameState.
+function buildUIComponents()
+   uiComponents = {}
+   uiElementRects.desks = {}
+   uiElementRects.remote = {}
+   
+   if gameState.gamePhase == "hiring_and_upgrades" then
+       local infoPanelRect = panelRects.gameInfo
+       local btnWidth, btnHeight, btnX = infoPanelRect.width - 20, 35, infoPanelRect.x + 10
+       local mainActionBtnY = infoPanelRect.y + infoPanelRect.height - btnHeight - 10
+       local viewSprintBtnY = mainActionBtnY - btnHeight - 5
+       table.insert(uiComponents, Button:new({ rect = {x=btnX, y=viewSprintBtnY, w=btnWidth, h=btnHeight}, text = "View Sprint Details", style = "info", onClick = function() sprintOverviewState.isVisible = true end }))
+       table.insert(uiComponents, Button:new({ rect = {x=btnX, y=mainActionBtnY, w=btnWidth, h=btnHeight}, text = "Start Work Item", style = "secondary", onClick = function() setGamePhase("battle_active") end }))
+
+       local shopRect = panelRects.shop
+       local cardPadding = 5
+       local cardWidth = shopRect.width - 2 * cardPadding
+       local currentY = shopRect.y + Drawing.UI.fontLarge:getHeight() + 28
+
+       if gameState.currentShopOffers and gameState.currentShopOffers.employees then
+           for i, empData in ipairs(gameState.currentShopOffers.employees) do
+               if empData then
+                   table.insert(uiComponents, EmployeeCard:new({ data = empData, rect = {x=shopRect.x+cardPadding, y=currentY, w=cardWidth, h=140}, context = "shop_offer", gameState=gameState, battleState=battleState, draggedItemState=draggedItemState, uiElementRects=uiElementRects }))
+                   currentY = currentY + 140 + 5
+               end
+           end
+       end
+       currentY = shopRect.y + Drawing.UI.fontLarge:getHeight() + 28 + (140 + 5) * 3 + 15 + Drawing.UI.font:getHeight() + 8
+       if gameState.currentShopOffers and gameState.currentShopOffers.upgrade then
+           table.insert(uiComponents, UpgradeCard:new({ data = gameState.currentShopOffers.upgrade, rect = {x=shopRect.x+cardPadding, y=currentY, w=cardWidth, h=110}, gameState = gameState, uiElementRects = uiElementRects }))
+       end
+       local restockBtnY = shopRect.y + shopRect.height - 35 - 10
+       local restockButton = Button:new({ rect = {x = shopRect.x + cardPadding, y = restockBtnY, w = cardWidth, h = 35}, text = "Restock", style = "warning", context = "shop_button", isEnabled = function() local cost = GameData.BASE_RESTOCK_COST * (2 ^ (gameState.currentShopOffers.restockCountThisWeek or 0)); return gameState.budget >= cost and not draggedItemState.item end, onClick = function() local success, msg = Shop:attemptRestock(gameState); if not success then Drawing.showModal("Restock Failed", msg) end end })
+       function restockButton:draw() local cost = GameData.BASE_RESTOCK_COST * (2 ^ (gameState.currentShopOffers.restockCountThisWeek or 0)); if Shop:isUpgradePurchased(gameState.purchasedPermanentUpgrades, 'headhunter') then cost = cost * 2 end; self.text = "Restock ($" .. cost .. ")"; Button.draw(self); end
+       restockButton.gameState = gameState
+       table.insert(uiComponents, restockButton)
+   end
+
+   if gameState.gamePhase == "game_over" or gameState.gamePhase == "game_won" then
+       local infoPanelRect = panelRects.gameInfo
+       local btnWidth, btnHeight, btnX = infoPanelRect.width - 20, 35, infoPanelRect.x + 10
+       local mainActionBtnY = infoPanelRect.y + infoPanelRect.height - btnHeight - 10
+       local buttonText = (gameState.gamePhase == "game_won" and "Play Again?" or "Restart Game")
+       local buttonStyle = (gameState.gamePhase == "game_won" and "primary" or "danger")
+       table.insert(uiComponents, Button:new({ rect = {x=btnX, y=mainActionBtnY, w=btnWidth, h=btnHeight}, text = buttonText, style = buttonStyle, onClick = function() resetGameAndGlobals() end }))
+   end
+
+   local gridGeometry = Drawing._calculateDeskGridGeometry(panelRects.mainInteraction)
+   for i, deskData in ipairs(gameState.desks) do
+       local col = (i - 1) % GameData.GRID_WIDTH
+       local row = math.floor((i - 1) / GameData.GRID_WIDTH)
+       local deskRect = { x = gridGeometry.startX + col * (gridGeometry.width + gridGeometry.spacing), y = gridGeometry.startY + row * (gridGeometry.height + gridGeometry.spacing), w = gridGeometry.width, h = gridGeometry.height }
+       uiElementRects.desks[i] = {id = deskData.id, x = deskRect.x, y = deskRect.y, w = deskRect.w, h = deskRect.h}
+       table.insert(uiComponents, DeskSlot:new({rect = deskRect, data = deskData, gameState = gameState}))
+       
+       local empId = gameState.deskAssignments[deskData.id]
+       if empId then
+           local empData = Employee:getFromState(gameState, empId)
+           if empData then
+               local contextArgs = { employee = empData, context = "desk_placed" }
+               EffectsDispatcher.dispatchEvent("onEmployeeContextCheck", gameState, contextArgs)
+               
+               local row = math.floor((tonumber(string.match(deskData.id, "%d+")) or 0) / GameData.GRID_WIDTH)
+               local isDeskDisabled = (gameState.temporaryEffectFlags.isTopRowDisabled and row == 0)
+               
+               if empData.isTraining or isDeskDisabled then 
+                   contextArgs.context = "worker_training"
+               elseif gameState.gamePhase == "battle_active" then
+                   local workerIndexInBattle = -1
+                   for j, activeEmp in ipairs(battleState.activeEmployees) do 
+                       if activeEmp.instanceId == empData.instanceId then 
+                           workerIndexInBattle = j
+                           break 
+                       end 
+                   end
+                   if workerIndexInBattle ~= -1 and workerIndexInBattle < battleState.nextEmployeeIndex then 
+                       contextArgs.context = "worker_done" 
+                   end
+               end
+               
+               table.insert(uiComponents, EmployeeCard:new({data = empData, rect = {x = deskRect.x+2, y=deskRect.y+2, w=deskRect.w-4, h=deskRect.h-4}, context = contextArgs.context, gameState=gameState, battleState=battleState, draggedItemState=draggedItemState, uiElementRects=uiElementRects}))
+           end
+       end
+   end
+
+    for _, empData in ipairs(gameState.hiredEmployees) do
+        if empData.variant == 'remote' then
+            local contextArgs = { employee = empData, context = "remote_worker" }
+            EffectsDispatcher.dispatchEvent("onEmployeeContextCheck", gameState, contextArgs)
+            
+            if empData.isTraining or gameState.temporaryEffectFlags.isRemoteWorkDisabled then
+                contextArgs.context = "worker_training"
+            elseif gameState.gamePhase == "battle_active" then
+                local isWorkerActive = false
+                for _, activeEmp in ipairs(battleState.activeEmployees) do
+                    if activeEmp.instanceId == empData.instanceId then isWorkerActive = true; break; end
+                end
+                if not isWorkerActive then contextArgs.context = "worker_done" end
+            end
+            
+            table.insert(uiComponents, EmployeeCard:new({data = empData, rect = {}, context = contextArgs.context, gameState=gameState, battleState=battleState, draggedItemState=draggedItemState, uiElementRects=uiElementRects}))
+        end
+    end
+
+   local upgRect = panelRects.purchasedUpgradesDisplay
+   local currentX = upgRect.x + 10
+   local iconY = upgRect.y + Drawing.UI.font:getHeight() + 10
+   local iconSize = math.min(upgRect.height - (Drawing.UI.font:getHeight() + 15), 32)
+   local iconPadding = 5
+   for _, upgradeId in ipairs(gameState.purchasedPermanentUpgrades) do
+       local upgData = nil
+       for _, u in ipairs(GameData.ALL_UPGRADES) do if u.id == upgradeId then upgData = u; break; end end
+       if upgData and (currentX + iconSize <= upgRect.x + upgRect.width - 10) then
+           table.insert(uiComponents, PurchasedUpgradeIcon:new({ rect = { x = currentX, y = iconY, w = iconSize, h = iconSize }, upgData = upgData, gameState = gameState }))
+           currentX = currentX + iconSize + iconPadding
+       end
+   end
+end
+
+function onMouseRelease(x, y, button)
+    if button == 1 and draggedItemState.item then
+        local successfullyProcessedDrop = false
+        local draggedItem = draggedItemState.item
+
+        -- Loop backwards through components so we check top-most items first (e.g., employee card before the desk slot under it)
+        for i = #uiComponents, 1, -1 do
+            local component = uiComponents[i]
+            if component.handleMouseDrop then
+                -- The component's method will do its own isMouseOver check
+                if component:handleMouseDrop(x, y, draggedItem) then
+                    successfullyProcessedDrop = true
+                    break -- Drop was handled, exit the loop
+                end
+            end
+        end
+
+        -- Fallback for non-component drop targets, like the general remote panel area
+        if not successfullyProcessedDrop then
+            if draggedItem.data.variant == 'remote' and Drawing.isMouseOver(x, y, uiElementRects.remotePanelDropTarget.x, uiElementRects.remotePanelDropTarget.y, uiElementRects.remotePanelDropTarget.w, uiElementRects.remotePanelDropTarget.h) then
+                if draggedItem.type == "shop_employee" then
+                    if gameState.budget < draggedItem.cost then
+                        Drawing.showModal("Can't Afford", "Not enough budget. Need $" .. draggedItem.cost)
+                    elseif draggedItem.data.special and (draggedItem.data.special.type == 'haunt_target_on_hire' or draggedItem.data.special.type == 'slime_merge') then
+                        Drawing.showModal("Invalid Placement", "This employee must be placed on top of another employee.")
+                    else
+                        gameState.budget = gameState.budget - draggedItem.cost
+                        local newEmp = Employee:new(draggedItem.data.id, draggedItem.data.variant, draggedItem.data.fullName)
+                        newEmp.instanceId = draggedItem.data.instanceId -- Preserve the shop offer's instanceId
+                        table.insert(gameState.hiredEmployees, newEmp)
+                        Shop:markOfferSold(gameState.currentShopOffers, draggedItem.originalShopInstanceId, nil) 
+                        successfullyProcessedDrop = true
+                    end
+                elseif draggedItem.type == "placed_employee" then
+                    successfullyProcessedDrop = Placement:handleEmployeeDropOnRemote(gameState, draggedItem.data, draggedItem.originalDeskId)
+                end
+            end
+        end
+
+        -- Finalize the drop action
+        if successfullyProcessedDrop then
+            -- Rebuild the UI to reflect any changes
+            buildUIComponents()
+        elseif draggedItem.type == "placed_employee" then
+            -- This handles snapping back to the original position if the drop was invalid
+                local originalEmp = Employee:getFromState(gameState, draggedItem.data.instanceId)            
+                if originalEmp then
+                if draggedItem.originalDeskId then
+                    originalEmp.deskId = draggedItem.originalDeskId
+                    gameState.deskAssignments[draggedItem.originalDeskId] = originalEmp.instanceId
+                elseif draggedItem.originalVariant == 'remote' then
+                    originalEmp.variant = 'remote'
+                end
+            end
+        end
+        
+        -- End the drag operation
+        draggedItemState.item = nil 
+    end
 end
 
 function love.load()
-    -- New shader variables
-    Drawing.foilShader = love.graphics.newShader("foil.fs") 
-    Drawing.holoShader = love.graphics.newShader("holo.fs") 
+   Drawing.foilShader = love.graphics.newShader("foil.fs") 
+   Drawing.holoShader = love.graphics.newShader("holo.fs") 
 
-    gameState = GameState:new()
-    _G.gameState = gameState
-    love.window.setTitle("Office Overlord - Command Center v4.1 Sprints")
+   gameState = GameState:new()
+   love.window.setTitle("Office Overlord - Command Center v4.1 Sprints")
 
-    local success
-    
-    -- Load the primary font and its emoji fallback for the regular size
-    local primaryFont, emojiFont
-    success, primaryFont = pcall(love.graphics.newFont, "Arial.ttf", 13)
-    if not success then primaryFont = love.graphics.newFont(13); print("Arial.ttf not found, using default font 13pt.") end
-    success, emojiFont = pcall(love.graphics.newFont, "NotoEmoji.ttf", 13)
-    if success then
-        primaryFont:setFallbacks(emojiFont)
-        print("Emoji fallback font loaded for size 13.")
-    else
-        print("WARNING: NotoEmoji.ttf not found. Emojis will not render.")
-    end
-    Drawing.UI.font = primaryFont
+   local success
+   
+   local primaryFont, emojiFont
+   success, primaryFont = pcall(love.graphics.newFont, "Arial.ttf", 13)
+   if not success then primaryFont = love.graphics.newFont(13); print("Arial.ttf not found, using default font 13pt.") end
+   success, emojiFont = pcall(love.graphics.newFont, "NotoEmoji.ttf", 13)
+   if success then
+       primaryFont:setFallbacks(emojiFont)
+       print("Emoji fallback font loaded for size 13.")
+   else
+       print("WARNING: NotoEmoji.ttf not found. Emojis will not render.")
+   end
+   Drawing.UI.font = primaryFont
 
-    -- Load the primary font and its emoji fallback for the small size
-    local primaryFontSmall, emojiFontSmall
-    success, primaryFontSmall = pcall(love.graphics.newFont, "Arial.ttf", 9)
-    if not success then primaryFontSmall = love.graphics.newFont(9); print("Arial.ttf not found, using default font 9pt.") end
-    success, emojiFontSmall = pcall(love.graphics.newFont, "NotoEmoji.ttf", 9)
-    if success then
-        primaryFontSmall:setFallbacks(emojiFontSmall)
-        print("Emoji fallback font loaded for size 9.")
-    end
-    Drawing.UI.fontSmall = primaryFontSmall
+   local primaryFontSmall, emojiFontSmall
+   success, primaryFontSmall = pcall(love.graphics.newFont, "Arial.ttf", 9)
+   if not success then primaryFontSmall = love.graphics.newFont(9); print("Arial.ttf not found, using default font 9pt.") end
+   success, emojiFontSmall = pcall(love.graphics.newFont, "NotoEmoji.ttf", 9)
+   if success then
+       primaryFontSmall:setFallbacks(emojiFontSmall)
+       print("Emoji fallback font loaded for size 9.")
+   end
+   Drawing.UI.fontSmall = primaryFontSmall
 
-    -- Load the primary font and its emoji fallback for the large size
-    local primaryFontLarge, emojiFontLarge
-    success, primaryFontLarge = pcall(love.graphics.newFont, "Arial.ttf", 18)
-    if not success then primaryFontLarge = love.graphics.newFont(18); print("Arial.ttf not found, using default font 18pt.") end
-    success, emojiFontLarge = pcall(love.graphics.newFont, "NotoEmoji.ttf", 18)
-    if success then
-        primaryFontLarge:setFallbacks(emojiFontLarge)
-        print("Emoji fallback font loaded for size 18.")
-    end
-    Drawing.UI.fontLarge = primaryFontLarge
+   local primaryFontLarge, emojiFontLarge
+   success, primaryFontLarge = pcall(love.graphics.newFont, "Arial.ttf", 18)
+   if not success then primaryFontLarge = love.graphics.newFont(18); print("Arial.ttf not found, using default font 18pt.") end
+   success, emojiFontLarge = pcall(love.graphics.newFont, "NotoEmoji.ttf", 18)
+   if success then
+       primaryFontLarge:setFallbacks(emojiFontLarge)
+       print("Emoji fallback font loaded for size 18.")
+   end
+   Drawing.UI.fontLarge = primaryFontLarge
 
-    -- The title font can also have a fallback if you plan to use emojis in titles
-    local primaryFontTitle, emojiFontTitle
-    success, primaryFontTitle = pcall(love.graphics.newFont, "Arial.ttf", 24)
-    if not success then primaryFontTitle = love.graphics.newFont(24); print("Arial.ttf not found, using default font 24pt.") end
-    success, emojiFontTitle = pcall(love.graphics.newFont, "NotoEmoji.ttf", 24)
-    if success then
-        primaryFontTitle:setFallbacks(emojiFontTitle)
-        print("Emoji fallback font loaded for size 24.")
-    end
-    Drawing.UI.titleFont = primaryFontTitle
-    
-    love.graphics.setFont(Drawing.UI.font) 
-    _G.userId = "Player-" .. love.math.random(1000, 9999)
+   local primaryFontTitle, emojiFontTitle
+   success, primaryFontTitle = pcall(love.graphics.newFont, "Arial.ttf", 24)
+   if not success then primaryFontTitle = love.graphics.newFont(24); print("Arial.ttf not found, using default font 24pt.") end
+   success, emojiFontTitle = pcall(love.graphics.newFont, "NotoEmoji.ttf", 24)
+   if success then
+       primaryFontTitle:setFallbacks(emojiFontTitle)
+       print("Emoji fallback font loaded for size 24.")
+   end
+   Drawing.UI.titleFont = primaryFontTitle
+   
+   love.graphics.setFont(Drawing.UI.font) 
 
-    definePanelRects()
-    
-    initializeDebugMenu() 
+   definePanelRects()
+   
+   initializeDebugMenu() 
 
-    InputHandler.init({
-        gameState = gameState,
-        uiElementRects = uiElementRects,
-        draggedItemState = draggedItemState,
-        battleState = battleState,
-        panelRects = panelRects,
-        sprintOverviewState = sprintOverviewState,
-        sprintOverviewRects = sprintOverviewRects,
-        debugMenuState = debugMenuState,
-        debug = debug,
-        callbacks = {
-            setGamePhase = setGamePhase,
-            resetGameAndGlobals = resetGameAndGlobals
-        }
-    })
-    
-    setGamePhase("hiring_and_upgrades")
-    Placement:updateDeskAvailability(gameState.desks)
-    love.math.setRandomSeed(os.time() + love.timer.getTime())
+   -- Initialize the state manager
+   stateManager = StateManager:new()
+
+   InputHandler.init({
+       gameState = gameState,
+       uiElementRects = uiElementRects,
+       draggedItemState = draggedItemState,
+       battleState = battleState,
+       panelRects = panelRects,
+       sprintOverviewState = sprintOverviewState,
+       sprintOverviewRects = sprintOverviewRects,
+       debugMenuState = debugMenuState,
+       debug = debug,
+       callbacks = {
+           setGamePhase = setGamePhase,
+           resetGameAndGlobals = resetGameAndGlobals
+       }
+   })
+
+   local panelW, panelH = 400, 450
+   local panelX, panelY = (love.graphics.getWidth() - panelW) / 2, (love.graphics.getHeight() - panelH) / 2
+   local padding = 15
+   local dbgW = panelW - padding * 2
+   local dbgX = panelX + padding
+   local currentY = panelY + 50
+   
+   table.insert(debugComponents, Dropdown:new({ rect = {x = dbgX, y = currentY, w = dbgW, h = 25}, state = debug.employeeDropdown }))
+   currentY = currentY + 35
+   
+   local chkW = 80
+   table.insert(debugComponents, Checkbox:new({ rect = {x=dbgX, y=currentY, w=chkW, h=20}, label="Remote", state=debug.checkboxes.remote, onToggle=function(c) if c then debug.checkboxes.foil.checked=false; debug.checkboxes.holo.checked=false end end }))
+   table.insert(debugComponents, Checkbox:new({ rect = {x=dbgX + chkW + 10, y=currentY, w=chkW, h=20}, label="Foil", state=debug.checkboxes.foil, onToggle=function(c) if c then debug.checkboxes.remote.checked=false; debug.checkboxes.holo.checked=false end end }))
+   table.insert(debugComponents, Checkbox:new({ rect = {x=dbgX + (chkW + 10) * 2, y=currentY, w=chkW, h=20}, label="Holo", state=debug.checkboxes.holo, onToggle=function(c) if c then debug.checkboxes.remote.checked=false; debug.checkboxes.foil.checked=false end end }))
+   currentY = currentY + 30
+   
+   table.insert(debugComponents, Button:new({ rect = {x=dbgX, y=currentY, w=dbgW, h=30}, text="Spawn Employee in Shop", style="secondary", onClick=function() local sel=debug.employeeDropdown.options[debug.employeeDropdown.selected].id; local v="standard"; if debug.checkboxes.remote.checked then v="remote" elseif debug.checkboxes.foil.checked then v="foil" elseif debug.checkboxes.holo.checked then v="holo" end; Shop:forceAddEmployeeOffer(gameState.currentShopOffers, sel, v); buildUIComponents() end }))
+   currentY = currentY + 50 + 20
+   
+   table.insert(debugComponents, Dropdown:new({ rect = {x = dbgX, y = currentY, w = dbgW, h = 25}, state = debug.upgradeDropdown }))
+   currentY = currentY + 35
+   
+   table.insert(debugComponents, Button:new({ rect = {x=dbgX, y=currentY, w=dbgW, h=30}, text="Spawn Upgrade in Shop", style="secondary", onClick=function() local sel=debug.upgradeDropdown.options[debug.upgradeDropdown.selected].id; Shop:forceAddUpgradeOffer(gameState.currentShopOffers, sel); buildUIComponents() end }))
+   currentY = currentY + 50
+   
+   local smallBtnW = (dbgW - 10) / 2
+   table.insert(debugComponents, Button:new({ rect = {x=dbgX, y=currentY, w=smallBtnW, h=30}, text="+ $1000", style="primary", onClick=function() gameState.budget=gameState.budget+1000 end }))
+   table.insert(debugComponents, Button:new({ rect = {x=dbgX + smallBtnW + 10, y=currentY, w=smallBtnW, h=30}, text="- $1000", style="primary", onClick=function() gameState.budget=gameState.budget-1000 end }))
+   currentY = currentY + 35
+   
+   table.insert(debugComponents, Button:new({ rect = {x=dbgX, y=currentY, w=dbgW, h=30}, text="Restock Shop", style="warning", onClick=function() Shop:attemptRestock(gameState) end }))
+   currentY = currentY + 35
+   
+   table.insert(debugComponents, Button:new({ rect = {x=dbgX, y=currentY, w=smallBtnW, h=30}, text="<< Prev Item", style="info", onClick=function() gameState.currentWorkItemIndex=gameState.currentWorkItemIndex-1; if gameState.currentWorkItemIndex<1 then gameState.currentSprintIndex=math.max(1,gameState.currentSprintIndex-1); gameState.currentWorkItemIndex=3 end; setGamePhase("hiring_and_upgrades") end }))
+   table.insert(debugComponents, Button:new({ rect = {x=dbgX+smallBtnW+10, y=currentY, w=smallBtnW, h=30}, text="Next Item >>", style="info", onClick=function() gameState.currentWorkItemIndex=gameState.currentWorkItemIndex+1; if gameState.currentWorkItemIndex>3 then gameState.currentWorkItemIndex=1; gameState.currentSprintIndex=math.min(#GameData.ALL_SPRINTS,gameState.currentSprintIndex+1) end; setGamePhase("hiring_and_upgrades") end }))
+   
+   setGamePhase("hiring_and_upgrades")
+   Placement:updateDeskAvailability(gameState.desks)
+   love.math.setRandomSeed(os.time() + love.timer.getTime())
 end
 
 function definePanelRects()
@@ -228,11 +440,22 @@ function definePanelRects()
     end
 end
 
+-- Updated love.update function in main.lua
 function love.update(dt)
-    InputHandler.update(dt) -- This line runs the key-hold detection logic
-    if gameState.gamePhase == "battle_active" then
-        updateBattle(dt)
-    end
+    InputHandler.update(dt)
+    local context = {
+        panelRects = panelRects,
+        uiElementRects = uiElementRects,
+        draggedItemState = draggedItemState,
+        sprintOverviewState = sprintOverviewState,
+        updateBattle = updateBattle,
+        buildUIComponents = buildUIComponents,
+        setGamePhase = setGamePhase,
+        getEmployeeFromGameState = getEmployeeFromGameState,
+        Placement = Placement,
+        Shop = Shop
+    }
+    stateManager:update(dt, gameState, battleState, context)
 end
 
 function love.keypressed(key)
@@ -240,15 +463,69 @@ function love.keypressed(key)
 end
 
 function love.mousewheelmoved(x, y)
-    InputHandler.onMouseWheelMoved(x, y)
+    if debugMenuState.isVisible then
+        for _, component in ipairs(debugComponents) do
+            if component.handleMouseWheel and component:handleMouseWheel(y) then
+                return -- Stop after the first component handles the scroll
+            end
+        end
+    end
 end
 
 function love.mousepressed(x, y, button, istouch, presses)
+    if debugMenuState.isVisible then
+        local aDropdownIsHandlingInput = false
+        for _, component in ipairs(debugComponents) do
+            if component.state and component.state.isOpen and component.handleMousePress then
+                if component:handleMousePress(x, y, button) then
+                    aDropdownIsHandlingInput = true
+                    break
+                end
+            end
+        end
+        if aDropdownIsHandlingInput then return end
+
+        for i = #debugComponents, 1, -1 do
+            local component = debugComponents[i]
+            if not (component.state and component.state.isOpen) then
+                if component.handleMousePress and component:handleMousePress(x, y, button) then
+                    return 
+                end
+            end
+        end
+        if Drawing.isMouseOver(x,y,debug.rect.x, debug.rect.y, debug.rect.w, debug.rect.h) then return end
+    end
+    
+    if sprintOverviewState.isVisible then
+        if sprintOverviewRects.backButton and Drawing.isMouseOver(x, y, sprintOverviewRects.backButton.x, sprintOverviewRects.backButton.y, sprintOverviewRects.backButton.w, sprintOverviewRects.backButton.h) then
+            sprintOverviewState.isVisible = false
+        end
+        return
+    end
+
+    if Drawing.modal.isVisible and Drawing.handleModalClick(x, y) then return end
+
+    -- Create context for state manager
+    local context = {
+        uiComponents = uiComponents,
+        panelRects = panelRects,
+        uiElementRects = uiElementRects,
+        draggedItemState = draggedItemState,
+        Shop = Shop,
+        Placement = Placement
+    }
+    
+    -- Use state manager for input handling
+    if stateManager:handleInput(x, y, button, gameState, battleState, context) then
+        return
+    end
+    
+    -- Fallback to the old handler for things not yet componentized
     InputHandler.onMousePress(x, y, button)
 end
 
 function love.mousereleased(x, y, button, istouch)
-    InputHandler.onMouseRelease(x, y, button)
+    onMouseRelease(x, y, button)
 end
 
 function love.draw()
@@ -256,24 +533,41 @@ function love.draw()
     love.graphics.clear()
 
     tooltipsToDraw = {}
-    Drawing.tooltipsToDraw = tooltipsToDraw -- Pass to Drawing module
+    Drawing.tooltipsToDraw = tooltipsToDraw 
     
     uiElementRects.shopLockButtons = {}
 
-    local draggedItem = draggedItemState.item 
-
-    Drawing.drawRemoteWorkersPanel(panelRects.remoteWorkers, gameState, uiElementRects, draggedItem, battleState)
-    Drawing.drawGameInfoPanel(panelRects.gameInfo, gameState, uiElementRects, sprintOverviewState.isVisible)
-    Drawing.drawWorkloadBar(panelRects.workloadBar, gameState, battleState)
-    Drawing.drawShopPanel(panelRects.shop, gameState, uiElementRects, draggedItem, Shop)
-    Drawing.drawMainInteractionPanel(panelRects.mainInteraction, gameState, uiElementRects, draggedItem, battleState, Placement, {overlaysToDraw = overlaysToDraw, tooltipsToDraw = tooltipsToDraw}) 
-    Drawing.drawPurchasedUpgradesDisplay(panelRects.purchasedUpgradesDisplay, gameState, uiElementRects)
+    -- Create context for state manager
+    local context = {
+        panelRects = panelRects,
+        uiElementRects = uiElementRects,
+        draggedItemState = draggedItemState,
+        sprintOverviewState = sprintOverviewState,
+        Placement = Placement,
+        Shop = Shop
+    }
     
-    if draggedItem then
-        local itemDataToDraw = draggedItem.data
+    -- Use state manager for drawing
+    stateManager:draw(gameState, battleState, context)
+    
+    for _, component in ipairs(uiComponents) do
+        if component.draw then component:draw() end
+    end
+    
+    if debugMenuState.isVisible then
+        Drawing.drawDebugMenu(debug)
+        for _, component in ipairs(debugComponents) do
+            if component.draw then component:draw() end
+        end
+        for _, component in ipairs(debugComponents) do
+            if component.drawOpenList then component:drawOpenList() end
+        end
+    end
+    
+    if draggedItemState.item then
+        local itemDataToDraw = draggedItemState.item.data
         if itemDataToDraw then 
             local mouseX, mouseY = love.mouse.getPosition()
-            -- MODIFICATION: Pass uiElementRects to the dragged item's card drawing function
             Drawing.drawEmployeeCard(itemDataToDraw, mouseX - 40, mouseY - 50, 80, 100, "dragged", gameState, battleState, tooltipsToDraw, Drawing.foilShader, Drawing.holoShader, uiElementRects)
         end
     end
@@ -319,12 +613,8 @@ function love.draw()
     end
 
     Drawing.drawSprintOverviewPanel(sprintOverviewRects, sprintOverviewState.isVisible, gameState)
-
+    
     Drawing.drawModal()
-
-    if debugMenuState.isVisible then
-        Drawing.drawDebugMenu(debug, Drawing.foilShader, Drawing.holoShader)
-    end
 end
 
 function updateBattle(dt)
@@ -498,7 +788,7 @@ function updateBattle(dt)
             battleState.chipTimer = 0
             battleState.phase = 'chipping_salaries'
         else
-            local roundResult = Battle:endWorkCycleRound(gameState, 0)
+            local roundResult = Battle:endWorkCycleRound(gameState, 0, Drawing.showModal)
             if roundResult == "lost_budget" then setGamePhase("game_over"); return end
             if roundResult == "lost_bailout" then 
                  local currentSprintData = GameData.ALL_SPRINTS[gameState.currentSprintIndex]; if currentSprintData then local currentWorkItemData = currentSprintData.workItems[gameState.currentWorkItemIndex]; if currentWorkItemData then gameState.currentWeekWorkload = currentWorkItemData.workload; gameState.initialWorkloadForBar = currentWorkItemData.workload; end; end
@@ -522,7 +812,7 @@ function updateBattle(dt)
                  battleState.chipTimer = battleState.chipTimer - (chipsToProcess / battleState.chipSpeed)
              end
         else
-            local roundResult = Battle:endWorkCycleRound(gameState, battleState.salariesToPayThisRound)
+            local roundResult = Battle:endWorkCycleRound(gameState, battleState.salariesToPayThisRound, Drawing.showModal)
             if roundResult == "lost_budget" then setGamePhase("game_over"); return end
             if roundResult == "lost_bailout" then 
                  local currentSprintData = GameData.ALL_SPRINTS[gameState.currentSprintIndex]; if currentSprintData then local currentWorkItemData = currentSprintData.workItems[gameState.currentWorkItemIndex]; if currentWorkItemData then gameState.currentWeekWorkload = currentWorkItemData.workload; gameState.initialWorkloadForBar = currentWorkItemData.workload; end; end
@@ -542,106 +832,6 @@ function updateBattle(dt)
         end
     end
 end
-
-
-function assimilateTeamIntoBorg(gameState)
-    if #gameState.hiredEmployees == 0 then
-        Drawing.showModal("Assimilation Failed", "There is no one to assimilate.")
-        return
-    end
-
-    local totalProd, totalFocus = 0, 0
-    for _, emp in ipairs(gameState.hiredEmployees) do
-        totalProd = totalProd + emp.baseProductivity
-        totalFocus = totalFocus + emp.baseFocus
-    end
-
-    gameState.hiredEmployees = {}
-    gameState.deskAssignments = {}
-
-    local borgDrone = Employee:new('borg_drone', 'standard', "Borg Drone")
-    borgDrone.baseProductivity = totalProd
-    borgDrone.baseFocus = totalFocus
-    
-    table.insert(gameState.hiredEmployees, borgDrone)
-    Placement:handleEmployeeDropOnDesk(gameState, borgDrone, "desk-4", nil)
-
-    Drawing.showModal("Resistance is Futile", "Your team has been assimilated into a single Borg Drone. You are now the Hivemind.")
-end
-_G.assimilateTeamIntoBorg = assimilateTeamIntoBorg -- Make global for Shop module
-
-function performMultiverseMerger(gameState)
-    local confirmSwap = function()
-        local numEmployees = #gameState.hiredEmployees
-        if numEmployees == 0 then
-            Drawing.showModal("Merger Failed", "There is no team to merge with the multiverse.")
-            return
-        end
-        
-        gameState.hiredEmployees = {}
-        gameState.deskAssignments = {}
-        
-        local newTeam = {}
-        for i = 1, numEmployees do
-            table.insert(newTeam, Shop:_generateRandomEmployeeOffer())
-        end
-        
-        gameState.hiredEmployees = newTeam
-
-        local officeWorkers = {}
-        for _, emp in ipairs(gameState.hiredEmployees) do
-            if emp.variant ~= 'remote' then
-                table.insert(officeWorkers, emp)
-            end
-        end
-
-        for _, desk in ipairs(gameState.desks) do
-            if #officeWorkers == 0 then break end
-            if desk.status == 'owned' then
-                local worker = table.remove(officeWorkers, 1)
-                Placement:handleEmployeeDropOnDesk(gameState, worker, desk.id, nil)
-            end
-        end
-
-        gameState.temporaryEffectFlags.multiverseMergerAvailable = false
-        Drawing.showModal("Worlds Collide!", "Your team has been swapped with one from an alternate reality!")
-    end
-
-    Drawing.showModal("Confirm Merger", "Are you sure you want to swap your entire team with a random one from another dimension? This cannot be undone.", {
-        {text = "Yes, Do It!", onClick = confirmSwap, style="danger"},
-        {text = "No, Too Risky", onClick = function() Drawing.hideModal() end, style="primary"}
-    })
-end
-
-function enactCorporatePersonhood(gameState)
-    -- Evict anyone from the center desk to make room
-    if gameState.deskAssignments['desk-4'] then
-        local evictedEmployee = getEmployeeFromGameState(gameState, gameState.deskAssignments['desk-4'])
-        if evictedEmployee then
-            evictedEmployee.variant = 'remote' -- Move them to remote as a fallback
-            evictedEmployee.deskId = nil
-            Drawing.showModal("Eviction Notice", evictedEmployee.name .. " was moved to remote work to make way for The Corporation.")
-        end
-        gameState.deskAssignments['desk-4'] = nil
-    end
-
-    -- Create the corporation as a new, permanent employee
-    local corporation = Employee:new('corporate_personhood_employee', 'standard', "The Corporation")
-    if corporation then
-        -- Calculate its initial stats
-        local ownedDesks = Placement:getOwnedDeskCount(gameState)
-        corporation.baseProductivity = (ownedDesks * 20) + (#gameState.purchasedPermanentUpgrades * 10)
-        corporation.baseFocus = 1.0 + (ownedDesks * 0.1)
-
-        table.insert(gameState.hiredEmployees, corporation)
-        Placement:handleEmployeeDropOnDesk(gameState, corporation, "desk-4", nil)
-        Drawing.showModal("Manifestation!", "The Office itself has become a sentient entity, taking its rightful place at the center of power.")
-    else
-        print("ERROR: Corporate Personhood is owned, but could not create 'corporate_personhood_employee'. Check its definition in data.lua.")
-    end
-end
-_G.enactCorporatePersonhood = enactCorporatePersonhood -- Make global for Shop module
-
 
 function handleWinCondition()
     local currentSprint = GameData.ALL_SPRINTS[gameState.currentSprintIndex]
@@ -768,94 +958,47 @@ function setGamePhase(newPhase)
     GameState:setGamePhase(gameState, newPhase)
     print("Game phase transitioned from " .. oldPhase .. " to " .. newPhase)
 
-    if newPhase == "hiring_and_upgrades" then 
-        if gameState.currentShopOffers and gameState.currentShopOffers.restockCountThisWeek == 0 then
-            Shop:populateOffers(gameState.currentShopOffers, gameState.purchasedPermanentUpgrades, false)
-        end
-        draggedItemState.item = nil 
+    -- Create context for state manager
+    local context = {
+        panelRects = panelRects,
+        uiElementRects = uiElementRects,
+        draggedItemState = draggedItemState,
+        sprintOverviewState = sprintOverviewState,
+        buildUIComponents = buildUIComponents,
+        setGamePhase = setGamePhase,
+        getEmployeeFromGameState = getEmployeeFromGameState,
+        Placement = Placement,
+        Shop = Shop,
+        updateBattle = updateBattle
+    }
     
-    elseif newPhase == "battle_active" then
-        battleState = {
-            activeEmployees = {}, nextEmployeeIndex = 1, currentWorkerId = nil,
-            lastContribution = nil, phase = 'idle', timer = 0, isShaking = false,
-            chipAmountRemaining = 0, chipSpeed = 100, chipTimer = 0,
-            roundTotalContribution = 0, lastRoundContributions = {},
-            changedEmployeesForAnimation = {}, nextChangedEmployeeIndex = 1,
-            progressMarkers = {}
-        }
-        _G.battleState = battleState
+    -- Use state manager to change state
+    stateManager:changeState(newPhase, gameState, battleState, context)
+    
+    draggedItemState.item = nil 
+    
+    -- Always rebuild the UI to match the new game state
+    buildUIComponents()
+end
 
-        gameState.currentWeekCycles = 0
-        gameState.totalSalariesPaidThisWeek = 0
-        
-        local placed, remote = {}, {}
-        local topRowDeskIds = {"desk-0", "desk-1", "desk-2"}
-
-        for _, emp in ipairs(gameState.hiredEmployees) do
-            local isDisabled = false
-            if emp.isTraining then isDisabled = true end
-            if emp.special and emp.special.does_not_work then isDisabled = true end
-            if emp.special and emp.special.type == 'ron_swanson_behavior' and gameState.budget > emp.special.upper_budget_threshold then
-                isDisabled = true; print(emp.name .. " refuses to work; the government has too much money.")
-            end
-            if gameState.temporaryEffectFlags.isRemoteWorkDisabled and emp.variant == 'remote' then isDisabled = true end
-            if gameState.temporaryEffectFlags.isTopRowDisabled and emp.deskId then
-                for _, topDeskId in ipairs(topRowDeskIds) do if emp.deskId == topDeskId then isDisabled = true; break end end
-            end
-            if not isDisabled then
-                if emp.variant == 'remote' then table.insert(remote, emp) 
-                elseif emp.deskId then table.insert(placed, emp)
-                end
-            end
-        end
-        table.sort(placed, function(a, b) return (tonumber(string.match(a.deskId, "desk%-(%d+)")) or 99) < (tonumber(string.match(b.deskId, "desk%-(%d+)")) or 99) end)
-        
-        battleState.activeEmployees = {}; for _, emp in ipairs(placed) do table.insert(battleState.activeEmployees, emp) end; for _, emp in ipairs(remote) do table.insert(battleState.activeEmployees, emp) end
-        
-        if Shop:isUpgradePurchased(gameState.purchasedPermanentUpgrades, 'focus_funnel', gameState) and #battleState.activeEmployees > 0 then
-            local target = battleState.activeEmployees[love.math.random(#battleState.activeEmployees)]
-            gameState.temporaryEffectFlags.focusFunnelTargetId = target.instanceId
-            print(target.name .. " is the Focus Funnel target for this item.")
-        end
-
-        local lumberghs = {}; for _, emp in ipairs(gameState.hiredEmployees) do if emp.special and emp.special.type == 'forces_double_work' then table.insert(lumberghs, emp); end; end
-        if #lumberghs > 0 then
-            for _, lumbergh in ipairs(lumberghs) do
-                local victims = {}
-                if lumbergh.deskId then
-                    local directions = {"up", "down", "left", "right"}; for _, dir in ipairs(directions) do local neighborDeskId = Employee:getNeighboringDeskId(lumbergh.deskId, dir, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, gameState.desks); if neighborDeskId and gameState.deskAssignments[neighborDeskId] then local neighbor = getEmployeeFromGameState(gameState, gameState.deskAssignments[neighborDeskId]); if neighbor then table.insert(victims, neighbor) end; end; end
-                    for _, victim in ipairs(victims) do for i = 1, (lumbergh.level or 1) do table.insert(battleState.activeEmployees, victim); end; end
-                elseif lumbergh.variant == 'remote' then
-                    local potentialVictims = {}; for _, e in ipairs(remote) do if e.instanceId ~= lumbergh.instanceId then table.insert(potentialVictims, e) end end
-                    for i = 1, 2 do if #potentialVictims > 0 then local victim = table.remove(potentialVictims, love.math.random(#potentialVictims)); for j = 1, (lumbergh.level or 1) do table.insert(battleState.activeEmployees, victim); end; end; end
-                end
-            end
-        end
-        local agileCoach = nil; for _, emp in ipairs(gameState.hiredEmployees) do if emp.special and emp.special.type == 'randomize_work_order' then agileCoach = emp; break; end; end
-        if agileCoach and #battleState.activeEmployees > 0 then
-            for i = #battleState.activeEmployees, 2, -1 do local j = love.math.random(i); battleState.activeEmployees[i], battleState.activeEmployees[j] = battleState.activeEmployees[j], battleState.activeEmployees[i]; end
-            if battleState.activeEmployees[1] then battleState.activeEmployees[1].agileFirstTurnBoost = agileCoach.special.first_worker_mult; print("Agile Coach randomized work order. First worker is " .. battleState.activeEmployees[1].name); end
-        end
-        
-        if #battleState.activeEmployees == 0 then
-            Drawing.showModal("Stuck!", "No employees available to work. Any staff in training will be ready next cycle.")
-            safeTimerAfter(1.0, function()
-                local result = Battle:endWorkCycleRound(gameState, 0)
-                if result == "lost_budget" then setGamePhase("game_over") elseif result == "lost_bailout" then setGamePhase("hiring_and_upgrades") end
-            end)
-        end
+function getEmployeeFromGameState(gs, instanceId)
+    if not gs or not gs.hiredEmployees or not instanceId then return nil end
+    for _, emp in ipairs(gs.hiredEmployees) do
+        if emp.instanceId == instanceId then return emp end
     end
+    return nil
 end
 
 function resetGameAndGlobals()
     print("Resetting game and globals...")
     gameState = GameState:new()
-    _G.gameState = gameState
     draggedItemState.item = nil
+    
+    -- Reset the state manager
+    stateManager = StateManager:new()
+    
     setGamePhase("hiring_and_upgrades") 
     print("Game reset complete.")
 end
 
-_G.setGamePhase = setGamePhase
-_G.Placement = Placement -- Make Placement global for Drawing module to access
-_G.Shop = Shop -- Make Shop global for Drawing module to access
+_G.buildUIComponents = buildUIComponents

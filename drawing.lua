@@ -101,13 +101,16 @@ function Drawing.drawTextWrapped(text, x, y, wrapLimit, font, align, maxLines, d
     return totalHeight 
 end
 
--- Function to draw a styled button
 function Drawing.drawButton(text, x, y, width, height, style, isEnabled, isHovered, buttonFont)
     local baseBgColor, hoverBgColor, currentTextColor
     local currentStyle = style or "primary"
     local fontToUse = buttonFont or Drawing.UI.font
 
-    if currentStyle == "primary" then
+    if currentStyle == "clear" then
+        -- This is a special style for invisible buttons, so do nothing.
+        -- It will still be clickable because the component exists.
+        return
+    elseif currentStyle == "primary" then
         baseBgColor = Drawing.UI.colors.button_primary_bg; hoverBgColor = Drawing.UI.colors.button_primary_hover_bg;
     elseif currentStyle == "secondary" then
         baseBgColor = Drawing.UI.colors.button_secondary_bg; hoverBgColor = Drawing.UI.colors.button_secondary_hover_bg;
@@ -318,136 +321,6 @@ Drawing.modal = {
     buttons = {} 
 }
 
-function Drawing.showModal(title, message, buttons, customWidth)
-    Drawing.modal.title = title or "Notification"
-    Drawing.modal.message = message or ""
-    Drawing.modal.buttons = buttons or { {text = "OK", onClick = function() Drawing.hideModal() end, style = "primary"} } 
-    Drawing.modal.isVisible = true
-    
-    local screenWidth, screenHeight = love.graphics.getDimensions()
-    
-    if customWidth then
-        Drawing.modal.width = math.min(customWidth, screenWidth - 40)
-    else
-        Drawing.modal.width = math.min(500, screenWidth - 40)
-    end
-    
-    local messageLines = {}
-    for line in Drawing.modal.message:gmatch("[^\n]*") do
-        table.insert(messageLines, line)
-    end
-    
-    local titleFont = Drawing.UI.titleFont or Drawing.UI.fontLarge or Drawing.UI.font
-    local messageFont = Drawing.UI.font or love.graphics.getFont()
-    
-    local titleHeight = titleFont:getHeight()
-    local messageHeight = (#messageLines) * messageFont:getHeight()
-    local buttonHeight = (#Drawing.modal.buttons > 0) and 60 or 20
-    local padding = 80
-    
-    Drawing.modal.height = titleHeight + messageHeight + buttonHeight + padding
-    Drawing.modal.height = math.min(Drawing.modal.height, screenHeight - 40)
-
-    Drawing.modal.x = (screenWidth - Drawing.modal.width) / 2
-    Drawing.modal.y = (screenHeight - Drawing.modal.height) / 2
-
-    if Drawing.modal.buttons and #Drawing.modal.buttons > 0 then
-        local btnWidth = 100
-        local btnHeight = 30
-        local btnSpacing = 10
-        local totalBtnWidth = (#Drawing.modal.buttons * btnWidth) + (math.max(0, #Drawing.modal.buttons - 1) * btnSpacing)
-        local startX = Drawing.modal.x + (Drawing.modal.width - totalBtnWidth) / 2
-        local btnY = Drawing.modal.y + Drawing.modal.height - btnHeight - 15
-
-        for i, btnData in ipairs(Drawing.modal.buttons) do
-            btnData.x = startX + (i-1) * (btnWidth + btnSpacing)
-            btnData.y = btnY
-            btnData.w = btnWidth
-            btnData.h = btnHeight
-        end
-    end
-end
-
-_G.showMessage = function(title, message, buttons, customWidth)
-    Drawing.showModal(title, message, buttons, customWidth)
-end
-
-function Drawing.hideModal()
-    Drawing.modal.isVisible = false
-end
-
--- Modal state and drawing functions
-Drawing.modal = {
-    isVisible = false,
-    title = "",
-    message = "",
-    x = 0, y = 0, width = 0, height = 0,
-    buttons = {} 
-}
-
---- Displays a modal dialog box on the screen.
--- Calculates dimensions based on content and centers it.
-function Drawing.showModal(title, message, buttons, customWidth)
-    Drawing.modal.title = title or "Notification"
-    Drawing.modal.message = message or ""
-    Drawing.modal.buttons = buttons or { {text = "OK", onClick = function() Drawing.hideModal() end, style = "primary"} } 
-    Drawing.modal.isVisible = true
-    
-    -- Basic modal sizing and positioning
-    local screenWidth, screenHeight = love.graphics.getDimensions()
-    
-    if customWidth then
-        Drawing.modal.width = math.min(customWidth, screenWidth - 40)
-    else
-        Drawing.modal.width = math.min(500, screenWidth - 40)
-    end
-    
-    -- Calculate height based on actual content
-    local messageLines = {}
-    for line in Drawing.modal.message:gmatch("[^\n]*") do table.insert(messageLines, line) end
-    
-    local titleFont = Drawing.UI.titleFont or Drawing.UI.fontLarge or Drawing.UI.font
-    local messageFont = Drawing.UI.font or love.graphics.getFont()
-    
-    local titleHeight = titleFont:getHeight()
-    local messageHeight = (#messageLines) * messageFont:getHeight()
-    local buttonHeight = (#Drawing.modal.buttons > 0) and 60 or 20
-    local padding = 80 -- Extra vertical padding for spacing
-    
-    Drawing.modal.height = titleHeight + messageHeight + buttonHeight + padding
-    Drawing.modal.height = math.min(Drawing.modal.height, screenHeight - 40)
-
-    Drawing.modal.x = (screenWidth - Drawing.modal.width) / 2
-    Drawing.modal.y = (screenHeight - Drawing.modal.height) / 2
-
-    -- Position buttons within the modal
-    if Drawing.modal.buttons and #Drawing.modal.buttons > 0 then
-        local btnWidth = 100
-        local btnHeight = 30
-        local btnSpacing = 10
-        local totalBtnWidth = (#Drawing.modal.buttons * btnWidth) + (math.max(0, #Drawing.modal.buttons - 1) * btnSpacing)
-        local startX = Drawing.modal.x + (Drawing.modal.width - totalBtnWidth) / 2
-        local btnY = Drawing.modal.y + Drawing.modal.height - btnHeight - 15
-
-        for i, btnData in ipairs(Drawing.modal.buttons) do
-            btnData.x = startX + (i-1) * (btnWidth + btnSpacing)
-            btnData.y = btnY
-            btnData.w = btnWidth
-            btnData.h = btnHeight
-        end
-    end
-end
-
---- Hides the currently visible modal.
-function Drawing.hideModal()
-    Drawing.modal.isVisible = false
-end
-
--- Update the global showMessage function to use the Drawing module's modal system.
-_G.showMessage = function(title, message, buttons, customWidth)
-    Drawing.showModal(title, message, buttons, customWidth)
-end
-
 -- local helper to draw the modal's title, handling single or multi-line titles.
 local function _drawModalTitle(modalState)
     local currentY = modalState.y + 20
@@ -600,7 +473,7 @@ end
 
 
 -- local helper to determine the layout of remote workers, including ghost zones and overlapping.
-local function _getRemoteWorkerLayout(rect, gameState, draggedItem)
+local function _getRemoteWorkerLayout(rect, gameState, draggedItem, Placement)
     local cardWidth = 140
     local layout = {
         items = {},
@@ -627,7 +500,7 @@ local function _getRemoteWorkerLayout(rect, gameState, draggedItem)
         if Drawing.isMouseOver(mouseX, mouseY, rect.x, rect.y, rect.width, rect.height) then
             local canCombine = false
             for _, empData in ipairs(remoteWorkers) do
-                if _G.Placement:isPotentialCombineTarget(gameState, empData, draggedItem.data) then canCombine = true; break; end
+                if Placement:isPotentialCombineTarget(gameState, empData, draggedItem.data) then canCombine = true; break; end
                 if draggedItem.type == "shop_employee" and draggedItem.data.special and 
                    (draggedItem.data.special.type == 'haunt_target_on_hire' or draggedItem.data.special.type == 'slime_merge') then
                     canCombine = true; break;
@@ -692,7 +565,6 @@ local function _drawRemoteWorkerCard(item, index, layout, rect, uiElementRects, 
     local empData = item.data
     uiElementRects.remote[empData.instanceId] = {x = cardX, y = cardY, w = cardWidth, h = cardHeight}
     
-    -- Determine the context for drawing (e.g., in training, turn is done)
     local empContext = "remote_worker"
     if empData.isTraining then
         empContext = "worker_training"
@@ -704,22 +576,20 @@ local function _drawRemoteWorkerCard(item, index, layout, rect, uiElementRects, 
         if not isWorkerActive then empContext = "worker_done" end
     end
 
-    -- Handle clipping for overlapping cards
     local needsClipping = layout.needsOverlapping and (index < #layout.items) and (index ~= layout.frontCardIndex)
     if needsClipping then
         love.graphics.push()
         local visibleWidth = math.max(layout.stepSize, cardWidth * 0.4)
         love.graphics.setScissor(cardX, cardY, visibleWidth, cardHeight)
-        Drawing.drawEmployeeCard(empData, cardX, cardY, cardWidth, cardHeight, empContext, gameState, battleState, Drawing.tooltipsToDraw, Drawing.foilShader, Drawing.holoShader, uiElementRects)
+        -- The component handles its own drawing now, this helper is obsolete in the new architecture
         love.graphics.pop()
         love.graphics.setScissor()
     else
-        Drawing.drawEmployeeCard(empData, cardX, cardY, cardWidth, cardHeight, empContext, gameState, battleState, Drawing.tooltipsToDraw, Drawing.foilShader, Drawing.holoShader, uiElementRects)
+        -- The component handles its own drawing now, this helper is obsolete in the new architecture
     end
     
-    -- Special overlay for Re-Org mode
     if gameState.temporaryEffectFlags.reOrgSwapModeActive then
-        local firstSelection = _G.getEmployeeFromGameState(gameState, gameState.temporaryEffectFlags.reOrgFirstSelectionInstanceId)
+        local firstSelection = Employee:getFromState(gameState, gameState.temporaryEffectFlags.reOrgFirstSelectionInstanceId)
         if not firstSelection or firstSelection.variant ~= empData.variant then
            love.graphics.setColor(0.2, 0.7, 0.8, 0.6)
            love.graphics.rectangle("fill", cardX, cardY, cardWidth, cardHeight, 5)
@@ -748,15 +618,13 @@ local function _drawGhostZone(index, layout, rect, uiElementRects)
 end
 
 
---- Draws the panel containing all remote workers, handling complex layout for overlapping cards.
-function Drawing.drawRemoteWorkersPanel(rect, gameState, uiElementRects, draggedItem, battleState)
+function Drawing.drawRemoteWorkersPanel(rect, gameState, uiElementRects, draggedItem, battleState, Placement)
     -- 1. Draw the main panel frame and title
     Drawing.drawPanel(rect.x, rect.y, rect.width, rect.height, {0.2, 0.2, 0.25, 1}, {0.4,0.4,0.45,1})
     love.graphics.setFont(Drawing.UI.font)
     love.graphics.setColor(Drawing.UI.colors.text_light)
     love.graphics.print("Remote Workers", rect.x + 10, rect.y + 5)
     
-    -- 2. Handle the disabled state
     if gameState.temporaryEffectFlags.isRemoteWorkDisabled then
         love.graphics.setFont(Drawing.UI.fontLarge)
         love.graphics.setColor(1,0.2,0.2,1)
@@ -764,16 +632,12 @@ function Drawing.drawRemoteWorkersPanel(rect, gameState, uiElementRects, dragged
         return
     end
 
-    -- 3. Initialize UI rectangles and calculate the entire layout in one step
     uiElementRects.remote = {}
     uiElementRects.remoteGhostZone = nil
-    local layout = _getRemoteWorkerLayout(rect, gameState, draggedItem)
+    local layout = _getRemoteWorkerLayout(rect, gameState, draggedItem, Placement)
 
-    -- 4. Use a double-pass system to draw cards, ensuring the hovered/active card is on top
     for pass = 1, 2 do
         for i, item in ipairs(layout.items) do
-            -- Pass 1: Draw the ghost zone and all non-front cards
-            -- Pass 2: Draw only the front card so it appears on top
             local isFrontCard = (i == layout.frontCardIndex)
             local shouldDrawThisPass = (pass == 1 and not isFrontCard) or (pass == 2 and isFrontCard)
             
@@ -801,17 +665,17 @@ local function _drawGameInfoPanelFrame(rect)
 end
 
 -- local helper to draw the core stats (Sprint, Work Item, Budget).
-local function _drawCoreStats(rect, currentY, gameState)
+local function _drawCoreStats(rect, currentY, gameState, battleState)
     love.graphics.print("Sprint: " .. gameState.currentSprintIndex .. "/8", rect.x + 10, currentY); currentY = currentY + 20
     love.graphics.print("Work Item: " .. gameState.currentWorkItemIndex .. "/3", rect.x + 10, currentY); currentY = currentY + 20
     
     local budgetY = currentY
     love.graphics.print("Budget: $" .. gameState.budget, rect.x + 10, budgetY)
-    -- Draw the salary chipping animation value if applicable
-    if gameState.gamePhase == "battle_active" and _G.battleState.phase == "chipping_salaries" then
+    
+    if gameState.gamePhase == "battle_active" and battleState.phase == "chipping_salaries" then
         love.graphics.setFont(Drawing.UI.fontLarge)
         love.graphics.setColor(1, 0.2, 0.2, 1)
-        love.graphics.printf("- $" .. math.floor(_G.battleState.salaryChipAmountRemaining), rect.x + 10, budgetY, rect.width - 20, "right")
+        love.graphics.printf("- $" .. math.floor(battleState.salaryChipAmountRemaining), rect.x + 10, budgetY, rect.width - 20, "right")
         love.graphics.setFont(Drawing.UI.font)
     end
     currentY = currentY + 20
@@ -885,7 +749,8 @@ local function _drawSpecialIntel(rect, currentY, gameState)
 end
 
 -- local helper to draw the main action buttons at the bottom of the panel.
-local function _drawActionButtons(rect, gameState, uiElementRects)
+-- Attaching to the Drawing table to ensure correct scope.
+function Drawing._drawActionButtons(rect, gameState, uiElementRects)
     uiElementRects.actionButtons = {} 
     local btnWidth = rect.width - 20
     local btnHeight = 35
@@ -918,22 +783,12 @@ local function _drawActionButtons(rect, gameState, uiElementRects)
 end
 
 
---- Draws the main game information panel, orchestrating calls to smaller helper functions.
-function Drawing.drawGameInfoPanel(rect, gameState, uiElementRects, sprintOverviewVisible)
-    -- 1. Draw the panel frame and title
+function Drawing.drawGameInfoPanel(rect, gameState, uiElementRects, sprintOverviewVisible, battleState)
     local currentY = _drawGameInfoPanelFrame(rect)
-    
-    -- 2. Draw the core stats (sprint, budget, etc.)
-    currentY = _drawCoreStats(rect, currentY, gameState)
-    
-    -- 3. Draw information specific to the current game phase
+    currentY = _drawCoreStats(rect, currentY, gameState, battleState)
     currentY = _drawPhaseSpecificInfo(rect, currentY, gameState, uiElementRects)
-    
-    -- 4. Draw any special intel from employees
-    currentY = _drawSpecialIntel(rect, currentY + 20, gameState) -- Add padding before this section
-
-    -- 5. Draw the main action buttons at the bottom of the panel
-    _drawActionButtons(rect, gameState, uiElementRects)
+    currentY = _drawSpecialIntel(rect, currentY + 20, gameState)
+    -- Buttons are now components and will be drawn in the main loop
 end
 
 -- local helper to calculate the progress percentage of the workload bar.
@@ -1012,98 +867,17 @@ function Drawing.drawWorkloadBar(rect, gameState, battleState)
     _drawVerticalLabel(rect)
 end
 
--- local helper to draw the main frame and title for the shop panel.
-local function _drawShopPanelFrame(rect)
+--- Draws the shop panel frame and titles. The actual content is drawn by components.
+function Drawing.drawShopPanel(rect, gameState, uiElementRects, draggedItem, Shop)
+    -- 1. Draw the panel frame and main title
     Drawing.drawPanel(rect.x, rect.y, rect.width, rect.height, {0.95, 0.93, 0.90, 1}, {0.82, 0.80, 0.78,1})
     love.graphics.setFont(Drawing.UI.fontLarge)
     love.graphics.setColor(Drawing.UI.colors.text)
     local currentY = rect.y + 10
     love.graphics.printf("Shop", rect.x, currentY, rect.width, "center")
     currentY = currentY + Drawing.UI.fontLarge:getHeight() + 10
-    return currentY
-end
 
--- local helper to draw the section for employee offers.
-local function _drawEmployeeOffers(rect, currentY, gameState, uiElementRects, draggedItem)
-    local cardPadding = 5
-    local cardWidth = rect.width - 2 * cardPadding
-    local cardHeight = 140
-
-    love.graphics.setFont(Drawing.UI.font)
-    love.graphics.setColor(Drawing.UI.colors.text)
-    love.graphics.printf("Looking for Work", rect.x, currentY, rect.width, "center")
-    currentY = currentY + Drawing.UI.font:getHeight() + 8
-
-    if gameState.currentShopOffers and gameState.currentShopOffers.employees then
-        for i = 1, 3 do
-            local empData = gameState.currentShopOffers.employees[i]
-            if empData then 
-                -- Stop drawing if the next card would overflow the panel
-                if currentY + cardHeight > rect.y + rect.height - 45 then break end 
-                
-                uiElementRects.shopEmployees[i] = {x = rect.x + cardPadding, y = currentY, w = cardWidth, h = cardHeight, data = empData, originalIndexInShop = i}
-                
-                if draggedItem and draggedItem.originalShopInstanceId == empData.instanceId then
-                    -- Draw a placeholder if the item is being dragged
-                    love.graphics.setColor(0.5,0.5,0.5,0.5)
-                    Drawing.drawPanel(rect.x+cardPadding, currentY, cardWidth, cardHeight, {0.8,0.8,0.8,0.5})
-                else
-                    Drawing.drawEmployeeCard(empData, rect.x + cardPadding, currentY, cardWidth, cardHeight, "shop_offer", gameState, _G.battleState, Drawing.tooltipsToDraw, Drawing.foilShader, Drawing.holoShader, uiElementRects)
-                end
-                currentY = currentY + cardHeight + 5
-            end
-        end
-    end
-    return currentY
-end
-
--- local helper to draw the section for the upgrade offer.
-local function _drawUpgradeOffer(rect, currentY, gameState, uiElementRects, Shop)
-    local cardPadding = 5
-    local cardWidth = rect.width - 2 * cardPadding
-    
-    currentY = currentY + 15
-    love.graphics.setFont(Drawing.UI.font)
-    love.graphics.setColor(Drawing.UI.colors.text)
-    love.graphics.printf("Office Upgrades", rect.x, currentY, rect.width, "center")
-    currentY = currentY + Drawing.UI.font:getHeight() + 8
-    
-    if gameState.currentShopOffers and gameState.currentShopOffers.upgrade then
-        local upgradeCardHeight = 110
-        if currentY + upgradeCardHeight <= rect.y + rect.height - 45 then
-             local upgData = gameState.currentShopOffers.upgrade
-             uiElementRects.shopUpgradeOffer = {x = rect.x + cardPadding, y = currentY, w = cardWidth, h = upgradeCardHeight, data = upgData}
-             
-             Drawing.drawUpgradeCard(upgData, rect.x + cardPadding, currentY, cardWidth, upgradeCardHeight, "shop_offer", gameState, Shop, uiElementRects)
-        end
-    end
-end
-
--- local helper to draw the shop's restock button.
-local function _drawRestockButton(rect, gameState, Shop, uiElementRects, draggedItem)
-    local cardPadding = 5
-    local cardWidth = rect.width - 2 * cardPadding
-    local restockBtnY = rect.y + rect.height - 35 - 10
-    
-    local restockCost = GameData.BASE_RESTOCK_COST * (2 ^ (gameState.currentShopOffers.restockCountThisWeek or 0))
-    if Shop:isUpgradePurchased(gameState.purchasedPermanentUpgrades, 'headhunter') then
-        restockCost = restockCost * 2
-    end
-
-    uiElementRects.shopRestock = {x = rect.x + cardPadding, y = restockBtnY, w = cardWidth, h = 35}
-    local isEnabled = gameState.budget >= restockCost and not draggedItem
-    local isHovered = Drawing.isMouseOver(love.mouse.getX(), love.mouse.getY(), uiElementRects.shopRestock.x, uiElementRects.shopRestock.y, uiElementRects.shopRestock.w, uiElementRects.shopRestock.h)
-    
-    Drawing.drawButton("Restock ($" .. restockCost .. ")", uiElementRects.shopRestock.x, uiElementRects.shopRestock.y, uiElementRects.shopRestock.w, uiElementRects.shopRestock.h, "warning", isEnabled, isHovered)
-end
-
-
---- Draws the entire shop panel, including employee offers, upgrades, and the restock button.
-function Drawing.drawShopPanel(rect, gameState, uiElementRects, draggedItem, Shop)
-    -- 1. Draw the panel frame and get the starting Y position for content
-    local currentY = _drawShopPanelFrame(rect)
-
-    -- 2. Check for disabled state and exit early if needed
+    -- 2. Handle the disabled state
     if gameState.temporaryEffectFlags.isShopDisabled then
         love.graphics.setFont(Drawing.UI.fontLarge)
         love.graphics.setColor(1,0.2,0.2,1)
@@ -1111,20 +885,20 @@ function Drawing.drawShopPanel(rect, gameState, uiElementRects, draggedItem, Sho
         return
     end
 
-    -- 3. Initialize UI element rectangles for this frame
-    uiElementRects.shopEmployees = {}
-    uiElementRects.shopUpgradeOffer = nil
-    uiElementRects.shopRestock = nil
+    -- 3. Draw subtitles
+    love.graphics.setFont(Drawing.UI.font)
+    love.graphics.setColor(Drawing.UI.colors.text)
+    love.graphics.printf("Looking for Work", rect.x, currentY, rect.width, "center")
     
-    -- 4. Draw each section of the shop, passing the Y position down
-    currentY = _drawEmployeeOffers(rect, currentY, gameState, uiElementRects, draggedItem)
-    _drawUpgradeOffer(rect, currentY, gameState, uiElementRects, Shop)
-    _drawRestockButton(rect, gameState, Shop, uiElementRects, draggedItem)
+    -- The y position for the next subtitle. Actual cards are drawn by components.
+    currentY = currentY + (140 + 5) * 3 + 23 
+    love.graphics.printf("Office Upgrades", rect.x, currentY, rect.width, "center")
+
+    -- The EmployeeCard, UpgradeCard, and Button components will handle their own drawing.
 end
 
 
--- local helper to calculate the geometry of the desk grid within the main panel.
-local function _calculateDeskGridGeometry(rect)
+function Drawing._calculateDeskGridGeometry(rect)
     local deskSectionHeight = rect.height - (Drawing.UI.fontLarge:getHeight() + 20) 
     local deskSpacing = 5
     local deskWidth = math.floor((rect.width - 2 * 10 - (GameData.GRID_WIDTH - 1) * deskSpacing) / GameData.GRID_WIDTH)
@@ -1165,6 +939,21 @@ local function _drawDeskAndAssignedEmployee(deskData, deskRect, gameState, battl
              Drawing.drawEmployeeCard(emp, deskRect.x + 2, deskRect.y + 2, deskRect.w - 4, deskRect.h - 4, empContext, gameState, battleState, DrawingState.tooltipsToDraw, Drawing.foilShader, Drawing.holoShader, uiElementRects)
         end
     end
+end
+
+--- Draws a basic employee card. Used specifically for the dragged-item visual.
+function Drawing.drawEmployeeCard(employeeData, x, y, width, height, context, gameState, battleState, tooltipsToDraw, foilShader, holoShader, uiElementRects)
+    love.graphics.push()
+    love.graphics.translate(x, y)
+
+    -- Use the existing helpers to draw the card components
+    local cardData = Drawing._getEffectiveCardData(employeeData, gameState)
+    Drawing._drawCardBackgroundAndShaders(cardData, x, y, width, height, context, foilShader, holoShader)
+    Drawing._drawCardIndicatorsAndRings(cardData, x, y, width, height, false, false)
+    Drawing._drawCardTextContent(cardData, x, y, width, height, context, gameState, uiElementRects)
+    Drawing._drawCardContextualOverlays(cardData, x, y, width, height, context)
+    
+    love.graphics.pop()
 end
 
 -- local helper to generate overlays for special modes (Re-Org, Photocopier) and mouse hover effects.
@@ -1228,41 +1017,14 @@ local function _drawQueuedOverlays(uiElementRects, DrawingState)
 end
 
 
---- Draws the main office floor panel, including the grid of desks and all employees.
 function Drawing.drawMainInteractionPanel(rect, gameState, uiElementRects, draggedItem, battleState, Placement, DrawingState) 
     -- 1. Draw the panel frame and title
     Drawing.drawPanel(rect.x, rect.y, rect.width, rect.height, {0.88, 0.90, 0.92, 1}, {0.75,0.78,0.80,1})
     love.graphics.setFont(Drawing.UI.fontLarge); love.graphics.setColor(Drawing.UI.colors.text)
     love.graphics.printf("Office Floor", rect.x, rect.y + 10, rect.width, "center")
 
-    -- 2. Calculate the grid layout
-    local gridGeometry = _calculateDeskGridGeometry(rect)
-    uiElementRects.desks = {}
-    DrawingState.overlaysToDraw = {}
-
-    -- 3. First Pass: Iterate through each desk to draw it and generate overlays
-    for i, deskData in ipairs(gameState.desks) do
-        local col = (i - 1) % GameData.GRID_WIDTH
-        local row = math.floor((i - 1) / GameData.GRID_WIDTH)
-        
-        local deskRect = { 
-            x = gridGeometry.startX + col * (gridGeometry.width + gridGeometry.spacing), 
-            y = gridGeometry.startY + row * (gridGeometry.height + gridGeometry.spacing), 
-            w = gridGeometry.width, 
-            h = gridGeometry.height, 
-            id = deskData.id 
-        }
-        uiElementRects.desks[i] = deskRect
-        
-        -- Draw the desk and its assigned employee (if any)
-        _drawDeskAndAssignedEmployee(deskData, deskRect, gameState, battleState, uiElementRects, draggedItem, DrawingState)
-        
-        -- Check for and generate overlays for special modes or mouse hover
-        _generateHoverAndModeOverlays(deskData, deskRect, gameState, draggedItem, Placement, DrawingState)
-    end
-
-    -- 4. Second Pass: Draw all queued overlays on top of the grid
-    _drawQueuedOverlays(uiElementRects, DrawingState)
+    -- The individual DeskSlot and EmployeeCard components now handle all other drawing,
+    -- including overlays and hover effects. This function is now only a container.
 end
 
 -- local helper to draw the panel frame and title for the purchased upgrades display.
@@ -1330,51 +1092,19 @@ end
 
 --- Draws the display panel for all permanently purchased upgrades.
 function Drawing.drawPurchasedUpgradesDisplay(rect, gameState, uiElementRects)
-    -- 1. Draw the panel frame and title
-    _drawPurchasedUpgradesFrame(rect)
+    Drawing.drawPanel(rect.x, rect.y, rect.width, rect.height, {0.25, 0.25, 0.2, 1}, {0.45,0.45,0.4,1}) 
+    love.graphics.setFont(Drawing.UI.font)
+    love.graphics.setColor(Drawing.UI.colors.text_light)
+    love.graphics.print("Acquired Office Upgrades", rect.x + 10, rect.y + 5)
     
-    -- 2. Initialize UI elements and layout variables
-    local currentX = rect.x + 10
-    local iconY = rect.y + Drawing.UI.font:getHeight() + 10
-    local iconSize = math.min(rect.height - (Drawing.UI.font:getHeight() + 15), 32)
-    local iconPadding = 5
-    uiElementRects.permanentUpgrades = {}
-
-    -- 3. Handle the case where no upgrades have been purchased
     if #gameState.purchasedPermanentUpgrades == 0 then
         love.graphics.setFont(Drawing.UI.fontSmall)
-        love.graphics.printf("None yet.", rect.x + 10, iconY, rect.width - 20, "left")
-        return
+        love.graphics.printf("None yet.", rect.x + 10, rect.y + Drawing.UI.font:getHeight() + 10, rect.width - 20, "left")
     end
-
-    -- 4. Loop through each purchased upgrade and draw its icon
-    for _, upgradeId in ipairs(gameState.purchasedPermanentUpgrades) do
-        local upgData = nil
-        for _, u in ipairs(GameData.ALL_UPGRADES) do if u.id == upgradeId then upgData = u; break; end end
-        
-        if upgData then
-            -- Stop drawing if we run out of horizontal space
-            if currentX + iconSize > rect.x + rect.width - 10 then break end
-            
-            local isClickable = _isUpgradeClickable(upgData, gameState)
-            local isHovered = _drawSingleUpgradeIcon(upgData, currentX, iconY, iconSize, isClickable)
-            
-            -- Store the icon's rectangle for the input handler
-            uiElementRects.permanentUpgrades[upgradeId] = {x = currentX, y = iconY, w = iconSize, h = iconSize, data = upgData}
-
-            -- Create the tooltip if the icon is being hovered over
-            if isHovered then
-                _createUpgradeTooltip(upgData, isClickable)
-            end
-            
-            -- Move to the next icon position
-            currentX = currentX + iconSize + iconPadding
-        end
-    end
+    -- The actual icons are now drawn by their own components.
 end
 
--- local helper to determine the effective data to draw, handling special cases like Mimic and Agent Smith.
-local function _getEffectiveCardData(employeeData, gameState)
+function Drawing._getEffectiveCardData(employeeData, gameState)
     local cardData = employeeData
     -- Handle Mimic's copied state
     if employeeData.copiedState then
@@ -1389,15 +1119,12 @@ local function _getEffectiveCardData(employeeData, gameState)
             if card.id == 'agent_smith1' then
                 local agentSmithData = card
                 local smithCopyData = {}
-                -- Create a new table for the copy to avoid modifying original cardData
                 for k, v in pairs(cardData) do smithCopyData[k] = v end
-                -- Override with Smith's data
                 for k, v in pairs(agentSmithData) do
                     if k ~= 'id' and k ~= 'instanceId' and k ~= 'fullName' and k ~= 'level' then
                         smithCopyData[k] = v
                     end
                 end
-                -- Ensure salary is explicitly copied
                 smithCopyData.weeklySalary = agentSmithData.weeklySalary
                 cardData = smithCopyData
                 break
@@ -1407,12 +1134,10 @@ local function _getEffectiveCardData(employeeData, gameState)
     return cardData
 end
 
--- local helper to draw the card's background, handling rarity, status colors, and shaders.
-local function _drawCardBackgroundAndShaders(cardData, x, y, width, height, context, foilShader, holoShader)
+function Drawing._drawCardBackgroundAndShaders(cardData, x, y, width, height, context, foilShader, holoShader)
     local rarity = cardData.rarity or 'Common'
     local bgColor
 
-    -- Determine background color based on rarity
     if rarity == 'Common' then bgColor = Drawing.UI.colors.rarity_common_bg
     elseif rarity == 'Uncommon' then bgColor = Drawing.UI.colors.rarity_uncommon_bg
     elseif rarity == 'Rare' then bgColor = Drawing.UI.colors.rarity_rare_bg
@@ -1420,7 +1145,6 @@ local function _drawCardBackgroundAndShaders(cardData, x, y, width, height, cont
     else bgColor = Drawing.UI.colors.rarity_common_bg
     end
 
-    -- Override color based on status/context
     if context == "worker_done" or context == "worker_training" then bgColor = {0.7, 0.7, 0.7, 1} end
     if cardData.isRebooted then bgColor = {0.7, 0.9, 1, 1} end 
     if cardData.snackBoostActive then bgColor = {1, 0.9, 0.7, 1} end 
@@ -1429,7 +1153,6 @@ local function _drawCardBackgroundAndShaders(cardData, x, y, width, height, cont
     
     local borderColor = cardData.isNepotismBaby and {1, 0.84, 0, 1} or Drawing.UI.colors.card_border
 
-    -- Apply shaders if applicable
     if cardData.variant == 'foil' then
         love.graphics.setShader(foilShader)
         foilShader:send("time", love.timer.getTime())
@@ -1439,13 +1162,10 @@ local function _drawCardBackgroundAndShaders(cardData, x, y, width, height, cont
     end
     
     Drawing.drawPanel(0, 0, width, height, bgColor, borderColor, 5)
-
-    love.graphics.setShader() -- Reset shader after drawing
+    love.graphics.setShader()
 end
 
--- local helper to draw border indicators for positional effects and selection rings.
-local function _drawCardIndicatorsAndRings(cardData, x, y, width, height, isSelected, isCombineTarget)
-    -- Draw positional effect indicators
+function Drawing._drawCardIndicatorsAndRings(cardData, x, y, width, height, isSelected, isCombineTarget)
     if cardData.positionalEffects and cardData.variant ~= 'remote' then
         local bonusIndicatorWidth = 4
         for direction, effect in pairs(cardData.positionalEffects) do
@@ -1465,7 +1185,6 @@ local function _drawCardIndicatorsAndRings(cardData, x, y, width, height, isSele
         end
     end
     
-    -- Draw selection and combine target rings
     if isSelected then 
         love.graphics.setLineWidth(3); love.graphics.setColor(Drawing.UI.colors.selection_ring)
         love.graphics.rectangle("line", -1, -1, width+2, height+2, 6, 6)
@@ -1476,8 +1195,7 @@ local function _drawCardIndicatorsAndRings(cardData, x, y, width, height, isSele
     love.graphics.setLineWidth(1)
 end
 
--- local helper to draw all text content on the card.
-local function _drawCardTextContent(cardData, x, y, width, height, context, gameState, uiElementRects)
+function Drawing._drawCardTextContent(cardData, x, y, width, height, context, gameState, uiElementRects)
     local padding = 5
     love.graphics.setColor(Drawing.UI.colors.text)
     
@@ -1501,7 +1219,6 @@ local function _drawCardTextContent(cardData, x, y, width, height, context, game
     love.graphics.print(titleName, padding, currentYDraw)
     currentYDraw = currentYDraw + Drawing.UI.fontSmall:getHeight() + 2
 
-    -- Logic for detailed stat display vs simple display
     if context == "shop_offer" or context == "desk_placed" or context == "remote_worker" then
         local stats = Employee:calculateStatsWithPosition(cardData, gameState.hiredEmployees, gameState.deskAssignments, gameState.purchasedPermanentUpgrades, gameState.desks, gameState)
         local variantY = currentYDraw + 4
@@ -1514,8 +1231,8 @@ local function _drawCardTextContent(cardData, x, y, width, height, context, game
         
         if context == "shop_offer" then
             love.graphics.setColor(0.85, 0.25, 0.25, 1)
-            local finalCost = _G.Shop:getFinalHiringCost(cardData, gameState.purchasedPermanentUpgrades)
-            love.graphics.printf("Hire: $" .. finalCost, padding, variantY, width - padding * 2, "right")
+            -- Simply read the pre-calculated cost from the card data
+            love.graphics.printf("Hire: $" .. (cardData.displayCost or '...'), padding, variantY, width - padding * 2, "right")
             
             love.graphics.setFont(Drawing.UI.fontLarge)
             if cardData.isLocked then love.graphics.setColor(1, 0.85, 0, 1) else love.graphics.setColor(0.6, 0.6, 0.6, 1) end
@@ -1534,7 +1251,6 @@ local function _drawCardTextContent(cardData, x, y, width, height, context, game
         love.graphics.setColor(0.85, 0.25, 0.25, 1); love.graphics.printf("$" .. cardData.weeklySalary, width - 80, height - padding - Drawing.UI.fontLarge:getHeight(), 40, "right")
         love.graphics.setColor(Drawing.UI.colors.text); love.graphics.printf("L" .. (cardData.level or 1), width - 35, height - padding - Drawing.UI.fontLarge:getHeight(), 30, "right")
     else
-        -- Fallback for other contexts like 'dragged'
         love.graphics.printf("L"..(cardData.level or 1), padding, currentYDraw + 5, 25, "left")
         local stats = Employee:calculateStatsWithPosition(cardData, gameState.hiredEmployees, gameState.deskAssignments, gameState.purchasedPermanentUpgrades, gameState.desks, gameState)
         love.graphics.setFont(Drawing.UI.fontSmall)
@@ -1544,8 +1260,7 @@ local function _drawCardTextContent(cardData, x, y, width, height, context, game
     end
 end
 
--- local helper to draw context-sensitive overlays like "SOLD" or "TRAINING".
-local function _drawCardContextualOverlays(cardData, x, y, width, height, context)
+function Drawing._drawCardContextualOverlays(cardData, x, y, width, height, context)
     if cardData.isNepotismBaby then
         love.graphics.setFont(Drawing.UI.fontSmall)
         love.graphics.setColor(1, 0.84, 0, 1)
@@ -1564,8 +1279,7 @@ local function _drawCardContextualOverlays(cardData, x, y, width, height, contex
     end
 end
 
--- local helper to handle the real-time contribution animation during battle.
-local function _drawCardBattleAnimation(cardData, x, y, width, height, battleState)
+function Drawing._drawCardBattleAnimation(cardData, x, y, width, height, battleState)
     if battleState.currentWorkerId == cardData.instanceId and battleState.lastContribution then
         love.graphics.setColor(0,0,0,0.7); love.graphics.rectangle("fill", 0, 0, width, height, 5,5)
         local font = Drawing.UI.titleFont or Drawing.UI.fontLarge
@@ -1583,109 +1297,7 @@ local function _drawCardBattleAnimation(cardData, x, y, width, height, battleSta
     end
 end
 
--- local helper to generate and queue the detailed stat tooltip for drawing.
-local function _createCardTooltip(cardData, gameState, tooltipsToDraw)
-    local mouseX, mouseY = love.mouse.getPosition()
-    local stats = Employee:calculateStatsWithPosition(cardData, gameState.hiredEmployees, gameState.deskAssignments, gameState.purchasedPermanentUpgrades, gameState.desks, gameState)
-    local log = stats.calculationLog
-
-    local description = cardData.description or "No description."
-    if cardData.variant == 'remote' and cardData.remoteDescription then
-        description = cardData.remoteDescription
-    end
-    if cardData.isSmithCopy then
-        description = description .. "\n\n(This employee has been assimilated by Agent Smith)"
-    end
-    
-    local tooltipLines = {}
-    local function addTooltipLine(text, color)
-        local colorStr = color and string.format("[%.1f,%.1f,%.1f]", color[1], color[2], color[3]) or ""
-        table.insert(tooltipLines, colorStr .. text)
-    end
-    
-    local textWidthForWrap = 280
-    local _, wrappedDescText = Drawing.UI.font:getWrap(description, textWidthForWrap - 16)
-    for _, line in ipairs(wrappedDescText) do addTooltipLine(line, {1, 1, 1}) end
-    addTooltipLine("", nil); addTooltipLine("", nil)
-    
-    addTooltipLine("PRODUCTIVITY:", {0.1, 0.65, 0.35})
-    for _, line in ipairs(log.productivity) do addTooltipLine(line, {1, 1, 1}) end
-    if #log.productivity > 1 then 
-        addTooltipLine("──────", {0.7, 0.7, 0.7})
-        addTooltipLine(tostring(stats.currentProductivity), {0.1, 0.65, 0.35})
-    end
-    
-    addTooltipLine("", nil); addTooltipLine("", nil)
-    
-    addTooltipLine("FOCUS:", {0.25, 0.55, 0.9})
-    for _, line in ipairs(log.focus) do addTooltipLine(line, {1, 1, 1}) end
-    if #log.focus > 1 then
-        addTooltipLine("──────", {0.7, 0.7, 0.7})
-        addTooltipLine(string.format("%.2fx", stats.currentFocus), {0.25, 0.55, 0.9})
-    end
-
-    local tooltipText = ""
-    for _, line in ipairs(tooltipLines) do
-        if line:match("^%[") then local colorEnd = line:find("%]"); if colorEnd then tooltipText = tooltipText .. line:sub(colorEnd + 1) .. "\n" else tooltipText = tooltipText .. line .. "\n" end
-        else tooltipText = tooltipText .. line .. "\n" end
-    end
-    
-    local lineHeight = Drawing.UI.font:getHeight()
-    local tooltipHeight = (#tooltipLines * lineHeight) + 16
-    local tooltipWidth = textWidthForWrap + 16
-    local tipX = mouseX + 15; local tipY = mouseY
-    if tipX + tooltipWidth > love.graphics.getWidth() then tipX = mouseX - tooltipWidth - 15 end
-    if tipY + tooltipHeight > love.graphics.getHeight() then tipY = love.graphics.getHeight() - tooltipHeight end
-    
-    table.insert(tooltipsToDraw, { text = tooltipText, x = tipX, y = tipY, w = tooltipWidth, h = tooltipHeight, coloredLines = tooltipLines })
-end
-
-
---- The main public function to draw an employee card. It orchestrates calls to smaller, private helper functions.
-function Drawing.drawEmployeeCard(employeeData, x, y, width, height, context, gameState, battleState, tooltipsToDraw, foilShader, holoShader, uiElementRects)
-    -- Push a new graphics state to handle translation for shaking and local drawing coordinates.
-    love.graphics.push()
-    
-    local shakeX, shakeY = 0, 0
-    if battleState.currentWorkerId == employeeData.instanceId and battleState.isShaking then
-        shakeX, shakeY = love.math.random(-2, 2), love.math.random(-2, 2)
-    end
-    love.graphics.translate(x + shakeX, y + shakeY)
-
-    -- Determine the effective card data, handling special states like Mimic or Agent Smith
-    local cardData = _getEffectiveCardData(employeeData, gameState)
-
-    -- Determine selection/targeting state
-    local isSelected = (not _G.draggedItem and gameState.selectedEmployeeForPlacementInstanceId == cardData.instanceId)
-    local isCombineTarget = false
-    if not isSelected then
-        local sourceEmpForCombine = (_G.draggedItem and _G.draggedItem.data) or _G.getEmployeeFromGameState(gameState, gameState.selectedEmployeeForPlacementInstanceId)
-        if sourceEmpForCombine and sourceEmpForCombine.instanceId ~= cardData.instanceId then
-            isCombineTarget = _G.Placement:isPotentialCombineTarget(gameState, cardData, sourceEmpForCombine)
-        end
-    end
-    
-    -- Draw the core visual components of the card in order
-    _drawCardBackgroundAndShaders(cardData, x, y, width, height, context, foilShader, holoShader)
-    _drawCardIndicatorsAndRings(cardData, x, y, width, height, isSelected, isCombineTarget)
-    _drawCardTextContent(cardData, x, y, width, height, context, gameState, uiElementRects)
-    _drawCardContextualOverlays(cardData, x, y, width, height, context)
-
-    -- Draw battle-specific animations if the card is the active worker
-    _drawCardBattleAnimation(cardData, x, y, width, height, battleState)
-
-    -- Pop the graphics state to revert translation
-    love.graphics.pop()
-
-    -- Create and queue the tooltip if hovering (done outside the translated state)
-    local mouseX, mouseY = love.mouse.getPosition()
-    if not _G.draggedItem and not (gameState.gamePhase == "battle_active") and Drawing.isMouseOver(mouseX, mouseY, x, y, width, height) then
-        _createCardTooltip(cardData, gameState, tooltipsToDraw)
-    end
-end
-
--- local helper to draw the frame and background of the upgrade card.
-local function _drawUpgradeCardFrame(upgradeData, x, y, width, height)
+function Drawing._drawUpgradeCardFrame(upgradeData, x, y, width, height)
     love.graphics.push()
     love.graphics.translate(x, y)
     
@@ -1695,8 +1307,7 @@ local function _drawUpgradeCardFrame(upgradeData, x, y, width, height)
     love.graphics.setColor(upgradeData.sold and {0.4,0.4,0.4,1} or Drawing.UI.colors.text)
 end
 
--- local helper to draw the text content (name, cost, description) and icon.
-local function _drawUpgradeCardContent(upgradeData, width, height, gameState, Shop)
+function Drawing._drawUpgradeCardContent(upgradeData, width, height, gameState, Shop)
     local padding = 4
     
     love.graphics.setFont(Drawing.UI.titleFont)
@@ -1719,8 +1330,7 @@ local function _drawUpgradeCardContent(upgradeData, width, height, gameState, Sh
     Drawing.drawTextWrapped(upgradeData.description or "", padding, currentY, textWrapWidth, Drawing.UI.fontSmall, "left", 3)
 end
 
--- local helper to draw elements specific to the shop context, like the lock button.
-local function _drawUpgradeCardShopElements(upgradeData, x, y, width, height, uiElementRects)
+function Drawing._drawUpgradeCardShopElements(upgradeData, x, y, width, height, uiElementRects)
     love.graphics.setFont(Drawing.UI.fontLarge)
     if upgradeData.isLocked then
         love.graphics.setColor(1, 0.85, 0, 1) -- Gold for locked
@@ -1732,7 +1342,6 @@ local function _drawUpgradeCardShopElements(upgradeData, x, y, width, height, ui
     local lockY = height - Drawing.UI.fontLarge:getHeight() - 4
     love.graphics.printf(lockText, 0, lockY, width, "center")
 
-    -- Define the clickable area for the lock button
     local lockWidth = Drawing.UI.fontLarge:getWidth(lockText)
     local lockHeight = Drawing.UI.fontLarge:getHeight()
     uiElementRects.shopLockButtons[upgradeData.instanceId] = {
@@ -1743,60 +1352,13 @@ local function _drawUpgradeCardShopElements(upgradeData, x, y, width, height, ui
     }
 end
 
--- local helper to draw the "SOLD" overlay.
-local function _drawUpgradeCardSoldOverlay(width, height)
+function Drawing._drawUpgradeCardSoldOverlay(width, height)
     love.graphics.setColor(Drawing.UI.colors.card_sold_overlay_bg)
     love.graphics.rectangle("fill",0,0,width,height,3,3)
     
     love.graphics.setFont(Drawing.UI.fontLarge)
     love.graphics.setColor(Drawing.UI.colors.card_sold_overlay_text)
     love.graphics.printf("SOLD", 0, height/2 - Drawing.UI.fontLarge:getHeight()/2, width, "center")
-end
-
-
---- Draws a card representing an office upgrade, typically in the shop panel.
-function Drawing.drawUpgradeCard(upgradeData, x, y, width, height, context, gameState, Shop, uiElementRects) 
-    -- 1. Set up the card's position and draw its background
-    _drawUpgradeCardFrame(upgradeData, x, y, width, height)
-    
-    -- 2. Draw the primary text content and icon
-    _drawUpgradeCardContent(upgradeData, width, height, gameState, Shop)
-    
-    -- 3. Draw elements that only appear in specific contexts (e.g., the shop)
-    if context == "shop_offer" then
-        _drawUpgradeCardShopElements(upgradeData, x, y, width, height, uiElementRects)
-    end
-    
-    -- 4. Draw the final "SOLD" overlay if the upgrade has been purchased
-    if upgradeData.sold then
-        _drawUpgradeCardSoldOverlay(width, height)
-    end
-    
-    -- 5. Restore the graphics state
-    love.graphics.pop()
-end
-
-function Drawing.drawDeskSlot(deskData, x, y, width, height, isDisabled)
-    local bgColor, borderColor
-    if isDisabled then
-        bgColor, borderColor = {0.4, 0.4, 0.4, 1}, {0.2, 0.2, 0.2, 1}
-    elseif deskData.status == "owned" then bgColor, borderColor = Drawing.UI.colors.desk_owned_bg, Drawing.UI.colors.desk_owned_border
-    elseif deskData.status == "purchasable" then bgColor, borderColor = Drawing.UI.colors.desk_purchasable_bg, Drawing.UI.colors.desk_purchasable_border
-    else bgColor, borderColor = Drawing.UI.colors.desk_locked_bg, Drawing.UI.colors.desk_locked_border end
-
-    Drawing.drawPanel(x,y,width,height,bgColor,borderColor,3)
-
-    love.graphics.setFont(Drawing.UI.fontSmall)
-    if isDisabled then
-        love.graphics.setColor(1,0.2,0.2,1)
-        love.graphics.printf("DISABLED", x, y + height/2 - Drawing.UI.fontSmall:getHeight()/2, width, "center")
-    elseif not _G.gameState.deskAssignments[deskData.id] then
-        love.graphics.setColor(Drawing.UI.colors.desk_text)
-        if deskData.status == "owned" then love.graphics.printf("Empty", x, y + height/2 - Drawing.UI.fontSmall:getHeight()/2, width, "center")
-        elseif deskData.status == "purchasable" then love.graphics.printf("Buy\n$" .. deskData.cost, x, y + height/2 - Drawing.UI.fontSmall:getHeight(), width, "center")
-        elseif deskData.status == "locked" then love.graphics.printf("Locked", x, y + height/2 - Drawing.UI.fontSmall:getHeight()/2, width, "center") 
-        end
-    end
 end
 
 
@@ -1899,23 +1461,20 @@ local function _drawDebugActionButtons(x, currentY, controlW, debug)
 end
 
 
---- The main public function to draw the debug menu. It orchestrates calls to smaller helpers.
-function Drawing.drawDebugMenu(debug, foilShader, holoShader)
-    -- 1. Draw the panel frame and title
-    local currentY = _drawDebugPanelAndTitle(debug)
+--- Draws the debug menu's background frame and title.
+-- The individual controls within the menu are now drawn by their own components.
+function Drawing.drawDebugMenu(debug)
+    local screenW, screenH = love.graphics.getDimensions()
+    local w, h = 400, 450
+    local x, y = (screenW - w) / 2, (screenH - h) / 2
+    debug.rect = {x=x, y=y, w=w, h=h}
 
-    local padding = 15
-    local startX = debug.rect.x + padding
-    local controlW = debug.rect.w - padding * 2
-    
-    -- 2. Draw each control group, passing the current Y position to stack them
-    currentY = _drawDebugEmployeeSpawner(startX, currentY, controlW, debug)
-    currentY = _drawDebugUpgradeSpawner(startX, currentY, controlW, debug)
-    _drawDebugActionButtons(startX, currentY, controlW, debug)
+    -- This function now only draws the container panel and title.
+    Drawing.drawPanel(x, y, w, h, {0.2, 0.2, 0.2, 0.95}, {0.5, 0.5, 0.5, 1}, 8)
 
-    -- 3. Draw any open dropdown lists on top of all other elements
-    Drawing.drawOpenDropdownList(debug.employeeDropdown.rect, debug.employeeDropdown)
-    Drawing.drawOpenDropdownList(debug.upgradeDropdown.rect, debug.upgradeDropdown)
+    love.graphics.setFont(Drawing.UI.titleFont)
+    love.graphics.setColor(Drawing.UI.colors.text_light)
+    love.graphics.printf("Debug Menu", x, y + 10, w, "center")
 end
 
 
@@ -1993,6 +1552,59 @@ function Drawing.drawSprintOverviewPanel(sprintOverviewRects, sprintOverviewVisi
 
     -- 3. Draw the back button at the bottom
     _drawSprintOverviewBackButton(panelRect, sprintOverviewRects)
+end
+
+Drawing.modal = {
+    isVisible = false,
+    title = "",
+    message = "",
+    x = 0, y = 0, width = 0, height = 0,
+    buttons = {} 
+}
+
+function Drawing.showModal(title, message, buttons, customWidth)
+
+
+    Drawing.modal.title = title or "Notification"
+    Drawing.modal.message = message or ""
+    Drawing.modal.buttons = buttons or { {text = "OK", onClick = function() Drawing.hideModal() end, style = "primary"} } 
+    Drawing.modal.isVisible = true
+    
+    local screenWidth, screenHeight = love.graphics.getDimensions()
+    
+    Drawing.modal.width = customWidth and math.min(customWidth, screenWidth - 40) or math.min(500, screenWidth - 40)
+    
+    local messageLines = {}
+    for line in Drawing.modal.message:gmatch("[^\n]*") do table.insert(messageLines, line) end
+    
+    local titleFont = Drawing.UI.titleFont or Drawing.UI.font
+    local messageFont = Drawing.UI.font
+    
+    local _, titleLineCount = Drawing.modal.title:gsub("\n", "\n")
+    local titleHeight = titleFont:getHeight() * (titleLineCount + 1)    local messageHeight = (#messageLines) * messageFont:getHeight()
+    local buttonHeight = (#Drawing.modal.buttons > 0) and 60 or 20
+    local padding = 80
+    
+    Drawing.modal.height = titleHeight + messageHeight + buttonHeight + padding
+    Drawing.modal.height = math.min(Drawing.modal.height, screenHeight - 40)
+
+    Drawing.modal.x = (screenWidth - Drawing.modal.width) / 2
+    Drawing.modal.y = (screenHeight - Drawing.modal.height) / 2
+
+    if Drawing.modal.buttons and #Drawing.modal.buttons > 0 then
+        local btnWidth = 100; local btnHeight = 30; local btnSpacing = 10
+        local totalBtnWidth = (#Drawing.modal.buttons * btnWidth) + (math.max(0, #Drawing.modal.buttons - 1) * btnSpacing)
+        local startX = Drawing.modal.x + (Drawing.modal.width - totalBtnWidth) / 2
+        local btnY = Drawing.modal.y + Drawing.modal.height - btnHeight - 20
+
+        for i, btnData in ipairs(Drawing.modal.buttons) do
+            btnData.x = startX + (i-1) * (btnWidth + btnSpacing); btnData.y = btnY; btnData.w = btnWidth; btnData.h = btnHeight
+        end
+    end
+end
+
+function Drawing.hideModal()
+    Drawing.modal.isVisible = false
 end
 
 

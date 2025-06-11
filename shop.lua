@@ -22,7 +22,7 @@ function Shop:getModifiedUpgradeCost(upgradeData, hiredEmployees)
     return cost
 end
 
-function Shop:populateOffers(currentShopOffers, purchasedPermanentUpgrades, forceRestock)
+function Shop:populateOffers(gameState, currentShopOffers, purchasedPermanentUpgrades, forceRestock)
     local numEmployeeSlots = 3
 
     if forceRestock then
@@ -34,7 +34,7 @@ function Shop:populateOffers(currentShopOffers, purchasedPermanentUpgrades, forc
                 if existingOffer and (existingOffer.sold or existingOffer.isLocked) then 
                     table.insert(newEmployeeOffers, existingOffer) 
                 else 
-                    table.insert(newEmployeeOffers, self:_generateRandomEmployeeOffer())
+                    table.insert(newEmployeeOffers, self:_generateRandomEmployeeOffer(gameState))
                 end
             end
         end
@@ -58,7 +58,7 @@ function Shop:populateOffers(currentShopOffers, purchasedPermanentUpgrades, forc
             
             currentShopOffers.employees = preservedEmployees
             while #currentShopOffers.employees < numEmployeeSlots do
-                table.insert(currentShopOffers.employees, self:_generateRandomEmployeeOffer())
+                table.insert(currentShopOffers.employees, self:_generateRandomEmployeeOffer(gameState))
             end
 
             if not (currentShopOffers.upgrade and currentShopOffers.upgrade.isLocked) then
@@ -67,24 +67,39 @@ function Shop:populateOffers(currentShopOffers, purchasedPermanentUpgrades, forc
         end
     end
 
-    local eventArgs = { offers = currentShopOffers.employees }
-    require("effects_dispatcher").dispatchEvent("onPopulateShop", _G.gameState, eventArgs)
+    local eventArgs = { offers = currentShopOffers.employees, guaranteeRareOrLegendary = false }
+    require("effects_dispatcher").dispatchEvent("onPopulateShop", gameState, eventArgs)
+    
+    if eventArgs.guaranteeRareOrLegendary then
+        local hasRareOrLegendary = false
+        for _, offer in ipairs(eventArgs.offers) do
+            if offer.rarity == 'Rare' or offer.rarity == 'Legendary' then
+                hasRareOrLegendary = true
+                break
+            end
+        end
+        
+        if not hasRareOrLegendary and #eventArgs.offers > 0 then
+            eventArgs.offers[1] = self:_generateRandomEmployeeOfMinRarity(gameState, 'Rare')
+        end
+    end
+    
     currentShopOffers.employees = eventArgs.offers
 end
 
-function Shop:getFinalHiringCost(employeeOffer, purchasedUpgrades)
+function Shop:getFinalHiringCost(gameState, employeeOffer, purchasedUpgrades)
     if not employeeOffer then return 0 end
 
     local eventArgs = { 
         finalCost = employeeOffer.hiringBonus, 
         employeeRarity = employeeOffer.rarity 
     }
-    require("effects_dispatcher").dispatchEvent("onCalculateHiringCost", _G.gameState, eventArgs)
+    require("effects_dispatcher").dispatchEvent("onCalculateHiringCost", gameState, eventArgs)
     
     return eventArgs.finalCost
 end
 
-function Shop:_generateRandomEmployeeOffer()
+function Shop:_generateRandomEmployeeOffer(gameState)
     if #GameData.BASE_EMPLOYEE_CARDS == 0 then
         print("Warning (Shop:_generateRandomEmployeeOffer): No base employee cards defined.")
         return nil
@@ -115,7 +130,7 @@ function Shop:_generateRandomEmployeeOffer()
         variant = chosenBaseCardData.forceVariant
     else
         local rand = love.math.random() 
-        local hasSubsidizedHousing = self:isUpgradePurchased(_G.gameState.purchasedPermanentUpgrades, 'subsidized_housing')
+        local hasSubsidizedHousing = self:isUpgradePurchased(gameState.purchasedPermanentUpgrades, 'subsidized_housing')
 
         if rand < 0.075 then
             variant = "holo"
@@ -127,21 +142,12 @@ function Shop:_generateRandomEmployeeOffer()
     end
     
     local shopOffer = self:_generateEmployeeOfferFromCard(chosenBaseCardData, variant)
-
-    if _G.gameState and _G.gameState.temporaryEffectFlags.nepotismHireActive then
-        if shopOffer.rarity == 'Rare' or shopOffer.rarity == 'Legendary' then
-            shopOffer.hiringBonus = 0
-            shopOffer.weeklySalary = shopOffer.weeklySalary * 3
-            shopOffer.isNepotismBaby = true 
-            _G.gameState.temporaryEffectFlags.nepotismHireActive = false 
-            print("NEPOTISM! " .. shopOffer.fullName .. " is the Nepo hire.")
-        end
-    end
+    shopOffer.displayCost = self:getFinalHiringCost(gameState, shopOffer, gameState.purchasedPermanentUpgrades)
 
     return shopOffer
 end
 
-function Shop:_generateRandomEmployeeOfRarity(rarity)
+function Shop:_generateRandomEmployeeOfRarity(gameState, rarity)
     local availableCards = {}
     for _, cardData in ipairs(GameData.BASE_EMPLOYEE_CARDS) do
         if cardData.rarity == rarity then
@@ -157,10 +163,10 @@ function Shop:_generateRandomEmployeeOfRarity(rarity)
 
     -- Fallback if no employees of that rarity exist
     print("Warning: Could not find any employees of rarity '" .. rarity .. "' to generate.")
-    return self:_generateRandomEmployeeOffer()
+    return self:_generateRandomEmployeeOffer(gameState)
 end
 
-function Shop:_generateRandomEmployeeOfMinRarity(minRarity)
+function Shop:_generateRandomEmployeeOfMinRarity(gameState, minRarity)
     local rarities = { Common = 1, Uncommon = 2, Rare = 3, Legendary = 4 }
     local minRarityLevel = rarities[minRarity] or 3 -- Default to Rare if invalid
     
@@ -179,7 +185,7 @@ function Shop:_generateRandomEmployeeOfMinRarity(minRarity)
     end
     
     -- Fallback in case there are no rare/legendary cards
-    return self:_generateRandomEmployeeOffer()
+    return self:_generateRandomEmployeeOffer(gameState)
 end
 
 function Shop:_generateRandomUpgradeOffer(purchasedPermanentUpgrades)
@@ -251,7 +257,6 @@ function Shop:markOfferSold(currentShopOffers, employeeShopInstanceIdToMark, upg
             end
         end
     elseif upgradeDataToMark and currentShopOffers.upgrade then
-        -- The shop upgrade is a single slot, compare its data directly or its unique ID if it has one
         if currentShopOffers.upgrade.instanceId == upgradeDataToMark.instanceId or currentShopOffers.upgrade.id == upgradeDataToMark.id then
              print("Shop:markOfferSold: Found upgrade offer: " .. currentShopOffers.upgrade.name .. ". Current sold: " .. tostring(currentShopOffers.upgrade.sold))
             currentShopOffers.upgrade.sold = true
@@ -266,9 +271,10 @@ end
 
 function Shop:attemptRestock(gameState)
     local restockCost = GameData.BASE_RESTOCK_COST * (2 ^ gameState.currentShopOffers.restockCountThisWeek)
-    if self:isUpgradePurchased(gameState.purchasedPermanentUpgrades, 'headhunter') then
-        restockCost = restockCost * 2
-    end
+    
+    local eventArgs = { finalCost = restockCost }
+    require("effects_dispatcher").dispatchEvent("onCalculateRestockCost", gameState, eventArgs)
+    restockCost = eventArgs.finalCost
 
     if gameState.budget < restockCost then
         return false, "Not enough budget to restock. Need $" .. restockCost
@@ -287,14 +293,16 @@ function Shop:attemptRestock(gameState)
     end
     gameState.budget = gameState.budget - restockCost
     gameState.currentShopOffers.restockCountThisWeek = gameState.currentShopOffers.restockCountThisWeek + 1
-    self:populateOffers(gameState.currentShopOffers, gameState.purchasedPermanentUpgrades, true)
+    self:populateOffers(gameState, gameState.currentShopOffers, gameState.purchasedPermanentUpgrades, true)
+    
+    _G.buildUIComponents()
+
     return true, "Shop restocked! Unsold items have been replaced."
 end
 
 function Shop:buyUpgrade(gameState, upgradeIdToBuy) 
     local upgradeData = nil
     
-    -- Correctly check only the dedicated upgrade slot in the shop.
     if gameState.currentShopOffers.upgrade and gameState.currentShopOffers.upgrade.id == upgradeIdToBuy then
         upgradeData = gameState.currentShopOffers.upgrade
     end
@@ -334,6 +342,8 @@ function Shop:buyUpgrade(gameState, upgradeIdToBuy)
         upgradeData.listeners.onPurchase(upgradeData, gameState)
     end
     
+    _G.buildUIComponents()
+    
     return true, upgradeData.name .. " purchased!"
 end
 
@@ -359,13 +369,11 @@ function Shop:forceAddEmployeeOffer(currentShopOffers, employeeId, variant)
         return
     end
 
-    -- Use the existing generator, but force the specific card and variant
     local newOffer = self:_generateEmployeeOfferFromCard(baseCard, variant)
     
-    -- Ensure the employees array exists
     if not currentShopOffers.employees then currentShopOffers.employees = {} end
 
-    currentShopOffers.employees[1] = newOffer -- Overwrite the first slot
+    currentShopOffers.employees[1] = newOffer
     print("DEBUG: Forced " .. newOffer.name .. " (" .. variant .. ") into shop slot 1.")
 end
 
@@ -388,13 +396,13 @@ function Shop:forceAddUpgradeOffer(currentShopOffers, upgradeId)
     upgradeOffer.sold = false
     upgradeOffer.instanceId = "shop-upgrade-" .. upgradeOffer.id .. "-" ..love.timer.getTime()
     
-    currentShopOffers.upgrade = upgradeOffer -- Overwrite the upgrade slot
+    currentShopOffers.upgrade = upgradeOffer
     print("DEBUG: Forced upgrade '" .. upgradeOffer.name .. "' into shop.")
 end
 
 function Shop:_generateEmployeeOfferFromCard(chosenBaseCardData, variant)
     local shopOffer = {}
-    -- Deep copy the card data to avoid modifying the base data
+
     for k,v in pairs(chosenBaseCardData) do 
         if type(v) == "table" then
             shopOffer[k] = {}
@@ -406,7 +414,6 @@ function Shop:_generateEmployeeOfferFromCard(chosenBaseCardData, variant)
     
     shopOffer.variant = variant or "standard"
 
-    -- Assign a random first and last name
     local firstName = Names.firstNames[love.math.random(#Names.firstNames)]
     local lastName = Names.lastNames[love.math.random(#Names.lastNames)]
     shopOffer.fullName = firstName .. " " .. lastName

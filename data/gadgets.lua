@@ -1,4 +1,6 @@
 -- Gadgets provided by Q
+
+
 return {
     { 
         id = 'gadget_cash', name = 'Briefcase of Cash', 
@@ -9,7 +11,10 @@ return {
                 if not gameState.ventureCapitalActive then
                     gameState.budget = gameState.budget + (self.effect.value or 3000)
                 end
-                _G.showMessage("Gadget from Q!", "The Quartermaster provided a '" .. self.name .. "'.\n" .. self.description)
+                eventArgs.showModal = {
+                                            title = "Gadget from Q!",
+                                            message = "The Quartermaster provided a '" .. self.name .. "'.\n" .. self.description""
+                }
             end
         }
     },
@@ -27,7 +32,11 @@ return {
                 end
                 if highestProdEmp then
                     highestProdEmp.baseProductivity = highestProdEmp.baseProductivity + (self.effect.value or 10)
-                    _G.showMessage("Gadget from Q!", "The Quartermaster provided a '" .. self.name .. "'.\n" .. highestProdEmp.fullName .. " has been permanently boosted!")
+
+                eventArgs.showModal = {
+                        title = "Gadget from Q!",
+                        message = "The Quartermaster provided a '" .. self.name .. "'.\n" .. highestProdEmp.fullName .. " has been permanently boosted!"
+                    }
                 end
             end
         }
