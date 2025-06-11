@@ -69,6 +69,49 @@ function Placement:performReOrgSwap(gameState, emp1InstanceId, emp2InstanceId)
     return true, remoteEmp.name .. " and " .. officeEmp.name .. " have been reorganized."
 end
 
+function Placement:handleDecorationDropOnDesk(gameState, decorationData, targetDeskId)
+    local targetDesk
+    for _, d in ipairs(gameState.desks) do
+        if d.id == targetDeskId then
+            targetDesk = d
+            break
+        end
+    end
+
+    if not targetDesk or targetDesk.status ~= "owned" then
+        Drawing.showModal("Placement Error", "Decorations can only be placed on owned desks.")
+        return false
+    end
+
+    -- Overwrite any existing decoration. The calling function is responsible for handling the old one.
+    gameState.deskDecorations[targetDeskId] = decorationData.id
+
+    -- If the decoration being placed came from the inventory, remove it.
+    if decorationData.instanceId and decorationData.instanceId:match("^owned%-decoration") then
+        for i, ownedDeco in ipairs(gameState.ownedDecorations) do
+            if ownedDeco.instanceId == decorationData.instanceId then
+                table.remove(gameState.ownedDecorations, i)
+                break
+            end
+        end
+    end
+
+    return true
+end
+
+function Placement:getDecorationOnDesk(gameState, deskId)
+    local decorationId = gameState.deskDecorations[deskId]
+    if not decorationId then return nil end
+
+    for _, decoData in ipairs(GameData.ALL_DESK_DECORATIONS) do
+        if decoData.id == decorationId then
+            return decoData
+        end
+    end
+
+    return nil
+end
+
 function Placement:isPotentialCombineTarget(gameState, targetEmployeeData, sourceEmployeeData)
     if not sourceEmployeeData then 
         if gameState.selectedEmployeeForPlacementInstanceId then

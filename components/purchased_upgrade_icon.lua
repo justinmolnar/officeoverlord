@@ -11,6 +11,7 @@ function PurchasedUpgradeIcon:new(params)
     instance.rect = params.rect
     instance.upgData = params.upgData
     instance.gameState = params.gameState
+    instance.battleState = params.battleState
     return instance
 end
 
@@ -31,12 +32,63 @@ function PurchasedUpgradeIcon:_isClickable()
     return conditions[self.upgData.id] or false
 end
 
---- Internal helper to generate this icon's tooltip.
+--- Internal helper to determine if the upgrade's effect is currently active.
+function PurchasedUpgradeIcon:_isEffectActive()
+    if not self.upgData or not self.upgData.id then return false end
+    
+    local gs = self.gameState
+    local bs = self.battleState
+    local flags = gs.temporaryEffectFlags
+    
+    -- Check for various active upgrade effects
+    local activeConditions = {
+        -- Automation is active if someone is currently automated
+        automation_v1 = flags.automatedEmployeeId ~= nil,
+        
+        -- First mover is active if we're in battle and showing the first employee
+        first_mover = gs.gamePhase == "battle_active" and bs and bs.nextEmployeeIndex == 1 and (bs.phase == 'showing_productivity' or bs.phase == 'showing_focus' or bs.phase == 'showing_total'),
+        
+        -- Motivational speaker boost is active
+        motivational_speaker = flags.motivationalBoostNextItem or flags.globalFocusMultiplier == 2.0,
+        
+        -- Team building boost is active
+        team_building_event = flags.teamBuildingActiveThisWeek,
+        
+        -- Assembly line is active during battle
+        assembly_line = gs.gamePhase == "battle_active",
+        
+        -- Move fast break things is always active if purchased
+        move_fast_break_things = true,
+        
+        -- Specialist niche is active if someone is the specialist
+        specialist_niche = flags.specialistId ~= nil,
+        
+        -- Focus funnel is active if there's a target
+        focus_funnel = flags.focusFunnelTargetId ~= nil,
+        
+        -- Office dog upgrade is active during a dog motivation turn
+        office_dog = flags.officeDogActiveThisTurn,
+        
+        -- GLaDOS is always active providing productivity boost
+        borg_hivemind = flags.hiveMindStats ~= nil,
+        
+        -- Brain interface is active if hive mind stats exist
+        brain_interface = flags.hiveMindStats ~= nil
+    }
+    
+    return activeConditions[self.upgData.id] or false
+end
+
+--- Internal helper to create and queue the tooltip for a hovered upgrade icon.
 function PurchasedUpgradeIcon:_createTooltip()
     local mouseX, mouseY = love.mouse.getPosition()
     local isClickable = self:_isClickable()
+    local isActive = self:_isEffectActive()
 
     local tooltipText = self.upgData.name .. ": " .. self.upgData.description
+    if isActive then
+        tooltipText = tooltipText .. "\n\n[EFFECT ACTIVE]"
+    end
     if isClickable then
         tooltipText = tooltipText .. "\n\n(Click to Activate)"
     end
@@ -48,20 +100,29 @@ function PurchasedUpgradeIcon:_createTooltip()
     local tipX = mouseX + 5
     local tipY = mouseY - tooltipHeight - 2
     
+    -- Reposition tooltip if it would go off-screen
     if tipX + tooltipWidth > love.graphics.getWidth() then tipX = mouseX - tooltipWidth - 5 end
     
     table.insert(Drawing.tooltipsToDraw, { text = tooltipText, x = tipX, y = tipY, w = tooltipWidth, h = tooltipHeight })
 end
 
---- Draws the icon and its hover effects.
+--- Draws the icon and its hover/active effects.
 function PurchasedUpgradeIcon:draw()
-    -- This print confirms the component is being drawn each frame.
-    -- print("Drawing upgrade icon:", self.upgData.name)
-
     local isClickable = self:_isClickable()
+    local isActive = self:_isEffectActive()
     local mouseX, mouseY = love.mouse.getPosition()
     local isHovered = Drawing.isMouseOver(mouseX, mouseY, self.rect.x, self.rect.y, self.rect.w, self.rect.h)
 
+    -- Draw active effect border (pulsing gold)
+    if isActive then
+        local pulseIntensity = 0.3 + 0.2 * math.sin(love.timer.getTime() * 4)
+        love.graphics.setColor(1, 0.84, 0, pulseIntensity)
+        love.graphics.setLineWidth(3)
+        love.graphics.rectangle("line", self.rect.x - 3, self.rect.y - 3, self.rect.w + 6, self.rect.h + 6, 5)
+        love.graphics.setLineWidth(1)
+    end
+
+    -- Draw clickable highlight
     if isClickable and isHovered then
         love.graphics.setColor(0.2, 0.8, 0.2, 0.4)
         love.graphics.rectangle("fill", self.rect.x - 2, self.rect.y - 2, self.rect.w + 4, self.rect.h + 4, 3)
@@ -72,7 +133,6 @@ function PurchasedUpgradeIcon:draw()
     love.graphics.print(self.upgData.icon or "?", self.rect.x, self.rect.y)
 
     if isHovered then
-        -- This print will appear if the game detects you are hovering over the icon.
         self:_createTooltip()
     end
 end

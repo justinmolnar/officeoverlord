@@ -78,6 +78,7 @@ return {
             onBeforeContribution = function(self, gameState, eventArgs)
                 if eventArgs.employee.isAutomated then
                     eventArgs.contributionMultiplier = eventArgs.contributionMultiplier * 2
+                    print("Automation Script doubled " .. eventArgs.employee.fullName .. "'s contribution!")
                 end
             end
         }
@@ -136,10 +137,18 @@ return {
         description = 'The first employee to act in every work cycle has their Productivity and Focus doubled.',
         effect = { type = 'first_mover' },
         listeners = {
+            onWorkOrderDetermined = function(self, gameState, eventArgs)
+                if #eventArgs.activeEmployees > 0 then
+                    eventArgs.activeEmployees[1].isFirstMover = true
+                    print("First Mover Advantage: " .. eventArgs.activeEmployees[1].fullName .. " will get double stats this round!")
+                end
+            end,
             onBeforeContribution = function(self, gameState, eventArgs)
                 if eventArgs.employee.isFirstMover then
                     eventArgs.productivityMultiplier = eventArgs.productivityMultiplier * 2
                     eventArgs.focusMultiplier = eventArgs.focusMultiplier * 2
+                    eventArgs.employee.isFirstMover = nil
+                    print("First Mover Advantage doubled " .. eventArgs.employee.fullName .. "'s stats!")
                 end
             end
         }
@@ -832,7 +841,7 @@ return {
             end
         }
     },
-    { 
+    {
         id = 'multiverse_merger', name = 'Multiverse Merger', rarity = 'Legendary', cost = 3000, icon = '🌌',
         description = 'Once per run, swap your entire team with a randomly generated team from an alternate reality. High risk, high reward.',
         effect = { type = 'multiverse_merger' },
@@ -860,7 +869,10 @@ return {
                         
                         local newTeam = {}
                         for i = 1, numEmployees do
-                            table.insert(newTeam, Shop:_generateRandomEmployeeOffer(gameState))
+                            local newOffer = Shop:_generateRandomEmployeeOffer(gameState)
+                            local Employee = require("employee")
+                            local newEmployee = Employee:new(newOffer.id, newOffer.variant, newOffer.fullName)
+                            table.insert(newTeam, newEmployee)
                         end
                         
                         gameState.hiredEmployees = newTeam
@@ -881,6 +893,11 @@ return {
                         end
 
                         gameState.temporaryEffectFlags.multiverseMergerAvailable = false
+                        
+                        -- Force UI rebuild immediately
+                        _G.buildUIComponents()
+                        
+                        Drawing.hideModal()
                         Drawing.showModal("Worlds Collide!", "Your team has been swapped with one from an alternate reality!")
                     end
 

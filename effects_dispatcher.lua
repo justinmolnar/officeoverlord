@@ -36,6 +36,24 @@ function EffectsDispatcher.dispatchEvent(eventName, gameState, eventArgs)
         end
     end
 
+    if gameState.deskDecorations then
+        for deskId, decorationId in pairs(gameState.deskDecorations) do
+            if decorationId then
+                local decorationData
+                for _, deco in ipairs(GameData.ALL_DESK_DECORATIONS) do
+                    if deco.id == decorationId then
+                        decorationData = deco
+                        break
+                    end
+                end
+
+                if decorationData and decorationData.listeners and decorationData.listeners[eventName] then
+                    decorationData.listeners[eventName](decorationData, gameState, eventArgs, deskId)
+                end
+            end
+        end
+    end
+
     if eventArgs.showModal then
         local Drawing = require("drawing")
         Drawing.showModal(eventArgs.showModal.title, eventArgs.showModal.message)

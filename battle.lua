@@ -109,6 +109,10 @@ function Battle:calculateEmployeeContribution(employeeInstance, gameState)
    local individualProductivity = stats.currentProductivity
    local individualFocus = stats.currentFocus
    
+   -- Store original values for display
+   local displayProductivity = individualProductivity
+   local displayFocus = individualFocus
+   
    individualProductivity = individualProductivity * eventArgs.productivityMultiplier
    individualFocus = individualFocus * eventArgs.focusMultiplier
 
@@ -125,16 +129,72 @@ function Battle:calculateEmployeeContribution(employeeInstance, gameState)
 
    employeeInstance.contributionThisItem = (employeeInstance.contributionThisItem or 0) + employeeContribution
    
+   -- Store multiplier info for battle display
+   local multiplierText = ""
+   if eventArgs.productivityMultiplier > 1 or eventArgs.focusMultiplier > 1 or eventArgs.contributionMultiplier > 1 then
+       local multipliers = {}
+       if eventArgs.productivityMultiplier > 1 then
+           table.insert(multipliers, string.format("P×%.1f", eventArgs.productivityMultiplier))
+       end
+       if eventArgs.focusMultiplier > 1 then
+           table.insert(multipliers, string.format("F×%.1f", eventArgs.focusMultiplier))
+       end
+       if eventArgs.contributionMultiplier > 1 then
+           table.insert(multipliers, string.format("C×%.1f", eventArgs.contributionMultiplier))
+       end
+       multiplierText = " (" .. table.concat(multipliers, ", ") .. ")"
+   end
+   
    local afterContributionEventArgs = {
        contribution = employeeContribution
    }
    EffectsDispatcher.dispatchEvent("onAfterContribution", gameState, afterContributionEventArgs)
 
    return {
-       productivity = individualProductivity,
-       focus = individualFocus,
-       totalContribution = employeeContribution
+       productivity = displayProductivity,
+       focus = displayFocus,
+       totalContribution = employeeContribution,
+       multiplierText = multiplierText
    }
+end
+
+function Battle:resetBattleState(battleState, gameState)
+    -- Reset all battle state properties
+    battleState.activeEmployees = {}
+    battleState.nextEmployeeIndex = 1
+    battleState.currentWorkerId = nil
+    battleState.lastContribution = nil
+    battleState.phase = 'idle'
+    battleState.timer = 0
+    battleState.isShaking = false
+    battleState.chipAmountRemaining = 0
+    battleState.chipSpeed = 100
+    battleState.chipTimer = 0
+    battleState.roundTotalContribution = 0
+    battleState.lastRoundContributions = {}
+    battleState.changedEmployeesForAnimation = {}
+    battleState.nextChangedEmployeeIndex = 1
+    battleState.progressMarkers = {}
+    battleState.salariesToPayThisRound = 0
+    battleState.salaryChipAmountRemaining = 0
+    
+    -- Clear all employee battle-specific flags
+    for _, emp in ipairs(gameState.hiredEmployees) do
+        emp.isRebooted = nil
+        emp.snackBoostActive = nil
+        emp.snackBoostMultiplier = nil
+        emp.snackBoostLevel = nil
+        emp.narratorBoostActive = nil
+        emp.agileFirstTurnBoost = nil
+        emp.isInspired = nil
+        emp.isFirstMover = nil
+        emp.isAutomated = nil
+        emp.assemblyLinePosition = nil
+        emp.workCyclesThisItem = 0
+        emp.contributionThisItem = 0
+    end
+    
+    print("Battle state fully reset")
 end
 
 function Battle:calculateTotalSalariesForRound(gameState)

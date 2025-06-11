@@ -79,6 +79,7 @@ local function isUpgradePurchased_local(purchasedUpgradesList, upgradeId)
     return false
 end
 
+
 function Employee:calculateBaseStatsWithModifiers(employeeInstance, allHiredEmployees, purchasedPermanentUpgrades, gameState)
     local calculationLog = {
         productivity = {string.format("Base: %d", employeeInstance.baseProductivity)},
@@ -133,16 +134,21 @@ end
 
 function Employee:calculatePositionalBonuses(effectiveInstance, allHiredEmployees, deskAssignments, purchasedPermanentUpgrades, desksData, gameState)
     local totalProdBonus = 0
+    local totalProdMultiplier = 1.0
     local totalFocusMultiplier = 1.0
     local log = { productivity = {}, focus = {} }
 
     if effectiveInstance.variant == 'remote' or not effectiveInstance.deskId or (effectiveInstance.special and effectiveInstance.special.ignores_positional_bonuses) then
-        return { prod = 0, focusMult = 1.0, log = log }
+        return { prod = 0, prodMult = 1.0, focusMult = 1.0, log = log }
     end
     
     local isInverterActive = isUpgradePurchased_local(purchasedPermanentUpgrades, 'positional_inverter')
     
-    local eventArgs -- Declare the table before the function that uses it.
+    local ownDecoration = require("placement"):getDecorationOnDesk(gameState, effectiveInstance.deskId)
+    local hasFocusProtection = ownDecoration and ownDecoration.effect.type == 'desk_focus_protection'
+    local focusProtectionMultiplier = hasFocusProtection and (1 - ownDecoration.effect.negative_reduction) or 1.0
+
+    local eventArgs
 
     local function apply_effect(effectDetails, sourceEmployee)
         local multValue = effectDetails.scales_with_level and (sourceEmployee.level or 1) or 1
@@ -153,23 +159,34 @@ function Employee:calculatePositionalBonuses(effectiveInstance, allHiredEmployee
             totalProdBonus = totalProdBonus + val
             table.insert(log.productivity, string.format("%s%d from %s", val >= 0 and "+" or "", val, sourceEmployee.name))
         end
+        if effectDetails.productivity_mult then
+            local val = effectDetails.productivity_mult
+            if effectDetails.scales_with_level then
+                val = 1 + ((val - 1) * multValue)
+            end
+            if isInverterActive and val ~= 1 then val = 1 / val end
+            totalProdMultiplier = totalProdMultiplier * val
+            table.insert(log.productivity, string.format("*%.1fx from %s", val, sourceEmployee.name))
+        end
         if effectDetails.focus_add then
             if eventArgs.neutralizeFocus then table.insert(log.focus, "Positional focus ignored (HR)"); return end
             local val = effectDetails.focus_add * multValue
             if isInverterActive then val = -val end
+            if val < 0 and hasFocusProtection then val = val * focusProtectionMultiplier end
             totalFocusMultiplier = totalFocusMultiplier * (1 + val)
-            table.insert(log.focus, string.format("%s%.0f%% from %s", val > 0 and "+" or "", val * 100, sourceEmployee.name))
+            table.insert(log.focus, string.format("%s%.0f%% from %s", val >= 0 and "+" or "", val * 100, sourceEmployee.name))
         end
         if effectDetails.focus_mult then
             if eventArgs.neutralizeFocus then table.insert(log.focus, "Positional focus ignored (HR)"); return end
             local val = 1 + ((effectDetails.focus_mult - 1) * multValue)
             if isInverterActive and val ~= 0 then val = 1 / val end
+            if val < 1 and hasFocusProtection then val = 1 - ((1 - val) * focusProtectionMultiplier) end
             totalFocusMultiplier = totalFocusMultiplier * val
             table.insert(log.focus, string.format("*%.1f from %s", val, sourceEmployee.name))
         end
     end
 
-    eventArgs = { -- Populate the table after the function is defined.
+    eventArgs = {
         employee = effectiveInstance,
         override = false,
         neutralizeFocus = false,
@@ -180,7 +197,7 @@ function Employee:calculatePositionalBonuses(effectiveInstance, allHiredEmployee
     require("effects_dispatcher").dispatchEvent("onCalculatePositionalBonuses", gameState, eventArgs)
 
     if eventArgs.override then
-        return { prod = totalProdBonus, focusMult = totalFocusMultiplier, log = log }
+        return { prod = totalProdBonus, prodMult = totalProdMultiplier, focusMult = totalFocusMultiplier, log = log }
     end
 
     for _, sourceEmployee in ipairs(allHiredEmployees) do
@@ -200,7 +217,28 @@ function Employee:calculatePositionalBonuses(effectiveInstance, allHiredEmployee
         end
     end
 
-    return { prod = totalProdBonus, focusMult = totalFocusMultiplier, log = log }
+    for _, sourceDesk in ipairs(desksData) do
+        local decoration = require("placement"):getDecorationOnDesk(gameState, sourceDesk.id)
+        if decoration and decoration.effect and (decoration.effect.type == 'desk_area_focus' or decoration.effect.type == 'desk_area_productivity') then
+            local directions = {"up", "down", "left", "right"}
+            for _, dir in ipairs(directions) do
+                local neighborDeskId = self:getNeighboringDeskId(sourceDesk.id, dir, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, desksData)
+                if neighborDeskId and neighborDeskId == effectiveInstance.deskId then
+                    local effectDetails = {}
+                    if decoration.effect.adjacent_productivity_add then
+                        effectDetails.productivity_add = decoration.effect.adjacent_productivity_add
+                    end
+                    if decoration.effect.adjacent_focus_add then
+                        effectDetails.focus_add = decoration.effect.adjacent_focus_add
+                    end
+                    apply_effect(effectDetails, { name = decoration.name })
+                    break
+                end
+            end
+        end
+    end
+
+    return { prod = totalProdBonus, prodMult = totalProdMultiplier, focusMult = totalFocusMultiplier, log = log }
 end
 
 function Employee:calculateStatsWithPosition(employeeInstance, allHiredEmployees, deskAssignments, purchasedPermanentUpgrades, desksData, gameState)
@@ -212,6 +250,44 @@ function Employee:calculateStatsWithPosition(employeeInstance, allHiredEmployees
     local currentProductivity = stats.currentProductivity
     local currentFocus = stats.currentFocus
     local calculationLog = { productivity = {}, focus = {} }; for k,v in pairs(baseCalculationLog.productivity) do table.insert(calculationLog.productivity,v) end; for k,v in pairs(baseCalculationLog.focus) do table.insert(calculationLog.focus,v) end
+
+    if effectiveInstance.deskId then
+        local decoration = require("placement"):getDecorationOnDesk(gameState, effectiveInstance.deskId)
+        if decoration and decoration.effect then
+            local effect = decoration.effect
+            local type = effect.type
+            if type == 'desk_productivity_add' then
+                currentProductivity = currentProductivity + (effect.value or 0)
+                table.insert(calculationLog.productivity, string.format("+%d from %s", effect.value, decoration.name))
+            elseif type == 'desk_focus_add' then
+                currentFocus = currentFocus + (effect.value or 0)
+                table.insert(calculationLog.focus, string.format("+%.2fx from %s", effect.value, decoration.name))
+            elseif type == 'desk_mixed_bonus' then
+                if effect.productivity_add then
+                    currentProductivity = currentProductivity + effect.productivity_add
+                    table.insert(calculationLog.productivity, string.format("+%d from %s", effect.productivity_add, decoration.name))
+                end
+                if effect.focus_add then
+                    currentFocus = currentFocus + effect.focus_add
+                    table.insert(calculationLog.focus, string.format("+%.2fx from %s", effect.focus_add, decoration.name))
+                end
+            elseif (type == 'desk_area_focus' or type == 'desk_area_productivity') then
+                if effect.desk_productivity_add then
+                    currentProductivity = currentProductivity + effect.desk_productivity_add
+                    table.insert(calculationLog.productivity, string.format("+%d from %s", effect.desk_productivity_add, decoration.name))
+                end
+                if effect.desk_focus_add then
+                    currentFocus = currentFocus + effect.desk_focus_add
+                    table.insert(calculationLog.focus, string.format("+%.2fx from %s", effect.desk_focus_add, decoration.name))
+                end
+            elseif type == 'desk_focus_protection' then
+                 if effect.focus_add then
+                    currentFocus = currentFocus + effect.focus_add
+                    table.insert(calculationLog.focus, string.format("+%.2fx from %s", effect.focus_add, decoration.name))
+                 end
+            end
+        end
+    end
 
     local isSpecialistNicheActive = isUpgradePurchased_local(purchasedPermanentUpgrades, 'specialist_niche')
     local specialistId = gameState.temporaryEffectFlags.specialistId
@@ -233,6 +309,7 @@ function Employee:calculateStatsWithPosition(employeeInstance, allHiredEmployees
     if not isFocusFunnelActive then
         local positionalBonuses = self:calculatePositionalBonuses(effectiveInstance, allHiredEmployees, deskAssignments, purchasedPermanentUpgrades, desksData, gameState)
         currentProductivity = currentProductivity + positionalBonuses.prod
+        currentProductivity = currentProductivity * positionalBonuses.prodMult
         currentFocus = currentFocus * positionalBonuses.focusMult
         for _, log in ipairs(positionalBonuses.log.productivity) do table.insert(calculationLog.productivity, log) end
         for _, log in ipairs(positionalBonuses.log.focus) do table.insert(calculationLog.focus, log) end

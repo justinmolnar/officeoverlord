@@ -18,8 +18,48 @@ function DeskSlot:new(params)
     return instance
 end
 
---- Draws the desk slot based on its status (locked, purchasable, owned).
-function DeskSlot:draw()
+-- Helper function to generate positional overlays for this desk
+function DeskSlot:_generatePositionalOverlays(sourceEmployee, sourceDeskId)
+    if not sourceEmployee or not sourceEmployee.positionalEffects or not sourceDeskId then
+        return {}
+    end
+
+    local overlays = {}
+    for direction, effect in pairs(sourceEmployee.positionalEffects) do
+        local directionsToParse = (direction == "all_adjacent" or direction == "sides") and {"up", "down", "left", "right"} or {direction}
+        if direction == "sides" then directionsToParse = {"left", "right"} end
+
+        for _, dir in ipairs(directionsToParse) do
+            local targetDeskId = Employee:getNeighboringDeskId(sourceDeskId, dir, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, self.gameState.desks)
+            if targetDeskId then
+                local bonusValue, bonusText, bonusColor
+                if effect.productivity_add then
+                    bonusValue = effect.productivity_add * (effect.scales_with_level and (sourceEmployee.level or 1) or 1)
+                    bonusText = string.format("%+d P", bonusValue)
+                    bonusColor = {0.1, 0.65, 0.35, 0.75} -- Green
+                elseif effect.focus_add then
+                    bonusValue = effect.focus_add * (effect.scales_with_level and (sourceEmployee.level or 1) or 1)
+                    bonusText = string.format("%+.1f F", bonusValue)
+                    bonusColor = {0.25, 0.55, 0.9, 0.75} -- Blue
+                elseif effect.focus_mult then
+                    bonusText = string.format("x%.1f F", effect.focus_mult)
+                    bonusColor = {0.8, 0.3, 0.8, 0.75} -- Purple for multipliers
+                end
+                
+                if bonusText then
+                    table.insert(overlays, { 
+                        targetDeskId = targetDeskId, 
+                        text = bonusText, 
+                        color = bonusColor 
+                    })
+                end
+            end
+        end
+    end
+    return overlays
+end
+
+function DeskSlot:draw(context)
     local deskData = self.data
     local x, y, width, height = self.rect.x, self.rect.y, self.rect.w, self.rect.h
     
@@ -43,7 +83,6 @@ function DeskSlot:draw()
     if isDeskDisabled then
         love.graphics.setColor(1,0.2,0.2,1)
         love.graphics.printf("DISABLED", x, y + height/2 - Drawing.UI.fontSmall:getHeight()/2, width, "center")
-    -- Only draw text if the desk is NOT occupied
     elseif not self.gameState.deskAssignments[deskData.id] then
         love.graphics.setColor(Drawing.UI.colors.desk_text)
         if deskData.status == "owned" then
@@ -52,6 +91,35 @@ function DeskSlot:draw()
             love.graphics.printf("Buy\n$" .. deskData.cost, x, y + height/2 - Drawing.UI.fontSmall:getHeight(), width, "center")
         elseif deskData.status == "locked" then
             love.graphics.printf("Locked", x, y + height/2 - Drawing.UI.fontSmall:getHeight()/2, width, "center")
+        end
+    end
+
+    if context and context.overlaysToDraw then
+        local mouseX, mouseY = love.mouse.getPosition()
+        local isHovered = Drawing.isMouseOver(mouseX, mouseY, x, y, width, height)
+        
+        if isHovered then
+            local sourceEmployeeForOverlay = nil
+            local draggedItem = context.draggedItemState and context.draggedItemState.item
+            
+            if draggedItem and (draggedItem.type == "placed_employee" or draggedItem.type == "shop_employee") then
+                sourceEmployeeForOverlay = draggedItem.data
+            else
+                local empId = self.gameState.deskAssignments[deskData.id]
+                if empId then
+                    sourceEmployeeForOverlay = Employee:getFromState(self.gameState, empId)
+                    if draggedItem and draggedItem.data and draggedItem.data.instanceId == empId then
+                        sourceEmployeeForOverlay = nil
+                    end
+                end
+            end
+
+            if sourceEmployeeForOverlay then
+                local overlays = self:_generatePositionalOverlays(sourceEmployeeForOverlay, deskData.id)
+                for _, overlay in ipairs(overlays) do
+                    table.insert(context.overlaysToDraw, overlay)
+                end
+            end
         end
     end
 end
@@ -74,36 +142,54 @@ function DeskSlot:handleMousePress(x, y, button)
 end
 
 function DeskSlot:handleMouseDrop(x, y, droppedItem)
-    -- This component is only a valid drop target if it's an empty, owned desk.
+    if not Drawing.isMouseOver(x, y, self.rect.x, self.rect.y, self.rect.w, self.rect.h) then
+        return false
+    end
+
+    if droppedItem.type == "shop_decoration" then
+        if self.gameState.deskDecorations[self.data.id] then
+            Drawing.showModal("Placement Blocked", "This desk already has a decoration. Replace it from an inventory screen (not yet implemented).")
+            return false
+        end
+
+        if self.gameState.budget < droppedItem.cost then
+            Drawing.showModal("Can't Afford", "Not enough budget. Need $" .. droppedItem.cost)
+            return false
+        end
+
+        local success = Placement:handleDecorationDropOnDesk(self.gameState, droppedItem.data, self.data.id)
+        if success then
+            self.gameState.budget = self.gameState.budget - droppedItem.cost
+            Shop:markOfferSold(self.gameState.currentShopOffers, nil, nil, droppedItem.data.instanceId)
+            _G.buildUIComponents()
+        end
+        return success
+    end
+
     if self.data.status ~= "owned" or self.gameState.deskAssignments[self.data.id] then
         return false
     end
     
-    if not Drawing.isMouseOver(x, y, self.rect.x, self.rect.y, self.rect.w, self.rect.h) then
-        return false -- Drop was not on me
-    end
-
     local droppedEmployeeData = droppedItem.data
     
     if droppedItem.type == "shop_employee" then
         if self.gameState.budget < droppedItem.cost then
             Drawing.showModal("Can't Afford", "Not enough budget to hire. Need $" .. droppedItem.cost)
-            return false -- CHANGED: Return false for failed drops
+            return false
         elseif droppedEmployeeData.special and (droppedEmployeeData.special.type == 'haunt_target_on_hire' or droppedEmployeeData.special.type == 'slime_merge') then
             Drawing.showModal("Invalid Placement", "This special unit must be placed on an existing employee, not an empty desk.")
-            return false -- CHANGED: Return false for failed drops
+            return false
         elseif droppedEmployeeData.variant == 'remote' then
             Drawing.showModal("Invalid Placement", droppedEmployeeData.fullName .. " is a remote worker and cannot be placed on a desk.")
-            return false -- CHANGED: Return false for failed drops
+            return false
         end
 
         local deskIndex = tonumber(string.match(self.data.id, "desk%-(%d+)"))
         if droppedEmployeeData.special and droppedEmployeeData.special.placement_restriction == 'not_top_row' and deskIndex and math.floor(deskIndex / GameData.GRID_WIDTH) == 0 then
             Drawing.showModal("Placement Error", droppedEmployeeData.fullName .. " cannot be placed in the top row.")
-            return false -- CHANGED: Return false for failed drops
+            return false
         end
         
-        -- All checks passed, hire and place the employee
         self.gameState.budget = self.gameState.budget - droppedItem.cost
         local newEmp = Employee:new(droppedEmployeeData.id, droppedEmployeeData.variant, droppedEmployeeData.fullName)
         table.insert(self.gameState.hiredEmployees, newEmp)

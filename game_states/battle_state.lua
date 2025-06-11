@@ -98,18 +98,15 @@ function BattleState:enter(gameState, battleState, context)
     battleState.activeEmployees = battleStartArgs.activeEmployees
     
     if #battleState.activeEmployees == 0 then
-        Drawing.showModal("Stuck!", "No employees available to work. Any staff in training will be ready next cycle.")
-        local timer = require("love.timer")
-        if timer and timer.after then
-            timer.after(1.0, function()
-                local result = Battle:endWorkCycleRound(gameState, 0, Drawing.showModal)
-                if result == "lost_budget" then 
-                    if context.setGamePhase then context.setGamePhase("game_over") end
-                elseif result == "lost_bailout" then 
-                    if context.setGamePhase then context.setGamePhase("hiring_and_upgrades") end
+        Drawing.showModal("No Active Staff!", "You need to hire and place at least one employee to start work. The hiring phase will continue.", {
+            {text = "Back to Hiring", onClick = function() 
+                Drawing.hideModal()
+                if context.setGamePhase then 
+                    context.setGamePhase("hiring_and_upgrades") 
                 end
-            end)
-        end
+            end, style = "primary"}
+        })
+        return
     end
     
     if context.buildUIComponents then

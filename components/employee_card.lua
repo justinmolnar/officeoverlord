@@ -86,8 +86,73 @@ function EmployeeCard:_createTooltip()
     table.insert(Drawing.tooltipsToDraw, { text = tooltipText, x = tipX, y = tipY, w = tooltipWidth, h = tooltipHeight, coloredLines = tooltipLines })
 end
 
+-- Helper function to generate positional overlays when dragging
+function EmployeeCard:_generateDragOverlays(context)
+    if not context.draggedItemState or not context.draggedItemState.item then return end
+    if context.draggedItemState.item.data.instanceId ~= self.data.instanceId then return end
+    
+    local draggedEmployee = context.draggedItemState.item.data
+    if not draggedEmployee.positionalEffects then return end
+    
+    -- Generate overlays for all owned desks
+    for _, desk in ipairs(self.gameState.desks) do
+        if desk.status == "owned" then
+            local overlays = self:_generatePositionalOverlaysForDesk(draggedEmployee, desk.id)
+            if context.overlaysToDraw then
+                for _, overlay in ipairs(overlays) do
+                    table.insert(context.overlaysToDraw, overlay)
+                end
+            end
+        end
+    end
+end
+
+-- Helper to generate overlays for a specific desk
+function EmployeeCard:_generatePositionalOverlaysForDesk(sourceEmployee, sourceDeskId)
+    if not sourceEmployee or not sourceEmployee.positionalEffects or not sourceDeskId then
+        return {}
+    end
+
+    local overlays = {}
+    local GameData = require("data")
+    local Employee = require("employee")
+    
+    for direction, effect in pairs(sourceEmployee.positionalEffects) do
+        local directionsToParse = (direction == "all_adjacent" or direction == "sides") and {"up", "down", "left", "right"} or {direction}
+        if direction == "sides" then directionsToParse = {"left", "right"} end
+
+        for _, dir in ipairs(directionsToParse) do
+            local targetDeskId = Employee:getNeighboringDeskId(sourceDeskId, dir, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, self.gameState.desks)
+            if targetDeskId then
+                local bonusValue, bonusText, bonusColor
+                if effect.productivity_add then
+                    bonusValue = effect.productivity_add * (effect.scales_with_level and (sourceEmployee.level or 1) or 1)
+                    bonusText = string.format("%+d P", bonusValue)
+                    bonusColor = {0.1, 0.65, 0.35, 0.75} -- Green
+                elseif effect.focus_add then
+                    bonusValue = effect.focus_add * (effect.scales_with_level and (sourceEmployee.level or 1) or 1)
+                    bonusText = string.format("%+.1f F", bonusValue)
+                    bonusColor = {0.25, 0.55, 0.9, 0.75} -- Blue
+                elseif effect.focus_mult then
+                    bonusText = string.format("x%.1f F", effect.focus_mult)
+                    bonusColor = {0.8, 0.3, 0.8, 0.75} -- Purple for multipliers
+                end
+                
+                if bonusText then
+                    table.insert(overlays, { 
+                        targetDeskId = targetDeskId, 
+                        text = bonusText, 
+                        color = bonusColor 
+                    })
+                end
+            end
+        end
+    end
+    return overlays
+end
+
 --- Draws the card and handles its own tooltip generation.
-function EmployeeCard:draw()
+function EmployeeCard:draw(context)
     if not self.data then return end
 
         -- For remote workers, don't draw if no position is set yet
@@ -102,6 +167,11 @@ function EmployeeCard:draw()
         love.graphics.setColor(0.5,0.5,0.5,0.5)
         Drawing.drawPanel(self.rect.x, self.rect.y, self.rect.w, self.rect.h, {0.8,0.8,0.8,0.5})
         return
+    end
+
+    -- Generate drag overlays if this employee is being dragged
+    if self.context == "desk_placed" and context and context.overlaysToDraw then
+        self:_generateDragOverlays(context)
     end
 
     local rect = self.rect

@@ -1211,7 +1211,6 @@ function Drawing._drawCardTextContent(cardData, x, y, width, height, context, ga
         
         if context == "shop_offer" then
             love.graphics.setColor(0.85, 0.25, 0.25, 1)
-            -- Simply read the pre-calculated cost from the card data
             love.graphics.printf("Hire: $" .. (cardData.displayCost or '...'), padding, variantY, width - padding * 2, "right")
             
             love.graphics.setFont(Drawing.UI.fontLarge)
@@ -1261,19 +1260,43 @@ end
 
 function Drawing._drawCardBattleAnimation(cardData, x, y, width, height, battleState)
     if battleState.currentWorkerId == cardData.instanceId and battleState.lastContribution then
-        love.graphics.setColor(0,0,0,0.7); love.graphics.rectangle("fill", 0, 0, width, height, 5,5)
-        local font = Drawing.UI.titleFont or Drawing.UI.fontLarge
-        love.graphics.setFont(font); love.graphics.setColor(1,1,1,1)
+        -- Apply shaking effect if active
+        local shakeX, shakeY = 0, 0
+        if battleState.isShaking then
+            shakeX = (love.math.random() - 0.5) * 4
+            shakeY = (love.math.random() - 0.5) * 4
+        end
         
-        local contrib = battleState.lastContribution; local textToShow = ""
-        if battleState.phase == 'showing_productivity' then textToShow = tostring(contrib.productivity)
-        elseif battleState.phase == 'showing_focus' then textToShow = "x " .. string.format("%.2f", contrib.focus)
-        elseif battleState.phase == 'showing_total' then textToShow = "= " .. tostring(contrib.totalContribution)
+        love.graphics.push()
+        love.graphics.translate(shakeX, shakeY)
+        
+        love.graphics.setColor(0,0,0,0.7)
+        love.graphics.rectangle("fill", 0, 0, width, height, 5,5)
+        local font = Drawing.UI.titleFont or Drawing.UI.fontLarge
+        love.graphics.setFont(font)
+        love.graphics.setColor(1,1,1,1)
+        
+        local contrib = battleState.lastContribution
+        local textToShow = ""
+        local multiplierText = contrib.multiplierText or ""
+        
+        if battleState.phase == 'showing_productivity' then 
+            textToShow = tostring(contrib.productivity) .. multiplierText
+        elseif battleState.phase == 'showing_focus' then 
+            textToShow = "x " .. string.format("%.2f", contrib.focus) .. multiplierText
+        elseif battleState.phase == 'showing_total' then 
+            textToShow = "= " .. tostring(contrib.totalContribution)
         elseif battleState.phase == 'animating_changes' then 
              local changedInfo = battleState.changedEmployeesForAnimation[battleState.nextChangedEmployeeIndex]
-             if changedInfo then textToShow = tostring(changedInfo.new.totalContribution) end
+             if changedInfo then 
+                 local newMultiplierText = changedInfo.new.multiplierText or ""
+                 textToShow = tostring(changedInfo.new.totalContribution) .. newMultiplierText
+             end
         end
+        
         love.graphics.printf(textToShow, 0, height/2 - font:getHeight()/2, width, "center")
+        
+        love.graphics.pop()
     end
 end
 

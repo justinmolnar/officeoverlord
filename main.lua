@@ -21,9 +21,15 @@ local Checkbox = require("components/checkbox")
 local Dropdown = require("components/dropdown")
 local PurchasedUpgradeIcon = require("components/purchased_upgrade_icon")
 local DeskSlot = require("components/desk_slot")
+local DecorationCard = require("components/decoration_card")
+local PlacedDecorationIcon = require("components/placed_decoration_icon")
+
+
 
 local StateManager = require("game_states.state_manager")
 local stateManager
+local overlaysToDraw = {}
+
 
 
 
@@ -150,6 +156,26 @@ function buildUIComponents()
                end
            end
        end
+       
+       if gameState.currentShopOffers and gameState.currentShopOffers.decorations then
+           currentY = shopRect.y + Drawing.UI.fontLarge:getHeight() + 28 + (140 + 5) * 2 + 15
+           love.graphics.setFont(Drawing.UI.font)
+           love.graphics.printf("Desk Decorations", shopRect.x, currentY, shopRect.width, "center")
+           currentY = currentY + Drawing.UI.font:getHeight() + 8
+
+           for _, decoData in ipairs(gameState.currentShopOffers.decorations) do
+               if decoData then
+                   table.insert(uiComponents, DecorationCard:new({
+                       data = decoData,
+                       rect = {x = shopRect.x + cardPadding, y = currentY, w = cardWidth, h = 90},
+                       gameState = gameState,
+                       draggedItemState = draggedItemState
+                   }))
+                   currentY = currentY + 90 + 5
+               end
+           end
+       end
+
        currentY = shopRect.y + Drawing.UI.fontLarge:getHeight() + 28 + (140 + 5) * 3 + 15 + Drawing.UI.font:getHeight() + 8
        if gameState.currentShopOffers and gameState.currentShopOffers.upgrade then
            table.insert(uiComponents, UpgradeCard:new({ data = gameState.currentShopOffers.upgrade, rect = {x=shopRect.x+cardPadding, y=currentY, w=cardWidth, h=110}, gameState = gameState, uiElementRects = uiElementRects }))
@@ -185,12 +211,12 @@ function buildUIComponents()
                local contextArgs = { employee = empData, context = "desk_placed" }
                EffectsDispatcher.dispatchEvent("onEmployeeContextCheck", gameState, contextArgs)
                
-               local row = math.floor((tonumber(string.match(deskData.id, "%d+")) or 0) / GameData.GRID_WIDTH)
-               local isDeskDisabled = (gameState.temporaryEffectFlags.isTopRowDisabled and row == 0)
+               local deskRow = math.floor((tonumber(string.match(deskData.id, "%d+")) or 0) / GameData.GRID_WIDTH)
+               local isDeskDisabled = (gameState.temporaryEffectFlags.isTopRowDisabled and deskRow == 0)
                
                if empData.isTraining or isDeskDisabled then 
                    contextArgs.context = "worker_training"
-               elseif gameState.gamePhase == "battle_active" then
+               elseif gameState.gamePhase == "battle_active" and battleState.activeEmployees then
                    local workerIndexInBattle = -1
                    for j, activeEmp in ipairs(battleState.activeEmployees) do 
                        if activeEmp.instanceId == empData.instanceId then 
@@ -206,6 +232,16 @@ function buildUIComponents()
                table.insert(uiComponents, EmployeeCard:new({data = empData, rect = {x = deskRect.x+2, y=deskRect.y+2, w=deskRect.w-4, h=deskRect.h-4}, context = contextArgs.context, gameState=gameState, battleState=battleState, draggedItemState=draggedItemState, uiElementRects=uiElementRects}))
            end
        end
+
+       local decoration = Placement:getDecorationOnDesk(gameState, deskData.id)
+       if decoration then
+           local iconFont = Drawing.UI.titleFont or love.graphics.getFont()
+           local iconSize = iconFont:getHeight()
+           local iconX = deskRect.x + deskRect.w - iconSize - 4
+           local iconY = deskRect.y + 4 + iconSize
+           local iconRect = { x = iconX, y = iconY, w = iconSize, h = iconSize }
+           table.insert(uiComponents, PlacedDecorationIcon:new({ data = decoration, rect = iconRect }))
+       end
    end
 
     for _, empData in ipairs(gameState.hiredEmployees) do
@@ -215,7 +251,7 @@ function buildUIComponents()
             
             if empData.isTraining or gameState.temporaryEffectFlags.isRemoteWorkDisabled then
                 contextArgs.context = "worker_training"
-            elseif gameState.gamePhase == "battle_active" then
+            elseif gameState.gamePhase == "battle_active" and battleState.activeEmployees then
                 local isWorkerActive = false
                 for _, activeEmp in ipairs(battleState.activeEmployees) do
                     if activeEmp.instanceId == empData.instanceId then isWorkerActive = true; break; end
@@ -236,7 +272,7 @@ function buildUIComponents()
        local upgData = nil
        for _, u in ipairs(GameData.ALL_UPGRADES) do if u.id == upgradeId then upgData = u; break; end end
        if upgData and (currentX + iconSize <= upgRect.x + upgRect.width - 10) then
-           table.insert(uiComponents, PurchasedUpgradeIcon:new({ rect = { x = currentX, y = iconY, w = iconSize, h = iconSize }, upgData = upgData, gameState = gameState }))
+           table.insert(uiComponents, PurchasedUpgradeIcon:new({ rect = { x = currentX, y = iconY, w = iconSize, h = iconSize }, upgData = upgData, gameState = gameState, battleState = battleState }))
            currentX = currentX + iconSize + iconPadding
        end
    end
@@ -300,6 +336,27 @@ function onMouseRelease(x, y, button)
         
         -- End the drag operation
         draggedItemState.item = nil 
+    end
+end
+
+local function drawPositionalOverlays()
+    if #overlaysToDraw > 0 then
+        for _, overlay in ipairs(overlaysToDraw) do
+            -- Find the desk rect for this overlay
+            for _, deskRect in ipairs(uiElementRects.desks) do
+                if deskRect.id == overlay.targetDeskId then
+                    -- Draw the colored overlay
+                    love.graphics.setColor(overlay.color)
+                    love.graphics.rectangle("fill", deskRect.x, deskRect.y, deskRect.w, deskRect.h, 3)
+                    
+                    -- Draw the text
+                    love.graphics.setFont(Drawing.UI.titleFont or Drawing.UI.fontLarge)
+                    love.graphics.setColor(1, 1, 1, 0.9)
+                    love.graphics.printf(overlay.text, deskRect.x, deskRect.y + (deskRect.h - (Drawing.UI.titleFont or Drawing.UI.fontLarge):getHeight()) / 2, deskRect.w, "center")
+                    break
+                end
+            end
+        end
     end
 end
 
@@ -535,23 +592,42 @@ function love.draw()
     tooltipsToDraw = {}
     Drawing.tooltipsToDraw = tooltipsToDraw 
     
+    local overlaysToDraw = {}
+    
     uiElementRects.shopLockButtons = {}
 
-    -- Create context for state manager
     local context = {
         panelRects = panelRects,
         uiElementRects = uiElementRects,
         draggedItemState = draggedItemState,
         sprintOverviewState = sprintOverviewState,
         Placement = Placement,
-        Shop = Shop
+        Shop = Shop,
+        overlaysToDraw = overlaysToDraw
     }
     
-    -- Use state manager for drawing
     stateManager:draw(gameState, battleState, context)
     
     for _, component in ipairs(uiComponents) do
-        if component.draw then component:draw() end
+        if component.draw then 
+            component:draw(context) 
+        end
+    end
+    
+    if #overlaysToDraw > 0 then
+        for _, overlay in ipairs(overlaysToDraw) do
+            for _, deskRect in ipairs(uiElementRects.desks) do
+                if deskRect.id == overlay.targetDeskId then
+                    love.graphics.setColor(overlay.color)
+                    love.graphics.rectangle("fill", deskRect.x, deskRect.y, deskRect.w, deskRect.h, 3)
+                    
+                    love.graphics.setFont(Drawing.UI.titleFont or Drawing.UI.fontLarge)
+                    love.graphics.setColor(1, 1, 1, 0.9)
+                    love.graphics.printf(overlay.text, deskRect.x, deskRect.y + (deskRect.h - (Drawing.UI.titleFont or Drawing.UI.fontLarge):getHeight()) / 2, deskRect.w, "center")
+                    break
+                end
+            end
+        end
     end
     
     if debugMenuState.isVisible then
@@ -565,10 +641,17 @@ function love.draw()
     end
     
     if draggedItemState.item then
-        local itemDataToDraw = draggedItemState.item.data
-        if itemDataToDraw then 
-            local mouseX, mouseY = love.mouse.getPosition()
-            Drawing.drawEmployeeCard(itemDataToDraw, mouseX - 40, mouseY - 50, 80, 100, "dragged", gameState, battleState, tooltipsToDraw, Drawing.foilShader, Drawing.holoShader, uiElementRects)
+        local mouseX, mouseY = love.mouse.getPosition()
+        if draggedItemState.item.type == "shop_decoration" then
+            love.graphics.setFont(Drawing.UI.titleFont or Drawing.UI.fontLarge)
+            love.graphics.setColor(1, 1, 1, 0.75)
+            love.graphics.print(draggedItemState.item.data.icon or "?", mouseX - 16, mouseY - 16)
+            love.graphics.setColor(1, 1, 1, 1)
+        else
+            local itemDataToDraw = draggedItemState.item.data
+            if itemDataToDraw then 
+                Drawing.drawEmployeeCard(itemDataToDraw, mouseX - 40, mouseY - 50, 80, 100, "dragged", gameState, battleState, tooltipsToDraw, Drawing.foilShader, Drawing.holoShader, uiElementRects)
+            end
         end
     end
     
@@ -636,6 +719,11 @@ function updateBattle(dt)
                 if gameState.temporaryEffectFlags.automatedEmployeeId == currentEmployee.instanceId then
                     currentEmployee.isAutomated = true
                 end
+                
+                -- Set first mover flag for the first employee in the round
+                if battleState.nextEmployeeIndex == 1 then
+                    currentEmployee.isFirstMover = true
+                end
 
                 EffectsDispatcher.dispatchEvent("onTurnStart", gameState, { currentEmployee = currentEmployee })
             end
@@ -672,7 +760,11 @@ function updateBattle(dt)
         battleState.roundTotalContribution = 0
         battleState.changedEmployeesForAnimation = {}
         local currentRoundContributions = {}
-        for _, emp in ipairs(battleState.activeEmployees) do
+        for i, emp in ipairs(battleState.activeEmployees) do
+            -- Set first mover flag for fast recalculate phase too
+            if i == 1 then
+                emp.isFirstMover = true
+            end
             local newContrib = Battle:calculateEmployeeContribution(emp, gameState)
             currentRoundContributions[emp.instanceId] = newContrib
             local oldContrib = battleState.lastRoundContributions[emp.instanceId]
@@ -957,6 +1049,12 @@ function setGamePhase(newPhase)
     local oldPhase = gameState.gamePhase
     GameState:setGamePhase(gameState, newPhase)
     print("Game phase transitioned from " .. oldPhase .. " to " .. newPhase)
+
+    -- Reset battle state when leaving battle
+    if (oldPhase == "battle_active" or oldPhase == "battle_over") and 
+       (newPhase ~= "battle_active" and newPhase ~= "battle_over") then
+        Battle:resetBattleState(battleState, gameState)
+    end
 
     -- Create context for state manager
     local context = {

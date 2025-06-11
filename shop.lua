@@ -23,10 +23,13 @@ function Shop:getModifiedUpgradeCost(upgradeData, hiredEmployees)
 end
 
 function Shop:populateOffers(gameState, currentShopOffers, purchasedPermanentUpgrades, forceRestock)
-    local numEmployeeSlots = 3
+    local numEmployeeSlots = 2 -- CHANGED: Reduced from 3 to 2
+    local numDecorationSlots = 1 -- NEW: Added decoration slot
 
     if forceRestock then
         print("Shop:populateOffers - Force Restock Initiated.")
+        
+        -- Handle employee offers
         local newEmployeeOffers = {}
         if currentShopOffers.employees then
             for i = 1, numEmployeeSlots do
@@ -40,6 +43,25 @@ function Shop:populateOffers(gameState, currentShopOffers, purchasedPermanentUpg
         end
         currentShopOffers.employees = newEmployeeOffers
 
+        -- Handle decoration offers
+        local newDecorationOffers = {}
+        if currentShopOffers.decorations then
+            for i = 1, numDecorationSlots do
+                local existingOffer = currentShopOffers.decorations[i]
+                if existingOffer and (existingOffer.sold or existingOffer.isLocked) then
+                    table.insert(newDecorationOffers, existingOffer)
+                else
+                    table.insert(newDecorationOffers, self:_generateRandomDecorationOffer(gameState))
+                end
+            end
+        else
+            for i = 1, numDecorationSlots do
+                table.insert(newDecorationOffers, self:_generateRandomDecorationOffer(gameState))
+            end
+        end
+        currentShopOffers.decorations = newDecorationOffers
+
+        -- Handle upgrade offers
         if not (currentShopOffers.upgrade and (currentShopOffers.upgrade.sold or currentShopOffers.upgrade.isLocked)) then
             currentShopOffers.upgrade = self:_generateRandomUpgradeOffer(purchasedPermanentUpgrades)
         end
@@ -47,6 +69,8 @@ function Shop:populateOffers(gameState, currentShopOffers, purchasedPermanentUpg
     else
         if currentShopOffers.restockCountThisWeek == 0 then
             print("Shop:populateOffers - Generating new shop offers for the week.")
+            
+            -- Handle preserved employees
             local preservedEmployees = {}
             if currentShopOffers.employees then
                 for _, offer in ipairs(currentShopOffers.employees) do
@@ -61,6 +85,22 @@ function Shop:populateOffers(gameState, currentShopOffers, purchasedPermanentUpg
                 table.insert(currentShopOffers.employees, self:_generateRandomEmployeeOffer(gameState))
             end
 
+            -- Handle preserved decorations
+            local preservedDecorations = {}
+            if currentShopOffers.decorations then
+                for _, offer in ipairs(currentShopOffers.decorations) do
+                    if offer and offer.isLocked then
+                        table.insert(preservedDecorations, offer)
+                    end
+                end
+            end
+            
+            currentShopOffers.decorations = preservedDecorations
+            while #currentShopOffers.decorations < numDecorationSlots do
+                table.insert(currentShopOffers.decorations, self:_generateRandomDecorationOffer(gameState))
+            end
+
+            -- Handle upgrade offers
             if not (currentShopOffers.upgrade and currentShopOffers.upgrade.isLocked) then
                 currentShopOffers.upgrade = self:_generateRandomUpgradeOffer(purchasedPermanentUpgrades)
             end
@@ -85,6 +125,73 @@ function Shop:populateOffers(gameState, currentShopOffers, purchasedPermanentUpg
     end
     
     currentShopOffers.employees = eventArgs.offers
+end
+
+-- NEW: Generate random decoration offer
+function Shop:_generateRandomDecorationOffer(gameState)
+    if #GameData.ALL_DESK_DECORATIONS == 0 then
+        print("Warning (Shop:_generateRandomDecorationOffer): No desk decorations defined.")
+        return nil
+    end
+
+    local weights = { Common = 10, Uncommon = 5, Rare = 2, Legendary = 1 }
+    local weightedPool = {}
+    
+    for _, decorationData in ipairs(GameData.ALL_DESK_DECORATIONS) do
+        local rarity = decorationData.rarity or 'Common'
+        local weight = weights[rarity] or 1
+        for _ = 1, weight do
+            table.insert(weightedPool, decorationData)
+        end
+    end
+
+    if #weightedPool == 0 then
+        print("Warning (Shop:_generateRandomDecorationOffer): Weighted pool is empty.")
+        return nil
+    end
+    
+    local randomIndex = love.math.random(#weightedPool)
+    local chosenDecorationData = weightedPool[randomIndex]
+    
+    local decorationOffer = self:_generateDecorationOfferFromData(chosenDecorationData)
+    decorationOffer.displayCost = self:getFinalDecorationCost(gameState, decorationOffer)
+
+    return decorationOffer
+end
+
+-- NEW: Generate decoration offer from base data
+function Shop:_generateDecorationOfferFromData(chosenDecorationData)
+    local decorationOffer = {}
+
+    -- Copy all properties from base decoration data
+    for k, v in pairs(chosenDecorationData) do 
+        if type(v) == "table" then
+            decorationOffer[k] = {}
+            for nk, nv in pairs(v) do decorationOffer[k][nk] = nv end
+        else
+            decorationOffer[k] = v 
+        end
+    end 
+    
+    -- Add shop-specific properties
+    decorationOffer.instanceId = string.format("shop-decoration-%s-%d-%.4f", decorationOffer.id, love.math.random(100000,999999), love.timer.getTime())
+    decorationOffer.sold = false 
+    
+    print("Generated shop decoration offer: " .. decorationOffer.name .. ", Rarity: " .. decorationOffer.rarity .. ", Cost: $" .. decorationOffer.cost)
+    return decorationOffer
+end
+
+-- NEW: Calculate final decoration cost (with potential modifiers)
+function Shop:getFinalDecorationCost(gameState, decorationOffer)
+    if not decorationOffer then return 0 end
+
+    local eventArgs = { 
+        finalCost = decorationOffer.cost, 
+        decorationRarity = decorationOffer.rarity 
+    }
+    require("effects_dispatcher").dispatchEvent("onCalculateDecorationCost", gameState, eventArgs)
+    
+    return eventArgs.finalCost
 end
 
 function Shop:getFinalHiringCost(gameState, employeeOffer, purchasedUpgrades)
@@ -236,7 +343,7 @@ function Shop:_generateRandomUpgradeOffer(purchasedPermanentUpgrades)
     return nil
 end
 
-function Shop:markOfferSold(currentShopOffers, employeeShopInstanceIdToMark, upgradeDataToMark)
+function Shop:markOfferSold(currentShopOffers, employeeShopInstanceIdToMark, upgradeDataToMark, decorationInstanceIdToMark)
     if employeeShopInstanceIdToMark and currentShopOffers.employees then
         local found = false
         for i, offer in ipairs(currentShopOffers.employees) do
@@ -264,9 +371,60 @@ function Shop:markOfferSold(currentShopOffers, employeeShopInstanceIdToMark, upg
         else
             print("ERROR (Shop:markOfferSold): Upgrade shop offer ID did not match. Sought based on passed data, current shop upgrade ID: " .. (currentShopOffers.upgrade.instanceId or currentShopOffers.upgrade.id))
         end
+    elseif decorationInstanceIdToMark and currentShopOffers.decorations then
+        -- NEW: Handle decoration sold marking
+        local found = false
+        for i, offer in ipairs(currentShopOffers.decorations) do
+            if offer and offer.instanceId == decorationInstanceIdToMark then
+                print("Shop:markOfferSold: Found decoration offer: " .. offer.name .. " (ID: " .. offer.instanceId .. ")")
+                offer.sold = true
+                found = true
+                return
+            end
+        end
+        if not found then
+            print("ERROR (Shop:markOfferSold): Decoration shop offer NOT FOUND. InstanceID sought: " .. decorationInstanceIdToMark)
+        end
     else
         print("ERROR (Shop:markOfferSold): Called with invalid parameters or empty shop offers structure.")
     end
+end
+
+-- NEW: Buy decoration function
+function Shop:buyDecoration(gameState, decorationIdToBuy)
+    local decorationData = nil
+    
+    if gameState.currentShopOffers.decorations then
+        for _, decorationOffer in ipairs(gameState.currentShopOffers.decorations) do
+            if decorationOffer and decorationOffer.id == decorationIdToBuy then
+                decorationData = decorationOffer
+                break
+            end
+        end
+    end
+
+    if not decorationData or decorationData.sold then
+        return false, "Selected decoration not available or already purchased this turn."
+    end
+    
+    local finalCost = self:getFinalDecorationCost(gameState, decorationData)
+    if gameState.budget < finalCost then
+        return false, "Not enough budget. Need $" .. finalCost .. "."
+    end
+    
+    gameState.budget = gameState.budget - finalCost
+    
+    -- Add to owned decorations (for now, we'll add to inventory for later placement)
+    local decorationInstance = {}
+    for k, v in pairs(decorationData) do decorationInstance[k] = v end
+    decorationInstance.instanceId = string.format("owned-decoration-%s-%d-%.4f", decorationData.id, love.math.random(100000,999999), love.timer.getTime())
+    table.insert(gameState.ownedDecorations, decorationInstance)
+    
+    self:markOfferSold(gameState.currentShopOffers, nil, nil, decorationData.instanceId)
+    
+    _G.buildUIComponents()
+    
+    return true, decorationData.name .. " purchased! (Added to inventory for placement)"
 end
 
 function Shop:attemptRestock(gameState)
@@ -287,6 +445,12 @@ function Shop:attemptRestock(gameState)
     end
     if not hasUnsoldItem and gameState.currentShopOffers.upgrade and not gameState.currentShopOffers.upgrade.sold and not gameState.currentShopOffers.upgrade.isLocked then
         hasUnsoldItem = true
+    end
+    -- NEW: Check decorations for unsold items
+    if not hasUnsoldItem and gameState.currentShopOffers.decorations then
+        for _, decorationOffer in ipairs(gameState.currentShopOffers.decorations) do
+            if decorationOffer and not decorationOffer.sold and not decorationOffer.isLocked then hasUnsoldItem = true; break end
+        end
     end
     if not hasUnsoldItem then
         return false, "All available shop offers are locked or have been purchased. Nothing to restock."
@@ -398,6 +562,29 @@ function Shop:forceAddUpgradeOffer(currentShopOffers, upgradeId)
     
     currentShopOffers.upgrade = upgradeOffer
     print("DEBUG: Forced upgrade '" .. upgradeOffer.name .. "' into shop.")
+end
+
+-- NEW: Force add decoration offer for debugging
+function Shop:forceAddDecorationOffer(currentShopOffers, decorationId)
+    local decorationData = nil
+    for _, decoration in ipairs(GameData.ALL_DESK_DECORATIONS) do
+        if decoration.id == decorationId then
+            decorationData = decoration
+            break
+        end
+    end
+
+    if not decorationData then
+        print("DEBUG ERROR: Could not find decoration with id: " .. tostring(decorationId))
+        return
+    end
+
+    local decorationOffer = self:_generateDecorationOfferFromData(decorationData)
+    
+    if not currentShopOffers.decorations then currentShopOffers.decorations = {} end
+
+    currentShopOffers.decorations[1] = decorationOffer
+    print("DEBUG: Forced decoration '" .. decorationOffer.name .. "' into shop slot 1.")
 end
 
 function Shop:_generateEmployeeOfferFromCard(chosenBaseCardData, variant)

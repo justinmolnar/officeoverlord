@@ -1221,7 +1221,8 @@ return {
                                     break
                                 end
                             end
-                            if neighborDesk and neighborDesk.status == "owned" and not gameState.deskAssignments[neighborDeskId] then
+                            -- Count both owned empty desks AND unpurchased/locked desks as empty
+                            if neighborDesk and ((neighborDesk.status == "owned" and not gameState.deskAssignments[neighborDeskId]) or neighborDesk.status ~= "owned") then
                                 emptyAdjacentCount = emptyAdjacentCount + 1
                             end
                         end
@@ -1234,7 +1235,7 @@ return {
                         end
                         local totalBonus = emptyAdjacentCount * bonusPerDesk
                         eventArgs.stats.focus = eventArgs.stats.focus * (1 + totalBonus)
-                        table.insert(eventArgs.stats.log.focus, string.format("+%.1f%% from %d empty desks", totalBonus * 100, emptyAdjacentCount))
+                        table.insert(eventArgs.stats.log.focus, string.format("+%.1f%% from %d empty spaces", totalBonus * 100, emptyAdjacentCount))
                     end
                 end
             end
