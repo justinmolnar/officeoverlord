@@ -330,4 +330,63 @@ function Placement:attemptBuyDesk(gameState, deskIdToBuy)
     return true, desk.id .. " purchased and now available!"
 end
 
+function Placement:getNeighboringDeskId(deskId, direction, gridWidth, totalDeskSlots, desksData)
+    if not deskId then return nil end -- Prevent crash if deskId is nil
+    local match = string.match(deskId, "desk%-(%d+)") if not match then return nil end
+    local currentIndex = tonumber(match) ; local neighborIndex = -1
+    local row = math.floor(currentIndex / gridWidth); local col = currentIndex % gridWidth
+    if direction == "up" then if row > 0 then neighborIndex = currentIndex - gridWidth end
+    elseif direction == "down" then if row < (math.ceil(totalDeskSlots / gridWidth) - 1) then neighborIndex = currentIndex + gridWidth end
+    elseif direction == "left" then if col > 0 then neighborIndex = currentIndex - 1 end
+    elseif direction == "right" then if col < gridWidth - 1 then neighborIndex = currentIndex + 1 end
+    end
+    if neighborIndex >= 0 and neighborIndex < totalDeskSlots then
+        -- Check if the neighbor desk actually exists in our defined desks
+        for _, desk in ipairs(desksData) do if desk.id == "desk-" .. neighborIndex then return desk.id end end
+    end
+    return nil
+end
+
+function Placement:generatePositionalOverlays(sourceEmployee, sourceDeskId, gameState)
+    if not sourceEmployee or not sourceEmployee.positionalEffects or not sourceDeskId then
+        return {}
+    end
+
+    local overlays = {}
+    for direction, effect in pairs(sourceEmployee.positionalEffects) do
+        local directionsToParse = (direction == "all_adjacent" or direction == "sides") and {"up", "down", "left", "right"} or {direction}
+        if direction == "sides" then directionsToParse = {"left", "right"} end
+
+        for _, dir in ipairs(directionsToParse) do
+            -- NOTE: This now correctly calls the centralized getNeighboringDeskId function
+            local targetDeskId = Placement:getNeighboringDeskId(sourceDeskId, dir, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, gameState.desks)
+            if targetDeskId then
+                local bonusValue, bonusText, bonusColor
+                if effect.productivity_add then
+                    bonusValue = effect.productivity_add * (effect.scales_with_level and (sourceEmployee.level or 1) or 1)
+                    bonusText = string.format("%+d P", bonusValue)
+                    bonusColor = {0.1, 0.65, 0.35, 0.75} -- Green
+                elseif effect.focus_add then
+                    bonusValue = effect.focus_add * (effect.scales_with_level and (sourceEmployee.level or 1) or 1)
+                    bonusText = string.format("%+.1f F", bonusValue)
+                    bonusColor = {0.25, 0.55, 0.9, 0.75} -- Blue
+                elseif effect.focus_mult then
+                    bonusText = string.format("x%.1f F", effect.focus_mult)
+                    bonusColor = {0.8, 0.3, 0.8, 0.75} -- Purple for multipliers
+                end
+                
+                if bonusText then
+                    table.insert(overlays, { 
+                        targetDeskId = targetDeskId, 
+                        text = bonusText, 
+                        color = bonusColor 
+                    })
+                end
+            end
+        end
+    end
+    return overlays
+end
+
+
 return Placement

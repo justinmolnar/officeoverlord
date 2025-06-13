@@ -133,6 +133,7 @@ function Employee:calculateBaseStatsWithModifiers(employeeInstance, allHiredEmpl
 end
 
 function Employee:calculatePositionalBonuses(effectiveInstance, allHiredEmployees, deskAssignments, purchasedPermanentUpgrades, desksData, gameState)
+    local Placement = require("placement")
     local totalProdBonus = 0
     local totalProdMultiplier = 1.0
     local totalFocusMultiplier = 1.0
@@ -206,7 +207,7 @@ function Employee:calculatePositionalBonuses(effectiveInstance, allHiredEmployee
                 for directionKey, effectDetails in pairs(sourceEmployee.positionalEffects) do
                     local directionsToParse = (directionKey == "all_adjacent") and {"up", "down", "left", "right"} or {directionKey}
                     for _, actualDirection in ipairs(directionsToParse) do
-                        if self:getNeighboringDeskId(sourceEmployee.deskId, actualDirection, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, desksData) == effectiveInstance.deskId then
+                        if Placement:getNeighboringDeskId(sourceEmployee.deskId, actualDirection, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, desksData) == effectiveInstance.deskId then
                             if not (effectDetails.condition_not_id and effectiveInstance.id == effectDetails.condition_not_id) then
                                 apply_effect(effectDetails, sourceEmployee)
                             end
@@ -222,7 +223,7 @@ function Employee:calculatePositionalBonuses(effectiveInstance, allHiredEmployee
         if decoration and decoration.effect and (decoration.effect.type == 'desk_area_focus' or decoration.effect.type == 'desk_area_productivity') then
             local directions = {"up", "down", "left", "right"}
             for _, dir in ipairs(directions) do
-                local neighborDeskId = self:getNeighboringDeskId(sourceDesk.id, dir, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, desksData)
+                local neighborDeskId = Placement:getNeighboringDeskId(sourceDesk.id, dir, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, desksData)
                 if neighborDeskId and neighborDeskId == effectiveInstance.deskId then
                     local effectDetails = {}
                     if decoration.effect.adjacent_productivity_add then
@@ -361,24 +362,6 @@ end
 function Employee:getDeskById(deskId, desksData)
     if not desksData then return nil end
     for _, desk in ipairs(desksData) do if desk.id == deskId then return desk end end
-    return nil
-end
-
--- Helper function to get ID of a neighboring desk
-function Employee:getNeighboringDeskId(deskId, direction, gridWidth, totalDeskSlots, desksData)
-    if not deskId then return nil end -- Prevent crash if deskId is nil
-    local match = string.match(deskId, "desk%-(%d+)") if not match then return nil end
-    local currentIndex = tonumber(match) ; local neighborIndex = -1
-    local row = math.floor(currentIndex / gridWidth); local col = currentIndex % gridWidth
-    if direction == "up" then if row > 0 then neighborIndex = currentIndex - gridWidth end
-    elseif direction == "down" then if row < (math.ceil(totalDeskSlots / gridWidth) - 1) then neighborIndex = currentIndex + gridWidth end
-    elseif direction == "left" then if col > 0 then neighborIndex = currentIndex - 1 end
-    elseif direction == "right" then if col < gridWidth - 1 then neighborIndex = currentIndex + 1 end
-    end
-    if neighborIndex >= 0 and neighborIndex < totalDeskSlots then
-        -- Check if the neighbor desk actually exists in our defined desks
-        for _, desk in ipairs(desksData) do if desk.id == "desk-" .. neighborIndex then return desk.id end end
-    end
     return nil
 end
 

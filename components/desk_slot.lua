@@ -21,45 +21,9 @@ function DeskSlot:new(params)
     return instance
 end
 
--- Helper function to generate positional overlays for this desk
 function DeskSlot:_generatePositionalOverlays(sourceEmployee, sourceDeskId)
-    if not sourceEmployee or not sourceEmployee.positionalEffects or not sourceDeskId then
-        return {}
-    end
-
-    local overlays = {}
-    for direction, effect in pairs(sourceEmployee.positionalEffects) do
-        local directionsToParse = (direction == "all_adjacent" or direction == "sides") and {"up", "down", "left", "right"} or {direction}
-        if direction == "sides" then directionsToParse = {"left", "right"} end
-
-        for _, dir in ipairs(directionsToParse) do
-            local targetDeskId = Employee:getNeighboringDeskId(sourceDeskId, dir, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, self.gameState.desks)
-            if targetDeskId then
-                local bonusValue, bonusText, bonusColor
-                if effect.productivity_add then
-                    bonusValue = effect.productivity_add * (effect.scales_with_level and (sourceEmployee.level or 1) or 1)
-                    bonusText = string.format("%+d P", bonusValue)
-                    bonusColor = {0.1, 0.65, 0.35, 0.75} -- Green
-                elseif effect.focus_add then
-                    bonusValue = effect.focus_add * (effect.scales_with_level and (sourceEmployee.level or 1) or 1)
-                    bonusText = string.format("%+.1f F", bonusValue)
-                    bonusColor = {0.25, 0.55, 0.9, 0.75} -- Blue
-                elseif effect.focus_mult then
-                    bonusText = string.format("x%.1f F", effect.focus_mult)
-                    bonusColor = {0.8, 0.3, 0.8, 0.75} -- Purple for multipliers
-                end
-                
-                if bonusText then
-                    table.insert(overlays, { 
-                        targetDeskId = targetDeskId, 
-                        text = bonusText, 
-                        color = bonusColor 
-                    })
-                end
-            end
-        end
-    end
-    return overlays
+    -- This function now simply calls the centralized function in the Placement module.
+    return Placement:generatePositionalOverlays(sourceEmployee, sourceDeskId, self.gameState)
 end
 
 function DeskSlot:draw(context)
