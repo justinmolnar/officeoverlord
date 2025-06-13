@@ -17,7 +17,7 @@ local function getEmployeeFromGameState(gs, instanceId)
 end
 
 function Battle:startChallenge(gameState, showMessage)
-    require("effects_dispatcher").dispatchEvent("onWorkItemStart", gameState)
+    require("effects_dispatcher").dispatchEvent("onWorkItemStart", gameState, { modal = modal })
 
     gameState.temporaryEffectFlags.isTopRowDisabled = nil
     gameState.temporaryEffectFlags.isRemoteWorkDisabled = nil
@@ -88,7 +88,7 @@ function Battle:calculateEmployeeContribution(employeeInstance, gameState)
        contributionMultiplier = 1,
        focusMultiplier = 1,
    }
-   EffectsDispatcher.dispatchEvent("onBeforeContribution", gameState, eventArgs)
+   EffectsDispatcher.dispatchEvent("onBeforeContribution", gameState, eventArgs, { modal = modal })
 
    if eventArgs.wasInstaWin then
        gameState.currentWeekWorkload = 0
@@ -146,9 +146,10 @@ function Battle:calculateEmployeeContribution(employeeInstance, gameState)
    end
    
    local afterContributionEventArgs = {
-       contribution = employeeContribution
+       contribution = employeeContribution,
+       employee = employeeInstance
    }
-   EffectsDispatcher.dispatchEvent("onAfterContribution", gameState, afterContributionEventArgs)
+   EffectsDispatcher.dispatchEvent("onAfterContribution", gameState, afterContributionEventArgs, { modal = modal })
 
    return {
        productivity = displayProductivity,
@@ -205,7 +206,7 @@ function Battle:calculateTotalSalariesForRound(gameState)
         skipPayday = false,
         excludeEmployee = {}
     }
-    require("effects_dispatcher").dispatchEvent("onCalculateSalaries", gameState, eventArgs)
+    require("effects_dispatcher").dispatchEvent("onCalculateSalaries", gameState, eventArgs, { modal = modal })
 
     if eventArgs.skipPayday then
         print("Payday skipped due to listener effect (e.g., Four-Day Work Week)!")
@@ -302,14 +303,14 @@ end
 
 -- Processes logic at the end of a full work round.
 function Battle:endWorkCycleRound(gameState, totalSalariesThisRound, showMessage)
-    require("effects_dispatcher").dispatchEvent("onEndOfRound", gameState, { totalSalaries = totalSalariesThisRound })
+    require("effects_dispatcher").dispatchEvent("onEndOfRound", gameState, { totalSalaries = totalSalariesThisRound }, { modal = modal })
 
     print("End of Work Cycle #" .. gameState.currentWeekCycles)
     print("Salaries paid this round: $" .. totalSalariesThisRound .. ". Budget remaining: $" .. gameState.budget)
     
     if gameState.budget < 0 then
         local eventArgs = { gameOverPrevented = false, message = "" }
-        require("effects_dispatcher").dispatchEvent("onBudgetDepleted", gameState, eventArgs)
+        require("effects_dispatcher").dispatchEvent("onBudgetDepleted", gameState, eventArgs, { modal = modal })
 
         if eventArgs.gameOverPrevented then
             showMessage("Saved!", eventArgs.message)

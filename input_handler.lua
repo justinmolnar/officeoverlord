@@ -22,6 +22,8 @@ InputHandler.sprintOverviewRects = nil
 InputHandler.debugMenuState = nil
 InputHandler.debug = nil
 InputHandler.callbacks = {}
+InputHandler.modal = nil
+
 
 
 local function executeAddMoney(handler)
@@ -61,7 +63,7 @@ local function calculateRemoteInsertionIndexFromGhost(x, y)
     if not InputHandler.uiElementRects.remoteGhostZone then return 1 end
     
     local rect = InputHandler.panelRects.remoteWorkers
-    local cardWidth = 140
+    local cardWidth = 280
     
     local remoteWorkers = {}
     for _, empData in ipairs(InputHandler.gameState.hiredEmployees) do
@@ -170,6 +172,7 @@ function InputHandler.init(references)
     InputHandler.debugMenuState = references.debugMenuState
     InputHandler.debug = references.debug
     InputHandler.callbacks = references.callbacks
+    InputHandler.modal = references.modal
 end
 
 function InputHandler.onMousePress(x, y, button)
@@ -179,13 +182,11 @@ function InputHandler.onMousePress(x, y, button)
         end
 
         if InputHandler.sprintOverviewState.isVisible then
-            if InputHandler.sprintOverviewRects.backButton and Drawing.isMouseOver(x, y, InputHandler.sprintOverviewRects.backButton.x, InputHandler.sprintOverviewRects.backButton.y, InputHandler.sprintOverviewRects.backButton.w, InputHandler.sprintOverviewRects.backButton.h) then
-                InputHandler.sprintOverviewState.isVisible = false
-            end
+            -- This logic is now handled by the component system in main.lua
             return
         end
 
-        if Drawing.modal.isVisible then
+        if InputHandler.modal.isVisible and InputHandler.modal:handleMouseClick(x, y) then
             return
         end
 
@@ -194,7 +195,8 @@ function InputHandler.onMousePress(x, y, button)
 
         if Drawing.isMouseOver(x, y, InputHandler.panelRects.workloadBar.x, InputHandler.panelRects.workloadBar.y, InputHandler.panelRects.workloadBar.width, InputHandler.panelRects.workloadBar.height) then
             local eventArgs = { wasHandled = false }
-            require("effects_dispatcher").dispatchEvent("onWorkloadBarClick", InputHandler.gameState, eventArgs)
+            -- Call the dispatcher with the correct signature
+            require("effects_dispatcher").dispatchEvent("onWorkloadBarClick", InputHandler.gameState, { modal = InputHandler.modal }, eventArgs)
         end
 
     elseif button == 2 and InputHandler.draggedItemState.item then
@@ -342,8 +344,8 @@ function InputHandler.onKeyPress(key)
                 end
             end
             InputHandler.draggedItemState.item = nil 
-        elseif Drawing.modal.isVisible then
-             Drawing.hideModal()
+        elseif InputHandler.modal.isVisible then
+             InputHandler.modal:hide()
         end
     end
 end
@@ -359,7 +361,7 @@ function InputHandler.handleWorkloadBarClicks(x, y)
         end
 
         if InputHandler.gameState.temporaryEffectFlags.fourthWallUsedThisSprint then
-            Drawing.showModal("Already Used", "The 4th Wall can only be broken once per sprint.")
+            InputHandler.modal:show("Already Used", "The 4th Wall can only be broken once per sprint.")
             return true
         end
 
@@ -370,7 +372,7 @@ function InputHandler.handleWorkloadBarClicks(x, y)
             local reduction = math.floor(workItemData.workload * 0.25)
             workItemData.workload = workItemData.workload - reduction
             InputHandler.gameState.temporaryEffectFlags.fourthWallUsedThisSprint = true
-            Drawing.showModal("CRACK!", "You reached through the screen and pulled the workload bar down, reducing the upcoming workload by 25%!")
+            InputHandler.modal:show("CRACK!", "You reached through the screen and pulled the workload bar down, reducing the upcoming workload by 25%!")
         end
         return true
     end

@@ -5,7 +5,7 @@ return {
 
     -- RARE & LEGENDARY EMPLOYEES
     {
-        id = 'corporate_lawyer1', name = 'Corporate Lawyer', icon = '👨‍⚖️', rarity = 'Rare',
+        id = 'corporate_lawyer1', name = 'Corporate Lawyer', icon = 'assets/portraits/prt0001.png', rarity = 'Rare',
         hiringBonus = 3000, weeklySalary = 700,
         baseProductivity = 10, baseFocus = 1.1,
         description = "If your budget would be depleted, this employee is 'sacrificed' (fired) to prevent a Game Over once.",
@@ -30,27 +30,27 @@ return {
         }
     },
     {
-        id = 'vc_nephew1', name = 'VC\'s Nephew', icon = '💰🤔', rarity = 'Rare',
+        id = 'vc_nephew1', name = 'VC\'s Nephew', icon = 'assets/portraits/prt0002.png', rarity = 'Rare',
         hiringBonus = 5000, weeklySalary = 2000,
         baseProductivity = 0, baseFocus = 1.0,
         description = 'Does nothing, and has a very high salary. However, at the end of each Sprint, there\'s a 25% chance of a massive budget injection "from his dad."',
         special = { type = 'sprint_end_budget_injection', chance = 0.25, amount = 25000, does_not_work = true },
         listeners = {
-            onSprintStart = function(self, gameState, eventArgs)
+            onSprintStart = function(self, gameState, services, eventArgs)
                 if love.math.random() < self.special.chance then
                     if not gameState.ventureCapitalActive then
                         gameState.budget = gameState.budget + self.special.amount
                     end
-        eventArgs.showModal = {
-            title = "A Call From Dad",
-            message = self.fullName.."'s father was impressed by your progress and made a 'small' donation of $"..self.special.amount.."!"
-        }                    
+                    services.modal:show(
+                        "A Call From Dad",
+                        self.fullName.."'s father was impressed by your progress and made a 'small' donation of $"..self.special.amount.."!"
+                    )
                 end
             end
         }
     },
     {
-        id = 'masseuse1', name = 'In-House Masseuse', icon = '💆‍♀️', rarity = 'Rare',
+        id = 'masseuse1', name = 'In-House Masseuse', icon = 'assets/portraits/prt0003.png', rarity = 'Rare',
         hiringBonus = 2200, weeklySalary = 450,
         baseProductivity = 0, baseFocus = 1.0,
         description = 'Does not contribute to workload. Instead, all adjacent employees have their Focus multiplied by 1.5x per level.',
@@ -65,7 +65,7 @@ return {
         }
     },
     {
-        id = 'wfh_advocate1', name = 'Work from Home Advocate', icon = '🏠', rarity = 'Rare',
+        id = 'wfh_advocate1', name = 'Work from Home Advocate', icon = 'assets/portraits/prt0004.png', rarity = 'Rare',
         hiringBonus = 2600, weeklySalary = 500,
         baseProductivity = 10, baseFocus = 1.1,
         description = 'Must be placed in the office. Doubles the Productivity and Focus of all remote workers.',
@@ -82,7 +82,7 @@ return {
         }
     },
     {
-        id = 'office_dog1', name = 'Office Dog', icon = '🐶', rarity = 'Rare',
+        id = 'office_dog1', name = 'Office Dog', icon = 'assets/portraits/prt0005.png', rarity = 'Rare',
         hiringBonus = 1500, weeklySalary = 100,
         baseProductivity = 0, baseFocus = 1.0,
         description = 'Does not work. Each turn, has a 50% chance to "motivate" a random employee, granting them +5 Productivity per level for that turn.',
@@ -113,14 +113,14 @@ return {
         }
     },
     {
-        id = 'organizer1', name = 'The Organizer', icon = '🗂️', rarity = 'Rare',
+        id = 'organizer1', name = 'The Organizer', icon = 'assets/portraits/prt0006.png', rarity = 'Rare',
         hiringBonus = 2400, weeklySalary = 480,
         baseProductivity = 7, baseFocus = 1.2,
         description = 'All positional effects (positive and negative) of employees in the same row AND column are increased by 25% per level.',
         special = { type = 'amplify_positional_effects', multiplier = 1.25, scales_with_level = true }
     },
     {
-        id = 'cobol_coder1', name = 'Old-School Coder', icon = '💾', rarity = 'Rare',
+        id = 'cobol_coder1', name = 'Old-School Coder', icon = 'assets/portraits/prt0007.png', rarity = 'Rare',
         hiringBonus = 2800, weeklySalary = 600,
         baseProductivity = 10, baseFocus = 1.0,
         description = 'Productivity is 5x on "Database Migration" or "Refactor Legacy Code" work items, but only 0.2x on all other items.',
@@ -142,7 +142,7 @@ return {
         }
     },
     {
-        id = 'efficiency_expert1', name = 'Efficiency Expert', icon = '✂️', rarity = 'Rare',
+        id = 'efficiency_expert1', name = 'Efficiency Expert', icon = 'assets/portraits/prt0008.png', rarity = 'Rare',
         hiringBonus = 3000, weeklySalary = 650,
         baseProductivity = 15, baseFocus = 1.3,
         description = 'At the end of each Sprint, downsizes by firing one of the two lowest-level Common employees and gives the other a permanent +5 Productivity boost per level.',
@@ -177,16 +177,16 @@ return {
                     if self.special.scales_with_level then boost = boost * (self.level or 1) end
                     survivor.baseProductivity = survivor.baseProductivity + boost
                     
-                    eventArgs.showModal = {
-                        title = "Restructuring", 
-                        message = self.fullName .. " 'optimized' the team.\n" .. fired.fullName .. " was let go, and " .. survivor.fullName .. " was rewarded!"
-}
+                    services.modal:show(
+                    "Restructuring",
+                    self.fullName .. " 'optimized' the team.\n" .. fired.fullName .. " was let go, and " .. survivor.fullName .. " was rewarded!"
+                    )
                 end
             end
         }
     },
     {
-        id = 'agile_coach1', name = 'The Agile Coach', icon = '🔄', rarity = 'Rare',
+        id = 'agile_coach1', name = 'The Agile Coach', icon = 'assets/portraits/prt0009.png', rarity = 'Rare',
         hiringBonus = 2500, weeklySalary = 550,
         baseProductivity = 8, baseFocus = 1.1,
         description = 'Employees work in a random order each cycle. The first employee to work gets a 2x productivity boost per level.',
@@ -217,7 +217,7 @@ return {
         }
     },
     {
-        id = 'office_plant1', name = 'Office Plant (Sentient)', icon = '🪴', rarity = 'Rare',
+        id = 'office_plant1', name = 'Office Plant (Sentient)', icon = 'assets/portraits/prt0010.png', rarity = 'Rare',
         hiringBonus = 1500, weeklySalary = 50,
         baseProductivity = 0, baseFocus = 1.0,
         description = 'A low-maintenance, photosynthetic colleague. Passively clears 5 workload per level at the end of each round. Does not work otherwise.',
@@ -250,7 +250,7 @@ return {
         }
     },
     {
-        id = 'ghost1', name = 'A Literal Ghost', icon = '👻', rarity = 'Rare',
+        id = 'ghost1', name = 'A Literal Ghost', icon = 'assets/portraits/prt0011.png', rarity = 'Rare',
         hiringBonus = 2000, weeklySalary = 0,
         baseProductivity = 0, baseFocus = 0,
         description = 'Drag onto an office worker to "haunt" them, permanently granting them +10 Prod and +0.5x Focus. The Ghost is consumed on use. This effect stacks.',
@@ -279,7 +279,7 @@ return {
         }
     },
     {
-        id = 'conspiracy_theorist1', name = 'Conspiracy Theorist', icon = '🤔', rarity = 'Rare',
+        id = 'conspiracy_theorist1', name = 'Conspiracy Theorist', icon = 'assets/portraits/prt0012.png', rarity = 'Rare',
         hiringBonus = 2300, weeklySalary = 400,
         baseProductivity = 10, baseFocus = 1.8,
         description = 'High focus, but ignores bonuses from managers. Has a 5% chance each turn to "expose a conspiracy," disabling a random positive upgrade for the rest of the sprint.',
@@ -321,31 +321,31 @@ return {
                     if #potentialUpgrades > 0 then
                         local upgradeToDisable = potentialUpgrades[love.math.random(#potentialUpgrades)]
                         gameState.temporaryEffectFlags.disabledUpgrades[upgradeToDisable.id] = true
-                        eventArgs.showModal = {
-                            title = "A Conspiracy!",
-                            message = self.fullName .. " has convinced the team that '"..upgradeToDisable.name.."' is a corporate plot and they will no longer use it this sprint!"
-                        }
+                        services.modal:show(
+                        "A Conspiracy!",
+                        self.fullName .. " has convinced the team that '"..upgradeToDisable.name.."' is a corporate plot and they will no longer use it this sprint!"
+                        )
                     end
                 end
             end
         }
     },
     {
-        id = 'time_traveling_intern1', name = 'Time-Traveling Intern', icon = '⏳', rarity = 'Rare',
+        id = 'time_traveling_intern1', name = 'Time-Traveling Intern', icon = 'assets/portraits/prt0013.png', rarity = 'Rare',
         hiringBonus = 1800, weeklySalary = 350,
         baseProductivity = 8, baseFocus = 1.0,
         description = 'Arrives with knowledge of the future. The modifier for the final work item of the current sprint is revealed.',
         special = { type = 'reveals_modifier' }
     },
     {
-        id = 'dog_walker1', name = 'Office Dog Walker', icon = '🚶🐕', rarity = 'Rare',
+        id = 'dog_walker1', name = 'Office Dog Walker', icon = 'assets/portraits/prt0014.png', rarity = 'Rare',
         hiringBonus = 1600, weeklySalary = 300,
         baseProductivity = 0, baseFocus = 1.0,
         description = 'Has 0 productivity, but ensures the "Office Dog" has a 100% chance to motivate an employee each turn.',
         special = { type = 'enhances_office_dog', does_not_work = true }
     },
     {
-        id = 'barista1', name = 'The Barista', icon = '☕️🤲', rarity = 'Rare',
+        id = 'barista1', name = 'The Barista', icon = 'assets/portraits/prt0015.png', rarity = 'Rare',
         hiringBonus = 2000, weeklySalary = 400,
         baseProductivity = 0, baseFocus = 1.0,
         description = 'Does not work. If you own an Espresso Machine, serves coffee to 3 random employees at the start of each Sprint, giving them a permanent +2 Productivity per level.',
@@ -373,17 +373,17 @@ return {
                 end
                 
                 if #boostedNames > 0 then
-                    eventArgs.showModal = {
-                        title = "Coffee Break!",
-                        message = self.fullName .. " served coffee, boosting the productivity of: " .. table.concat(boostedNames, ", ")
-                    }
+                    services.modal:show(
+                    "Coffee Break!",
+                    self.fullName .. " served coffee, boosting the productivity of: " .. table.concat(boostedNames, ", ")
+                    )
                 end
             end
         end
     }
     },
     {
-        id = 'dwight1', name = 'Dwight, Asst. to the R.M.', icon = '🤓', rarity = 'Rare',
+        id = 'dwight1', name = 'Dwight, Asst. to the R.M.', icon = 'assets/portraits/prt0016.png', rarity = 'Rare',
         hiringBonus = 2600, weeklySalary = 500,
         baseProductivity = 18, baseFocus = 1.2,
         description = 'Gains +1.5x Focus per level when adjacent to a Project Manager. After each completed work item, has a 25% chance to "train" a random employee, disabling them for the next item but giving them a permanent +3 Productivity per level.',
@@ -433,7 +433,7 @@ return {
         }
         },
     {
-        id = 'red_shirt_intern1', name = 'Red-Shirt Intern', icon = '🧑‍🚀', rarity = 'Rare',
+        id = 'red_shirt_intern1', name = 'Red-Shirt Intern', icon = 'assets/portraits/prt0017.png', rarity = 'Rare',
         hiringBonus = 1000, weeklySalary = 200,
         baseProductivity = 15, baseFocus = 1.1,
         description = 'Has decent stats, but if you would get a Game Over from budget depletion, this employee is automatically fired to absorb the penalty, preventing the loss.',
@@ -460,14 +460,14 @@ return {
         }
     },
     {
-        id = 'admiral1', name = 'The "It\'s a Trap!" Admiral', icon = '🦑', rarity = 'Rare',
+        id = 'admiral1', name = 'The "It\'s a Trap!" Admiral', icon = 'assets/portraits/prt0018.png', rarity = 'Rare',
         hiringBonus = 2200, weeklySalary = 450,
         baseProductivity = 10, baseFocus = 1.2,
         description = 'Allows you to see the "Boss Modifier" of the NEXT sprint\'s boss.',
         special = { type = 'reveals_next_sprint_modifier' }
     },
     {
-        id = 'quartermaster_q1', name = 'The Quartermaster "Q"', icon = '🛠️', rarity = 'Rare',
+        id = 'quartermaster_q1', name = 'The Quartermaster "Q"', icon = 'assets/portraits/prt0019.png', rarity = 'Rare',
         hiringBonus = 2800, weeklySalary = 550,
         baseProductivity = 5, baseFocus = 1.0,
         description = 'Does not work. Provides one random "gadget" (a temporary, single-sprint bonus) at the start of each Sprint.',
@@ -487,7 +487,7 @@ return {
         }
     },
     {
-    id = 'csm1', name = 'The Cigarette Smoking Man', icon = '🚬', rarity = 'Rare',
+    id = 'csm1', name = 'The Cigarette Smoking Man', icon = 'assets/portraits/prt0020.png', rarity = 'Rare',
     hiringBonus = 3500, weeklySalary = 100,
     baseProductivity = 13, baseFocus = 1.3,
     description = 'His effects are hidden. Secretly buffs a random employee with +15 Prod per level each Sprint, but also secretly adds 5% to ALL salaries.',
@@ -517,7 +517,7 @@ return {
     }
     },
     {
-        id = 'pen_tester1', name = 'Penetration Tester', icon = '🕵️', rarity = 'Rare',
+        id = 'pen_tester1', name = 'Penetration Tester', icon = 'assets/portraits/prt0021.png', rarity = 'Rare',
         hiringBonus = 2500, weeklySalary = 550,
         baseProductivity = 15, baseFocus = 1.2,
         description = 'Once per sprint, upon completing a work item, they test the firewalls. 50% chance to gain $2000, 50% chance to lose $1000 and disable the shop for the next item.',
@@ -529,17 +529,17 @@ return {
                         if not gameState.ventureCapitalActive then
                             gameState.budget = gameState.budget + self.special.success_gain
                         end
-                        eventArgs.showModal = {
-                            title = "Firewall Bypassed!",
-                            message = self.fullName .. " found a vulnerability, gaining $" .. self.special.success_gain .. "!"
-                        }
+                        services.modal:show(
+                        "Coffee Break!",
+                        self.fullName .. " served coffee, boosting the productivity of: " .. table.concat(boostedNames, ", ")
+                        )
                     else
                         gameState.budget = gameState.budget - self.special.failure_loss
                         gameState.temporaryEffectFlags.shopDisabledNextWorkItem = true
-                        eventArgs.showModal = {
-                            title = "Firewall Alert!",
-                            message = self.fullName .. " tripped an alarm, losing $" .. self.special.failure_loss .. "! The shop is locked down for the next work item."
-                        }
+                        services.modal:show(
+                        "Firewall Alert!",
+                        self.fullName .. " tripped an alarm, losing $" .. self.special.failure_loss .. "! The shop is locked down for the next work item."
+                        )
                     end
                     gameState.temporaryEffectFlags.penTesterUsedInSprint = gameState.currentSprintIndex
                 end
@@ -547,38 +547,7 @@ return {
         }
     },
     {
-        id = 'office_dog1', name = 'Office Dog', icon = '🐶', rarity = 'Rare',
-        hiringBonus = 1500, weeklySalary = 100,
-        baseProductivity = 0, baseFocus = 1.0,
-        description = 'Does not work. Each turn, has a 50% chance to "motivate" a random employee, granting them +5 Productivity per level for that turn.',
-        special = { type = 'office_dog_motivation', chance = 0.5, prod_boost = 5, does_not_work = true, scales_with_level = true },
-        listeners = {
-            onEmployeeContextCheck = function(self, gameState, eventArgs)
-                if eventArgs.employee.instanceId == self.instanceId then
-                    eventArgs.context = "worker_training"
-                end
-            end,
-            onTurnStart = function(self, gameState, eventArgs)
-                if love.math.random() < self.special.chance then
-                    local potentialTargets = {}
-                    for _, emp in ipairs(gameState.hiredEmployees) do
-                        if emp.instanceId ~= self.instanceId then table.insert(potentialTargets, emp) end
-                    end
-                    
-                    if #potentialTargets > 0 then
-                        local targetIndex = love.math.random(#potentialTargets)
-                        local targetEmp = potentialTargets[targetIndex]
-                        local boost = self.special.prod_boost
-                        if self.special.scales_with_level then boost = boost * (self.level or 1) end
-                        targetEmp.baseProductivity = targetEmp.baseProductivity + boost
-                        print(self.fullName .. " motivated " .. targetEmp.fullName .. " with a productivity boost of " .. boost)
-                    end
-                end
-            end
-        }
-    },
-    {
-        id = 'vampire1', name = 'A Vampire', icon = '🧛', rarity = 'Legendary',
+        id = 'vampire1', name = 'A Vampire', icon = 'assets/portraits/prt0022.png', rarity = 'Legendary',
         hiringBonus = 5000, weeklySalary = 0,
         baseProductivity = 75, baseFocus = 2.5,
         description = "Insane stats. Instead of a salary, lose 5% of your current budget after each work item. Cannot be placed in the top row.",
@@ -597,7 +566,7 @@ return {
         }
     },
     {
-        id = 'milton1', name = 'Milton, Stapler Guy', icon = '📎', rarity = 'Legendary',
+        id = 'milton1', name = 'Milton, Stapler Guy', icon = 'assets/portraits/prt0023.png', rarity = 'Legendary',
         hiringBonus = 1000, weeklySalary = 150,
         baseProductivity = 15, baseFocus = 1.0,
         description = "If placed in a bottom-row corner, focus becomes 5.0x. If you try to move him, there's a 50% chance he burns the office down (Game Over).",
@@ -615,12 +584,41 @@ return {
         }
     },
     {
-        id = 'mimic1', name = 'The Mimic', icon = '💧', rarity = 'Legendary',
+        id = 'mimic1', name = 'The Mimic', icon = 'assets/portraits/prt0024.png', rarity = 'Legendary',
         hiringBonus = 4000, weeklySalary = 200,
         baseProductivity = 1, baseFocus = 1.0,
         description = 'Appears as a water cooler. When placed, it copies the name, icon, stats, and abilities of a random adjacent employee for the rest of the Sprint.',
         special = { type = 'mimic' },
         listeners = {
+            onPlacement = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId ~= self.instanceId or self.copiedState then return end
+
+                local adjacentEmployees = {}
+                local directions = {"up", "down", "left", "right"}
+                for _, dir in ipairs(directions) do
+                    local neighborDeskId = require("employee"):getNeighboringDeskId(eventArgs.targetDeskId, dir, require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
+                    if neighborDeskId and gameState.deskAssignments[neighborDeskId] then
+                        local neighbor = require("employee"):getFromState(gameState, gameState.deskAssignments[neighborDeskId])
+                        if neighbor then table.insert(adjacentEmployees, neighbor) end
+                    end
+                end
+                
+                if #adjacentEmployees > 0 then
+                    local target = adjacentEmployees[love.math.random(#adjacentEmployees)]
+                    self.copiedState = {
+                        name = target.name,
+                        icon = target.icon,
+                        description = target.description,
+                        baseProductivity = target.baseProductivity,
+                        baseFocus = target.baseFocus,
+                        positionalEffects = target.positionalEffects,
+                        special = target.special
+                    }
+                    print("The Mimic has copied " .. target.name)
+                else
+                    print("The Mimic was placed with no adjacent employees to copy.")
+                end
+            end,
             onGetEffectiveCardData = function(self, gameState, eventArgs)
                 if eventArgs.employee.instanceId == self.instanceId and self.copiedState then
                     local effectiveData = {}
@@ -640,7 +638,7 @@ return {
         }
     },
     {
-        id = 'office_cat1', name = 'Office Cat', icon = '🐱', rarity = 'Legendary',
+        id = 'office_cat1', name = 'Office Cat', icon = 'assets/portraits/prt0025.png', rarity = 'Legendary',
         hiringBonus = 3000, weeklySalary = 100,
         baseProductivity = 0, baseFocus = 1.0,
         description = 'Does not work. Each turn, has a 50% chance to "pounce" on a random employee, granting them +10 Productivity per level for that turn.',
@@ -671,7 +669,7 @@ return {
         }
     },
     {
-        id = 'golem1', name = 'Paperwork Golem', icon = '🗿', rarity = 'Legendary',
+        id = 'golem1', name = 'Paperwork Golem', icon = 'assets/portraits/prt0026.png', rarity = 'Legendary',
         hiringBonus = 1000, weeklySalary = 0,
         baseProductivity = 200, baseFocus = 0.1,
         description = 'Insane base productivity, but very unfocused. Has no salary, but permanently loses 10 base productivity after each work item it contributes to.',
@@ -691,7 +689,7 @@ return {
         }
     },
     {
-        id = 'ai_overlord1', name = 'The AI Overlord', icon = '🤖', rarity = 'Legendary',
+        id = 'ai_overlord1', name = 'The AI Overlord', icon = 'assets/portraits/prt0027.png', rarity = 'Legendary',
         hiringBonus = 6000, weeklySalary = 1000,
         baseProductivity = 25, baseFocus = 1.5,
         description = 'Must be a Remote worker. Doubles the Productivity and Focus of all other remote workers. All upgrades cost 10% more per level.',
@@ -709,7 +707,7 @@ return {
         }
     },
     {
-        id = 'muse1', name = 'The Muse', icon = '✨', rarity = 'Legendary',
+        id = 'muse1', name = 'The Muse', icon = 'assets/portraits/prt0028.png', rarity = 'Legendary',
         hiringBonus = 4500, weeklySalary = 500,
         baseProductivity = 0, baseFocus = 1.0,
         description = 'Does not work. Once per Sprint, inspires a random employee, granting them 3x their normal stats per level for a single turn.',
@@ -745,7 +743,7 @@ return {
         }
     },
     {
-        id = 'glitch1', name = 'Glitch in the Matrix', icon = '🐈', rarity = 'Legendary',
+        id = 'glitch1', name = 'Glitch in the Matrix', icon = 'assets/portraits/prt0029.png', rarity = 'Legendary',
         hiringBonus = 7500, weeklySalary = 600,
         baseProductivity = 10, baseFocus = 1.0,
         description = 'Has a 1% chance each turn to instantly complete the current Work Item.',
@@ -760,7 +758,7 @@ return {
         }
     },
     {
-        id = 'developer1', name = 'The Developer', icon = '😂', rarity = 'Legendary',
+        id = 'developer1', name = 'The Developer', icon = 'assets/portraits/prt0030.png', rarity = 'Legendary',
         hiringBonus = 5000, weeklySalary = 800,
         baseProductivity = 60, baseFocus = 1.2,
         description = 'A fourth-wall-breaking employee. Their productivity is equal to the game\'s current frames-per-second.',
@@ -775,7 +773,7 @@ return {
         }
     },
     {
-        id = 'benevolent_slime1', name = 'A Benevolent Slime', icon = '🦠', rarity = 'Legendary',
+        id = 'benevolent_slime1', name = 'A Benevolent Slime', icon = 'assets/portraits/prt0031.png', rarity = 'Legendary',
         hiringBonus = 6000, weeklySalary = 250,
         baseProductivity = 5, baseFocus = 1.0,
         description = 'Drag from the shop onto another employee to merge. The Slime is consumed, but the target\'s base stats are doubled and they become Legendary. This effect stacks.',
@@ -805,7 +803,7 @@ return {
         }
     },
     {
-        id = 'narrator1', name = 'The Narrator', icon = '🎤', rarity = 'Legendary',
+        id = 'narrator1', name = 'The Narrator', icon = 'assets/portraits/prt0032.png', rarity = 'Legendary',
         hiringBonus = 3000, weeklySalary = 400,
         baseProductivity = 0, baseFocus = 1.0,
         description = 'Does not work. At the start of each employee\'s turn, gives them a +0.1x Focus boost per level for that turn.',
@@ -830,7 +828,7 @@ return {
         }
     },
     {
-        id = 'lumbergh1', name = 'Bill Lumbergh', icon = '☕', rarity = 'Legendary',
+        id = 'lumbergh1', name = 'Bill Lumbergh', icon = 'assets/portraits/prt0033.png', rarity = 'Legendary',
         hiringBonus = 4000, weeklySalary = 750,
         baseProductivity = 10, baseFocus = 1.0,
         description = 'Adjacent employees get -0.5x Focus per level. Forces each to work 1 extra time per round for each of his levels. Yeah... that\'d be great.',
@@ -876,7 +874,7 @@ return {
         }
     },
     {
-        id = 'ron_swanson1', name = 'Ron Swanson', icon = '👨🏻', rarity = 'Legendary',
+        id = 'ron_swanson1', name = 'Ron Swanson', icon = 'assets/portraits/prt0034.png', rarity = 'Legendary',
         hiringBonus = 3500, weeklySalary = 500,
         baseProductivity = 15, baseFocus = 1.0,
         description = 'Refuses to work if budget is over $50k. If budget is under $5k, his productivity is x10. Ignores all positional bonuses.',
@@ -907,7 +905,7 @@ return {
         }
     },
     {
-        id = 'agent_smith1', name = 'Agent Smith', icon = '🕴️', rarity = 'Legendary',
+        id = 'agent_smith1', name = 'Agent Smith', icon = 'assets/portraits/prt0035.png', rarity = 'Legendary',
         hiringBonus = 6000, weeklySalary = 300,
         baseProductivity = 25, baseFocus = 1.2,
         description = 'Grants +5 Productivity per level to adjacent employees. When hired, turns two other random employees into copies of Agent Smith for the rest of the Sprint. Copies do not stack positional effects with each other.',
@@ -973,7 +971,7 @@ return {
         }
     },
     {
-        id = 'glados1', name = 'GLaDOS', icon = '👁️', rarity = 'Legendary',
+        id = 'glados1', name = 'GLaDOS', icon = 'assets/portraits/prt0036.png', rarity = 'Legendary',
         hiringBonus = 5000, weeklySalary = 0,
         baseProductivity = 0, baseFocus = 1.0,
         description = 'Provides a +50% productivity boost to ALL employees. At the end of each work item, she will "test" you by forcing you to choose one of two negative modifiers for the next item.',
@@ -994,26 +992,24 @@ return {
                     
                     gameState.temporaryEffectFlags.gladosModifierForNextItem = mod1
                     
-                    eventArgs.showModal = {
-                        title = "GLaDOS Test Chamber",
-                        message = "GLaDOS has prepared a test for you. Choose your 'reward':\n\nOption A: " .. mod1.description .. "\n\nOption B: " .. mod2.description,
-                        buttons = {
-                            {text = "Option A", onClick = function()
-                                gameState.temporaryEffectFlags.gladosModifierForNextItem = mod1
-                                require("drawing").hideModal()
-                            end},
-                            {text = "Option B", onClick = function()
-                                gameState.temporaryEffectFlags.gladosModifierForNextItem = mod2
-                                require("drawing").hideModal()
-                            end}
-                        }
+                    services.modal:show(
+                    "GLaDOS Test Chamber",
+                    "GLaDOS has prepared a test for you. Choose your 'reward':\n\nOption A: " .. mod1.description .. "\n\nOption B: " .. mod2.description,
+                    {
+                        {text = "Option A", onClick = function()
+                            gameState.temporaryEffectFlags.gladosModifierForNextItem = mod1
+                        end},
+                        {text = "Option B", onClick = function()
+                            gameState.temporaryEffectFlags.gladosModifierForNextItem = mod2
+                        end}
                     }
+                    )
                 end
             end
         }
     },
     {
-        id = 'borg_drone', name = 'Borg Drone', icon = '🤖', rarity = 'Legendary',
+        id = 'borg_drone', name = 'Borg Drone', icon = 'assets/portraits/prt0037.png', rarity = 'Legendary',
         hiringBonus = 0, weeklySalary = 0,
         baseProductivity = 0, baseFocus = 0,
         description = 'We are the Borg. Resistance is futile. Your technological and biological distinctiveness will be added to our own.',
@@ -1021,7 +1017,7 @@ return {
         isNotPurchasable = true
     },
     {
-        id = 'corporate_personhood_employee', name = 'The Corporation', icon = '🏛️', rarity = 'Legendary',
+        id = 'corporate_personhood_employee', name = 'The Corporation', icon = 'assets/portraits/prt0038.png', rarity = 'Legendary',
         hiringBonus = 0, weeklySalary = 0,
         baseProductivity = 0, baseFocus = 1.0,
         description = 'The company itself, manifest. Its power grows with your assets. Provides massive bonuses to all adjacent employees.',
@@ -1030,7 +1026,7 @@ return {
     },
     -- UNCOMMON EMPLOYEES
     {
-        id = 'it_guy1', name = 'IT "Reboot" Guy', icon = '🔌', rarity = 'Uncommon',
+        id = 'it_guy1', name = 'IT "Reboot" Guy', icon = 'assets/portraits/prt0039.png', rarity = 'Uncommon',
         hiringBonus = 1700, weeklySalary = 380,
         baseProductivity = 7, baseFocus = 1.0,
         description = 'Once per work item, has a 50% chance at the end of a round to "reboot" a random coworker, tripling their contribution on their next turn.',
@@ -1061,7 +1057,7 @@ return {
         }
     },
     {
-        id = 'accountant1', name = 'The Accountant', icon = '🧾', rarity = 'Uncommon',
+        id = 'accountant1', name = 'The Accountant', icon = 'assets/portraits/prt0040.png', rarity = 'Uncommon',
         hiringBonus = 1600, weeklySalary = 350,
         baseProductivity = 5, baseFocus = 1.0,
         description = 'Reduces all salaries by 3%. Total salaries paid this item are rounded to the nearest $100.',
@@ -1075,7 +1071,7 @@ return {
                 eventArgs.cumulativePercentReduction = eventArgs.cumulativePercentReduction * (1 - reduction)
             end,
             onEndOfRound = function(self, gameState, eventArgs)
-                if self.special.rounds_salaries then
+                if self.special.rounds_salaries and eventArgs.totalSalaries then
                     eventArgs.totalSalaries = math.floor(eventArgs.totalSalaries / 100 + 0.5) * 100
                     print("Accountant rounded total salaries to: $" .. eventArgs.totalSalaries)
                 end
@@ -1083,7 +1079,7 @@ return {
         }
     },
     {
-        id = 'salesperson1', name = 'The Salesperson', icon = '💼', rarity = 'Uncommon',
+        id = 'salesperson1', name = 'The Salesperson', icon = 'assets/portraits/prt0041.png', rarity = 'Uncommon',
         hiringBonus = 1800, weeklySalary = 400,
         baseProductivity = 10, baseFocus = 1.0,
         description = 'Generates no workload progress. Instead, generates budget equal to 1.5x their Productivity score per level each cycle.',
@@ -1109,7 +1105,7 @@ return {
         }
     },
     {
-        id = 'union_rep1', name = 'The Union Rep', icon = '✊', rarity = 'Uncommon',
+        id = 'union_rep1', name = 'The Union Rep', icon = 'assets/portraits/prt0042.png', rarity = 'Uncommon',
         hiringBonus = 2000, weeklySalary = 450,
         baseProductivity = 2, baseFocus = 1.0,
         description = 'All employees gain +2 base Productivity per level. Employee salaries cannot be reduced by any means.',
@@ -1132,7 +1128,7 @@ return {
         }
     },
     {
-        id = 'marketer1', name = 'Marketing Whiz', icon = '📈', rarity = 'Uncommon',
+        id = 'marketer1', name = 'Marketing Whiz', icon = 'assets/portraits/prt0043.png', rarity = 'Uncommon',
         hiringBonus = 2000, weeklySalary = 350,
         baseProductivity = 10, baseFocus = 1.0,
         description = 'Generates +$750 Budget/win per level.',
@@ -1158,7 +1154,7 @@ return {
         }
     },
     {
-        id = 'hr1', name = 'HR Coordinator', icon = '👥', rarity = 'Uncommon',
+        id = 'hr1', name = 'HR Coordinator', icon = 'assets/portraits/prt0044.png', rarity = 'Uncommon',
         hiringBonus = 1800, weeklySalary = 320,
         baseProductivity = 5, baseFocus = 1.0,
         description = 'Reduces ALL salaries by 10% per level.',
@@ -1175,14 +1171,14 @@ return {
         }
     },
     {
-        id = 'senior_dev', name = 'Senior Developer', icon = '🚀', rarity = 'Uncommon',
+        id = 'senior_dev', name = 'Senior Developer', icon = 'assets/portraits/prt0045.png', rarity = 'Uncommon',
         hiringBonus = 3000, weeklySalary = 600,
         baseProductivity = 30, baseFocus = 1.0,
         description = 'Productive, high salary. Up: -3 Prod, -0.15x Focus.',
         positionalEffects = { up = { productivity_add = -3, focus_add = -0.15 } } 
     },
     {
-        id = 'project_manager', name = 'Project Manager', icon = '📋', rarity = 'Uncommon',
+        id = 'project_manager', name = 'Project Manager', icon = 'assets/portraits/prt0046.png', rarity = 'Uncommon',
         hiringBonus = 2500, weeklySalary = 500,
         baseProductivity = 10, baseFocus = 1.0,
         description = '+0.3x focus per level to ALL PLACED staff.',
@@ -1201,7 +1197,7 @@ return {
         }
     },
     {
-        id = 'lone_wolf', name = 'Lone Wolf Coder', icon = '🐺', rarity = 'Uncommon',
+        id = 'lone_wolf', name = 'Lone Wolf Coder', icon = 'assets/portraits/prt0047.png', rarity = 'Uncommon',
         hiringBonus = 2200, weeklySalary = 450,
         baseProductivity = 20, baseFocus = 1.0,
         description = 'Highly focused when alone. +0.5x Focus per level for each empty adjacent desk.',
@@ -1242,14 +1238,14 @@ return {
         }
     },
     {
-        id = 'the_synergist', name = 'The Synergist', icon = '🤝', rarity = 'Uncommon',
+        id = 'the_synergist', name = 'The Synergist', icon = 'assets/portraits/prt0048.png', rarity = 'Uncommon',
         hiringBonus = 1800, weeklySalary = 400,
         baseProductivity = 8, baseFocus = 1.0,
         description = 'Boosts adjacent non-Synergists (+2P, +0.2x F per level).',
         positionalEffects = { all_adjacent = { focus_add = 0.2, productivity_add = 2, condition_not_id = 'the_synergist', scales_with_level = true } }
     },
     {
-        id = 'data_analyst', name = 'Data Analyst', icon = '📊', rarity = 'Uncommon',
+        id = 'data_analyst', name = 'Data Analyst', icon = 'assets/portraits/prt0049.png', rarity = 'Uncommon',
         hiringBonus = 2000, weeklySalary = 420,
         baseProductivity = 3, baseFocus = 1.0,
         description = 'Productivity scales with Budget (+1P per level per $1k).',
@@ -1270,14 +1266,14 @@ return {
         }
     },
     {
-        id = 'the_mentor', name = 'The Mentor', icon = '🧑‍🏫', rarity = 'Uncommon',
+        id = 'the_mentor', name = 'The Mentor', icon = 'assets/portraits/prt0050.png', rarity = 'Uncommon',
         hiringBonus = 2600, weeklySalary = 550,
         baseProductivity = 10, baseFocus = 1.0,
         description = 'Boosts Productivity of employee directly below by +10 per level.',
         positionalEffects = { down = { productivity_add = 10, scales_with_level = true } }
     },
     {
-        id = 'creative_genius', name = 'Creative Genius', icon = '💡', rarity = 'Uncommon',
+        id = 'creative_genius', name = 'Creative Genius', icon = 'assets/portraits/prt0051.png', rarity = 'Uncommon',
         hiringBonus = 2800, weeklySalary = 580,
         baseProductivity = 10, baseFocus = 1.0, 
         description = 'Starts with 1.5x Focus. Salary increases $50 each week.',
@@ -1289,7 +1285,7 @@ return {
         }
     },
     {
-        id = 'the_grinder', name = 'The Grinder', icon = '⚙️', rarity = 'Uncommon',
+        id = 'the_grinder', name = 'The Grinder', icon = 'assets/portraits/prt0052.png', rarity = 'Uncommon',
         hiringBonus = 1900, weeklySalary = 380,
         baseProductivity = 25, baseFocus = 1.0, 
         description = 'High Prod, but Focus is fixed at 0.8x.',
@@ -1304,7 +1300,7 @@ return {
         }
     },
     {
-        id = 'night_owl', name = 'Night Owl Developer', icon = '🦉', rarity = 'Uncommon',
+        id = 'night_owl', name = 'Night Owl Developer', icon = 'assets/portraits/prt0053.png', rarity = 'Uncommon',
         hiringBonus = 2400, weeklySalary = 480,
         baseProductivity = 18, baseFocus = 1.0,
         description = 'Higher Focus if placed in bottom row.',
@@ -1325,7 +1321,7 @@ return {
         }
     },
     {
-        id = 'corner_office_exec', name = 'Corner Office Exec', icon = '👑', rarity = 'Uncommon',
+        id = 'corner_office_exec', name = 'Corner Office Exec', icon = 'assets/portraits/prt0054.png', rarity = 'Uncommon',
         hiringBonus = 4000, weeklySalary = 800,
         baseProductivity = 20, baseFocus = 1.0,
         description = '+1 Prod per level to all employees for each owned corner desk.',
@@ -1356,7 +1352,7 @@ return {
         }
     },
     {
-        id = 'hr_rep_by_the_book1', name = 'HR Rep (by the book)', icon = '📕', rarity = 'Uncommon',
+        id = 'hr_rep_by_the_book1', name = 'HR Rep (by the book)', icon = 'assets/portraits/prt0055.png', rarity = 'Uncommon',
         hiringBonus = 1700, weeklySalary = 360,
         baseProductivity = 5, baseFocus = 1.0,
         description = 'Normalizes the workplace. All other employees cannot receive any positive or negative Focus modifiers from positional effects.',
@@ -1370,7 +1366,7 @@ return {
         }
     },
     {
-        id = 'office_dj1', name = 'The Office DJ', icon = '🎧🎶', rarity = 'Uncommon',
+        id = 'office_dj1', name = 'The Office DJ', icon = 'assets/portraits/prt0056.png', rarity = 'Uncommon',
         hiringBonus = 1600, weeklySalary = 340,
         baseProductivity = 6, baseFocus = 1.0,
         description = 'Employees in the same row gain +0.2x Focus. All other employees get -0.1x Focus. Effect strength scales per level. Has no effect if remote.',
@@ -1400,14 +1396,14 @@ return {
         }
     },
     {
-        id = 'micromanager1', name = 'The Micromanager', icon = '🧐', rarity = 'Uncommon',
+        id = 'micromanager1', name = 'The Micromanager', icon = 'assets/portraits/prt0057.png', rarity = 'Uncommon',
         hiringBonus = 1900, weeklySalary = 420,
         baseProductivity = 8, baseFocus = 1.0,
         description = 'Adjacent employees have their productivity doubled and their focus is halved. Effect strength scales per level.',
         positionalEffects = { all_adjacent = { productivity_mult = 2.0, focus_mult = 0.5, scales_with_level = true } }
     },
     {
-        id = 'seo_wizard1', name = 'SEO Wizard', icon = '🧙', rarity = 'Uncommon',
+        id = 'seo_wizard1', name = 'SEO Wizard', icon = 'assets/portraits/prt0058.png', rarity = 'Uncommon',
         hiringBonus = 1800, weeklySalary = 380,
         baseProductivity = 12, baseFocus = 1.0,
         description = 'Every 3rd time they contribute in a work item, their contribution is converted directly into budget instead of clearing workload.',
@@ -1433,7 +1429,7 @@ return {
         }
     },
     {
-        id = 'snacker1', name = 'Person Who\'s Always Snacking', icon = '🥨', rarity = 'Uncommon',
+        id = 'snacker1', name = 'Person Who\'s Always Snacking', icon = 'assets/portraits/prt0059.png', rarity = 'Uncommon',
         hiringBonus = 1000, weeklySalary = 200,
         baseProductivity = 5, baseFocus = 1.0,
         description = 'After every 3 contributions in a work item, they give a "Snack" to a random employee, boosting their Focus by 1.5x per level for their next turn.',
@@ -1472,7 +1468,7 @@ return {
         }
     },
     {
-        id = 'company_historian1', name = 'Company Historian', icon = '🏛️', rarity = 'Uncommon',
+        id = 'company_historian1', name = 'Company Historian', icon = 'assets/portraits/prt0060.png', rarity = 'Uncommon',
         hiringBonus = 1500, weeklySalary = 300,
         baseProductivity = 8, baseFocus = 1.0,
         description = 'Gains +1 base Productivity per level for every Sprint completed so far in this run. (Bonus begins in Sprint 2).',
@@ -1493,41 +1489,24 @@ return {
             end
         }
     },
-    {
-        id = 'remote_worker1', name = 'Remote Worker', icon = '💻🌍', rarity = 'Uncommon',
-        hiringBonus = 1200, weeklySalary = 250,
-        baseProductivity = 6, baseFocus = 1.0,
-        description = 'Works remotely. Cannot be placed on a desk. +0.5x Focus per level.',
-        special = { type = 'remote_worker_focus_boost', focus_multiplier = 0.5, scales_with_level = true },
-        listeners = {
-            onFinalizeStats = function(self, gameState, eventArgs)
-                if eventArgs.employee.instanceId == self.instanceId then
-                    local focusBoost = self.special.focus_multiplier or 0.5
-                    if self.special.scales_with_level then 
-                        focusBoost = focusBoost * (self.level or 1) 
-                    end
-                    eventArgs.stats.focus = eventArgs.stats.focus * (1 + focusBoost)
-                    table.insert(eventArgs.stats.log.focus, string.format("+%.1f%% from remote work", focusBoost * 100))
-                end
-            end
-        }
-    },
     -- COMMON EMPLOYEES
     {
-        id = 'admin1', name = 'Dependable Admin', icon = '🧑‍💼', rarity = 'Common',
+        id = 'admin1', name = 'Dependable Admin', icon = 'assets/portraits/prt0061.png', rarity = 'Common',
         hiringBonus = 1100, weeklySalary = 220,
         baseProductivity = 6, baseFocus = 1.0,
         description = '+1 Productivity per level to all adjacent employees.',
         positionalEffects = { all_adjacent = { productivity_add = 1, scales_with_level = true } }
     },
     {
-        id = 'data_clerk1', name = 'Data Entry Clerk', icon = '📠', rarity = 'Common',
+        id = 'data_clerk1', name = 'Data Entry Clerk', icon = 'assets/portraits/prt0062.png', rarity = 'Common',
         hiringBonus = 900, weeklySalary = 180,
         baseProductivity = 4, baseFocus = 1.0,
         description = 'Low productivity, but generates +$50 budget per level per cycle they work.',
         special = { type = 'budget_per_cycle', value = 50, scales_with_level = true },
         listeners = {
             onAfterContribution = function(self, gameState, eventArgs)
+                if eventArgs.employee.instanceId ~= self.instanceId then return end
+                
                 local budgetGain = self.special.value
                 if self.special.scales_with_level then budgetGain = budgetGain * (self.level or 1) end
                 if not gameState.ventureCapitalActive then
@@ -1538,7 +1517,7 @@ return {
         }
     },
     {
-        id = 'caffeinated_intern1', name = 'Over-Caffeinated Intern', icon = '🏃💨', rarity = 'Common',
+        id = 'caffeinated_intern1', name = 'Over-Caffeinated Intern', icon = 'assets/portraits/prt0063.png', rarity = 'Common',
         hiringBonus = 300, weeklySalary = 80,
         baseProductivity = 8, baseFocus = 1.0,
         description = 'Fast, but has a 10% chance each cycle to have 0 productivity.',
@@ -1555,47 +1534,47 @@ return {
         }
     },
     {
-        id = 'intern1', name = 'Eager Intern', icon = '🧑‍💻', rarity = 'Common',
+        id = 'intern1', name = 'Eager Intern', icon = 'assets/portraits/prt0064.png', rarity = 'Common',
         hiringBonus = 500, weeklySalary = 100,
         baseProductivity = 5, baseFocus = 1.0,
         description = 'Cheap, enthusiastic. Right: +0.5x Focus per level.',
         positionalEffects = { right = { focus_add = 0.5, scales_with_level = true } } 
     },
     {
-        id = 'dev1', name = 'Junior Developer', icon = '💻', rarity = 'Common',
+        id = 'dev1', name = 'Junior Developer', icon = 'assets/portraits/prt0065.png', rarity = 'Common',
         hiringBonus = 1500, weeklySalary = 300,
         baseProductivity = 15, baseFocus = 1.0,
         description = 'Solid coder. Down: +8 Prod per level.',
         positionalEffects = { down = { productivity_add = 8, scales_with_level = true } }
     },
     {
-        id = 'designer1', name = 'Graphic Designer', icon = '🎨', rarity = 'Common',
+        id = 'designer1', name = 'Graphic Designer', icon = 'assets/portraits/prt0066.png', rarity = 'Common',
         hiringBonus = 1200, weeklySalary = 250,
         baseProductivity = 12, baseFocus = 1.0,
         description = 'Great eye for detail. Sides: +0.6x Focus per level.',
         positionalEffects = { left = { focus_add = 0.6, scales_with_level = true }, right = { focus_add = 0.6, scales_with_level = true } }
     },
     {
-        id = 'va1', name = 'Office Assistant', icon = '📞', rarity = 'Common',
+        id = 'va1', name = 'Office Assistant', icon = 'assets/portraits/prt0067.png', rarity = 'Common',
         hiringBonus = 1000, weeklySalary = 200,
         baseProductivity = 8, baseFocus = 1.0,
         description = 'Handles small stuff.'
     },
     {
-        id = 'support_agent', name = 'Support Agent', icon = '🎧', rarity = 'Common',
+        id = 'support_agent', name = 'Support Agent', icon = 'assets/portraits/prt0068.png', rarity = 'Common',
         hiringBonus = 1400, weeklySalary = 280,
         baseProductivity = 10, baseFocus = 1.0,
         description = 'Keeps clients happy.'
     },
     {
-        id = 'office_clown', name = 'Office Clown', icon = '🤡', rarity = 'Common',
+        id = 'office_clown', name = 'Office Clown', icon = 'assets/portraits/prt0069.png', rarity = 'Common',
         hiringBonus = 500, weeklySalary = 100,
         baseProductivity = 3, baseFocus = 1.0,
         description = 'Up: +0.4x F per level, Down: -0.2x F per level.',
         positionalEffects = { up = { focus_add = 0.4, scales_with_level = true }, down = { focus_add = -0.2, scales_with_level = true } }
     },
     {
-        id = 'the_minimalist', name = 'The Minimalist', icon = '🧘', rarity = 'Common',
+        id = 'the_minimalist', name = 'The Minimalist', icon = 'assets/portraits/prt0070.png', rarity = 'Common',
         hiringBonus = 600, weeklySalary = 120,
         baseProductivity = 10, baseFocus = 1.0,
         description = '+10 Prod per level if no adjacent employees.',
@@ -1626,7 +1605,7 @@ return {
         }
     },
     {
-        id = 'team_player', name = 'Team Player', icon = '🙌', rarity = 'Common',
+        id = 'team_player', name = 'Team Player', icon = 'assets/portraits/prt0071.png', rarity = 'Common',
         hiringBonus = 1700, weeklySalary = 330,
         baseProductivity = 9, baseFocus = 1.0,
         description = '+0.1x Focus per level for each adjacent employee.',
@@ -1657,14 +1636,14 @@ return {
         }
     },
     {
-        id = 'ideas_person', name = 'Ideas Person', icon = '🗣️', rarity = 'Common',
+        id = 'ideas_person', name = 'Ideas Person', icon = 'assets/portraits/prt0072.png', rarity = 'Common',
         hiringBonus = 1300, weeklySalary = 280,
         baseProductivity = 2, baseFocus = 1.0,
         description = '+0.5x Focus per level to employees left & right.',
         positionalEffects = { left = { focus_add = 0.5, scales_with_level = true }, right = { focus_add = 0.5, scales_with_level = true } }
     },
     {
-        id = 'the_intern_classic', name = 'The Intern (Classic)', icon = '☕➡️📄', rarity = 'Common',
+        id = 'the_intern_classic', name = 'The Intern (Classic)', icon = 'assets/portraits/prt0073.png', rarity = 'Common',
         hiringBonus = 200, weeklySalary = 50,
         baseProductivity = 2, baseFocus = 1.0,
         description = 'Very cheap. Gains +1 Prod each week.',
@@ -1676,7 +1655,7 @@ return {
         }
     },
     {
-        id = 'pen_collector1', name = 'Pen Collector', icon = '✒️', rarity = 'Common',
+        id = 'pen_collector1', name = 'Pen Collector', icon = 'assets/portraits/prt0074.png', rarity = 'Common',
         hiringBonus = 800, weeklySalary = 160,
         baseProductivity = 5, baseFocus = 1.0,
         description = 'Gains +0.1x Focus for each unique type of employee on the floor (including themselves).',
@@ -1704,7 +1683,7 @@ return {
         }
     },
     {
-        id = 'quick_question1', name = 'Quick Question?', icon = '❓', rarity = 'Common',
+        id = 'quick_question1', name = 'Quick Question?', icon = 'assets/portraits/prt0075.png', rarity = 'Common',
         hiringBonus = 700, weeklySalary = 150,
         baseProductivity = 6, baseFocus = 1.0,
         description = 'Reduces their own Focus by 0.1x, but increases the Focus of all adjacent employees by +0.2x per level.',
@@ -1721,7 +1700,7 @@ return {
         }
     },
     {
-        id = 'organizer1', name = 'The Organizer', icon = '🗂️', rarity = 'Rare',
+        id = 'organizer1', name = 'The Organizer', icon = 'assets/portraits/prt0076.png', rarity = 'Rare',
         hiringBonus = 2400, weeklySalary = 480,
         baseProductivity = 7, baseFocus = 1.2,
         description = 'All positional effects (positive and negative) of employees in the same row AND column are increased by 25% per level.',
@@ -1767,7 +1746,7 @@ return {
         }
     },
     {
-        id = 'procedural_thinker1', name = 'Procedural Thinker', icon = '→🧑‍💼→', rarity = 'Common',
+        id = 'procedural_thinker1', name = 'Procedural Thinker', icon = 'assets/portraits/prt0077.png', rarity = 'Common',
         hiringBonus = 1400, weeklySalary = 280,
         baseProductivity = 10, baseFocus = 1.0,
         description = 'Gains +5 Productivity per level if placed directly between two other employees (horizontally or vertically).',
@@ -1803,7 +1782,7 @@ return {
         }
     },
     {
-        id = 'cartoonist1', name = 'Syndicated Cartoonist', icon = '✍️', rarity = 'Common',
+        id = 'cartoonist1', name = 'Syndicated Cartoonist', icon = 'assets/portraits/prt0078.png', rarity = 'Common',
         hiringBonus = 950, weeklySalary = 190,
         baseProductivity = 3, baseFocus = 1.0,
         description = 'At the end of each Sprint, permanently boosts a random employee\'s base Focus by +0.05x per level.',
@@ -1821,7 +1800,7 @@ return {
         }
     },
     {
-        id = 'luddite1', name = 'Office Luddite', icon = '🗿', rarity = 'Common',
+        id = 'luddite1', name = 'Office Luddite', icon = 'assets/portraits/prt0079.png', rarity = 'Common',
         hiringBonus = 1800, weeklySalary = 320,
         baseProductivity = 20, baseFocus = 1.0,
         description = 'Has high base productivity but cannot benefit from any tech-based upgrades (e.g. Internet, CRM, Scripts).',
@@ -1837,7 +1816,7 @@ return {
         }
     },
     {
-        id = 'the_hoarder1', name = 'The Hoarder', icon = '💰', rarity = 'Common',
+        id = 'the_hoarder1', name = 'The Hoarder', icon = 'assets/portraits/prt0080.png', rarity = 'Common',
         hiringBonus = 1300, weeklySalary = 250,
         baseProductivity = 7, baseFocus = 1.0,
         description = 'Gains +$100 budget per level at the end of each Sprint.',
@@ -1854,7 +1833,7 @@ return {
         }
     },
     {
-        id = 'per_my_last_email1', name = '"Per My Last Email" Specialist', icon = '📧', rarity = 'Common',
+        id = 'per_my_last_email1', name = '"Per My Last Email" Specialist', icon = 'assets/portraits/prt0081.png', rarity = 'Common',
         hiringBonus = 1500, weeklySalary = 300,
         baseProductivity = 12, baseFocus = 1.0,
         description = 'Ignores the first negative positional effect applied to them each time stats are calculated.',

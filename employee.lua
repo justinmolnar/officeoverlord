@@ -90,7 +90,7 @@ function Employee:calculateBaseStatsWithModifiers(employeeInstance, allHiredEmpl
     local currentFocus = employeeInstance.baseFocus 
 
     local applyUpgradesEventArgs = { employee = employeeInstance, blockedUpgrades = {} }
-    require("effects_dispatcher").dispatchEvent("onApplyUpgrades", gameState, applyUpgradesEventArgs)
+    require("effects_dispatcher").dispatchEvent("onApplyUpgrades", gameState, applyUpgradesEventArgs, { modal = modal })
 
     local upgradeArgs = {
         employee = employeeInstance,
@@ -98,7 +98,7 @@ function Employee:calculateBaseStatsWithModifiers(employeeInstance, allHiredEmpl
         focus = currentFocus,
         log = calculationLog
     }
-    require("effects_dispatcher").dispatchEvent("onApplyUpgradeModifiers", gameState, upgradeArgs)
+    require("effects_dispatcher").dispatchEvent("onApplyUpgradeModifiers", gameState, upgradeArgs, { modal = modal })
     
     currentProductivity = upgradeArgs.productivity
     currentFocus = upgradeArgs.focus
@@ -107,7 +107,7 @@ function Employee:calculateBaseStatsWithModifiers(employeeInstance, allHiredEmpl
         employee = employeeInstance,
         focusMultiplier = 1.0
     }
-    require("effects_dispatcher").dispatchEvent("onApplyGlobalFocusModifiers", gameState, focusEventArgs)
+    require("effects_dispatcher").dispatchEvent("onApplyGlobalFocusModifiers", gameState, focusEventArgs, { modal = modal })
     currentFocus = currentFocus * focusEventArgs.focusMultiplier
     
     currentProductivity = math.floor(currentProductivity)
@@ -116,7 +116,7 @@ function Employee:calculateBaseStatsWithModifiers(employeeInstance, allHiredEmpl
         employee = employeeInstance,
         productivityBonus = 0
     }
-    require("effects_dispatcher").dispatchEvent("onApplySecretBuffs", gameState, secretBuffEventArgs)
+    require("effects_dispatcher").dispatchEvent("onApplySecretBuffs", gameState, secretBuffEventArgs, { modal = modal })
     currentProductivity = currentProductivity + secretBuffEventArgs.productivityBonus
 
     if employeeInstance.special and employeeInstance.special.initial_focus_multiplier then
@@ -194,7 +194,7 @@ function Employee:calculatePositionalBonuses(effectiveInstance, allHiredEmployee
         applyEffect = apply_effect,
         log = log
     }
-    require("effects_dispatcher").dispatchEvent("onCalculatePositionalBonuses", gameState, eventArgs)
+    require("effects_dispatcher").dispatchEvent("onCalculatePositionalBonuses", gameState, eventArgs, { modal = modal })
 
     if eventArgs.override then
         return { prod = totalProdBonus, prodMult = totalProdMultiplier, focusMult = totalFocusMultiplier, log = log }
@@ -243,7 +243,7 @@ end
 
 function Employee:calculateStatsWithPosition(employeeInstance, allHiredEmployees, deskAssignments, purchasedPermanentUpgrades, desksData, gameState)
     local eventArgs = { employee = employeeInstance }
-    require("effects_dispatcher").dispatchEvent("onCalculateStats", gameState, eventArgs)
+    require("effects_dispatcher").dispatchEvent("onCalculateStats", gameState, eventArgs, { modal = modal })
     local effectiveInstance = eventArgs.employee
     
     local stats, baseCalculationLog = self:calculateBaseStatsWithModifiers(effectiveInstance, allHiredEmployees, purchasedPermanentUpgrades, gameState)
@@ -348,7 +348,7 @@ function Employee:calculateStatsWithPosition(employeeInstance, allHiredEmployees
             log = calculationLog
         }
     }
-    require("effects_dispatcher").dispatchEvent("onFinalizeStats", gameState, finalStatsEventArgs)
+    require("effects_dispatcher").dispatchEvent("onFinalizeStats", gameState, finalStatsEventArgs, { modal = modal })
 
     return { 
         currentProductivity = math.max(0, math.floor(finalStatsEventArgs.stats.productivity)), 

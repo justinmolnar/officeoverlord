@@ -108,7 +108,7 @@ function Shop:populateOffers(gameState, currentShopOffers, purchasedPermanentUpg
     end
 
     local eventArgs = { offers = currentShopOffers.employees, guaranteeRareOrLegendary = false }
-    require("effects_dispatcher").dispatchEvent("onPopulateShop", gameState, eventArgs)
+    require("effects_dispatcher").dispatchEvent("onPopulateShop", gameState, eventArgs, { modal = modal })
     
     if eventArgs.guaranteeRareOrLegendary then
         local hasRareOrLegendary = false
@@ -189,7 +189,7 @@ function Shop:getFinalDecorationCost(gameState, decorationOffer)
         finalCost = decorationOffer.cost, 
         decorationRarity = decorationOffer.rarity 
     }
-    require("effects_dispatcher").dispatchEvent("onCalculateDecorationCost", gameState, eventArgs)
+    require("effects_dispatcher").dispatchEvent("onCalculateDecorationCost", gameState, eventArgs, { modal = modal })
     
     return eventArgs.finalCost
 end
@@ -201,7 +201,7 @@ function Shop:getFinalHiringCost(gameState, employeeOffer, purchasedUpgrades)
         finalCost = employeeOffer.hiringBonus, 
         employeeRarity = employeeOffer.rarity 
     }
-    require("effects_dispatcher").dispatchEvent("onCalculateHiringCost", gameState, eventArgs)
+    require("effects_dispatcher").dispatchEvent("onCalculateHiringCost", gameState, eventArgs, { modal = modal })
     
     return eventArgs.finalCost
 end
@@ -288,7 +288,8 @@ function Shop:_generateRandomEmployeeOfMinRarity(gameState, minRarity)
     if #validCards > 0 then
         local chosenCard = validCards[love.math.random(#validCards)]
         -- For now, new employees from this effect are always standard variant
-        return self:_generateEmployeeOfferFromCard(chosenCard, "standard")
+        local variant = chosenCard.forceVariant or "standard"
+        return self:_generateEmployeeOfferFromCard(chosenCard, variant)
     end
     
     -- Fallback in case there are no rare/legendary cards
@@ -431,7 +432,7 @@ function Shop:attemptRestock(gameState)
     local restockCost = GameData.BASE_RESTOCK_COST * (2 ^ gameState.currentShopOffers.restockCountThisWeek)
     
     local eventArgs = { finalCost = restockCost }
-    require("effects_dispatcher").dispatchEvent("onCalculateRestockCost", gameState, eventArgs)
+    require("effects_dispatcher").dispatchEvent("onCalculateRestockCost", gameState, eventArgs, { modal = modal })
     restockCost = eventArgs.finalCost
 
     if gameState.budget < restockCost then

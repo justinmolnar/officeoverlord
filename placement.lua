@@ -69,7 +69,7 @@ function Placement:performReOrgSwap(gameState, emp1InstanceId, emp2InstanceId)
     return true, remoteEmp.name .. " and " .. officeEmp.name .. " have been reorganized."
 end
 
-function Placement:handleDecorationDropOnDesk(gameState, decorationData, targetDeskId)
+function Placement:handleDecorationDropOnDesk(gameState, decorationData, targetDeskId, modal)
     local targetDesk
     for _, d in ipairs(gameState.desks) do
         if d.id == targetDeskId then
@@ -79,7 +79,7 @@ function Placement:handleDecorationDropOnDesk(gameState, decorationData, targetD
     end
 
     if not targetDesk or targetDesk.status ~= "owned" then
-        Drawing.showModal("Placement Error", "Decorations can only be placed on owned desks.")
+        modal:show("Placement Error", "Decorations can only be placed on owned desks.")
         return false
     end
 
@@ -139,7 +139,7 @@ function Placement:isPotentialCombineTarget(gameState, targetEmployeeData, sourc
     return false
 end
 
-function Placement:handleEmployeeDropOnDesk(gameState, employeeData, targetDeskId, originalDeskId)
+function Placement:handleEmployeeDropOnDesk(gameState, employeeData, targetDeskId, originalDeskId, modal)
     local wasSuccessfullyPlaced = false
     local fromShop = (originalDeskId == nil)
 
@@ -151,11 +151,11 @@ function Placement:handleEmployeeDropOnDesk(gameState, employeeData, targetDeskI
         success = false,
         message = ""
     }
-    require("effects_dispatcher").dispatchEvent("onPlacement", gameState, placementArgs)
+    require("effects_dispatcher").dispatchEvent("onPlacement", gameState, { modal = modal }, placementArgs)
     
     if placementArgs.wasHandled then
         if not placementArgs.success and placementArgs.message ~= "" then
-            Drawing.showModal("Can't Merge", placementArgs.message)
+            modal:show("Can't Merge", placementArgs.message)
         end
         return placementArgs.success
     end
@@ -164,15 +164,15 @@ function Placement:handleEmployeeDropOnDesk(gameState, employeeData, targetDeskI
         if employeeData.special.placement_restriction == 'not_top_row' then
             local deskIndex = tonumber(string.match(targetDeskId, "desk%-(%d+)"))
             if deskIndex and math.floor(deskIndex / GameData.GRID_WIDTH) == 0 then
-                Drawing.showModal("Placement Error", employeeData.name .. " is sensitive to sunlight and cannot be placed in the top row."); return false
+                modal:show("Placement Error", employeeData.name .. " is sensitive to sunlight and cannot be placed in the top row."); return false
             end
         end
     end
 
-    if employeeData.variant == 'remote' then Drawing.showModal("Invalid Placement", employeeData.fullName .. " is a remote worker and cannot be placed on a desk."); return false end
+    if employeeData.variant == 'remote' then modal:show("Invalid Placement", employeeData.fullName .. " is a remote worker and cannot be placed on a desk."); return false end
     local targetDesk = nil
     for _,d in ipairs(gameState.desks) do if d.id == targetDeskId then targetDesk = d; break; end end
-    if not targetDesk or targetDesk.status ~= "owned" then Drawing.showModal("Placement Error", "Cannot place on a locked or unpurchased desk."); return false end
+    if not targetDesk or targetDesk.status ~= "owned" then modal:show("Placement Error", "Cannot place on a locked or unpurchased desk."); return false end
     local currentOccupantInstanceId = gameState.deskAssignments[targetDeskId]
 
     if currentOccupantInstanceId then
@@ -183,9 +183,9 @@ function Placement:handleEmployeeDropOnDesk(gameState, employeeData, targetDeskI
             if occupantEmployee then
                 if Placement:isPotentialCombineTarget(gameState, occupantEmployee, employeeData) then
                     local success, msg = self:combineAndLevelUpEmployees(gameState, occupantEmployee.instanceId, employeeData.instanceId)
-                    if not success then Drawing.showModal("Combine Failed", msg) end; return success 
+                    if not success then modal:show("Combine Failed", msg) end; return success 
                 else
-                    if not originalDeskId then Drawing.showModal("Placement Failed", "Cannot swap with an employee from the shop. Place this employee on an empty desk first."); return false end
+                    if not originalDeskId then modal:show("Placement Failed", "Cannot swap with an employee from the shop. Place this employee on an empty desk first."); return false end
                     print("Swapping " .. employeeData.name .. " with " .. occupantEmployee.name)
                     gameState.deskAssignments[originalDeskId] = occupantEmployee.instanceId; occupantEmployee.deskId = originalDeskId
                     gameState.deskAssignments[targetDeskId] = employeeData.instanceId; employeeData.deskId = targetDeskId; wasSuccessfullyPlaced = true
@@ -197,16 +197,16 @@ function Placement:handleEmployeeDropOnDesk(gameState, employeeData, targetDeskI
     end
     
     if wasSuccessfullyPlaced and fromShop then
-        require("effects_dispatcher").dispatchEvent("onHire", gameState, { employee = employeeData })
+        require("effects_dispatcher").dispatchEvent("onHire", gameState, { modal = modal }, { employee = employeeData })
     end
 
     return wasSuccessfullyPlaced
 end
 
-function Placement:handleEmployeeDropOnRemote(gameState, employeeData, originalDeskId)
+function Placement:handleEmployeeDropOnRemote(gameState, employeeData, originalDeskId, modal)
     local fromShop = (originalDeskId == nil)
     if employeeData.variant ~= 'remote' then 
-        Drawing.showModal("Invalid Action", employeeData.name .. " is an office worker and cannot be moved to the remote team this way.")
+        modal:show("Invalid Action", employeeData.name .. " is an office worker and cannot be moved to the remote team this way.")
         return false 
     end
     if originalDeskId then gameState.deskAssignments[originalDeskId] = nil end
@@ -243,25 +243,25 @@ function Placement:handleEmployeeDropOnRemote(gameState, employeeData, originalD
     return true
 end
 
-function Placement:handleEmployeeDropOnRemoteEmployee(gameState, draggedEmployeeData, targetRemoteEmployeeInstanceId)
+function Placement:handleEmployeeDropOnRemoteEmployee(gameState, draggedEmployeeData, targetRemoteEmployeeInstanceId, modal)
     print("Placement:handleEmployeeDropOnRemoteEmployee: Dragged " .. draggedEmployeeData.name .. " onto remote " .. targetRemoteEmployeeInstanceId)
     local targetEmployee = getEmployeeFromGameState(gameState, targetRemoteEmployeeInstanceId)
 
     if not targetEmployee or targetEmployee.variant ~= 'remote' then return false end
     
     if draggedEmployeeData.variant ~= 'remote' then
-        Drawing.showModal("Combine Error", "Cannot combine office worker " .. draggedEmployeeData.name .. " with remote worker " .. targetEmployee.name .. ".")
+        modal:show("Combine Error", "Cannot combine office worker " .. draggedEmployeeData.name .. " with remote worker " .. targetEmployee.name .. ".")
         return false
     end
 
     if self:isPotentialCombineTarget(gameState, targetEmployee, draggedEmployeeData) then
         local success, msg = self:combineAndLevelUpEmployees(gameState, targetEmployee.instanceId, draggedEmployeeData.instanceId)
         if not success then
-             Drawing.showModal("Combine Failed", msg)
+             modal:show("Combine Failed", msg)
         end
         return success
     else
-        Drawing.showModal("Cannot Combine", "These remote employees cannot be combined.")
+        modal:show("Cannot Combine", "These remote employees cannot be combined.")
     end
     return false
 end

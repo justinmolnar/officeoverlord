@@ -9,13 +9,14 @@ local EffectsDispatcher = {}
 ---@param eventName string The name of the event to fire (e.g., "onWorkItemComplete").
 ---@param gameState table The entire current game state.
 ---@param eventArgs table|nil An optional table of arguments specific to this event.
-function EffectsDispatcher.dispatchEvent(eventName, gameState, eventArgs)
+function EffectsDispatcher.dispatchEvent(eventName, gameState, services, eventArgs)
     eventArgs = eventArgs or {}
+    services = services or {} -- Safety check for the new services table
 
     if gameState.hiredEmployees then
         for _, emp in ipairs(gameState.hiredEmployees) do
             if emp.listeners and emp.listeners[eventName] then
-                emp.listeners[eventName](emp, gameState, eventArgs)
+                emp.listeners[eventName](emp, gameState, services, eventArgs)
             end
         end
     end
@@ -31,7 +32,7 @@ function EffectsDispatcher.dispatchEvent(eventName, gameState, eventArgs)
             end
 
             if upgradeData and upgradeData.listeners and upgradeData.listeners[eventName] then
-                upgradeData.listeners[eventName](upgradeData, gameState, eventArgs)
+                upgradeData.listeners[eventName](upgradeData, gameState, services, eventArgs)
             end
         end
     end
@@ -48,16 +49,13 @@ function EffectsDispatcher.dispatchEvent(eventName, gameState, eventArgs)
                 end
 
                 if decorationData and decorationData.listeners and decorationData.listeners[eventName] then
-                    decorationData.listeners[eventName](decorationData, gameState, eventArgs, deskId)
+                    decorationData.listeners[eventName](decorationData, gameState, services, eventArgs, deskId)
                 end
             end
         end
     end
 
-    if eventArgs.showModal then
-        local Drawing = require("drawing")
-        Drawing.showModal(eventArgs.showModal.title, eventArgs.showModal.message)
-    end
+    -- The dispatcher is no longer responsible for showing the modal. This has been deleted.
 end
 
 return EffectsDispatcher

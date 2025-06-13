@@ -13,7 +13,7 @@ end
 function BattleState:enter(gameState, battleState, context)
     print("Entering Battle phase")
     
-    local status = Battle:startChallenge(gameState, Drawing.showModal)
+    local status = Battle:startChallenge(gameState, function(...) context.modal:show(...) end)
     if status ~= "battle_active" then
         if context.setGamePhase then
             context.setGamePhase(status)
@@ -49,7 +49,7 @@ function BattleState:enter(gameState, battleState, context)
         if emp.special and emp.special.does_not_work then isDisabled = true end
         
         local availabilityArgs = { employee = emp, isDisabled = false, reason = "" }
-        require("effects_dispatcher").dispatchEvent("onEmployeeAvailabilityCheck", gameState, availabilityArgs)
+        require("effects_dispatcher").dispatchEvent("onEmployeeAvailabilityCheck", gameState, { modal = context.modal }, availabilityArgs)
         if availabilityArgs.isDisabled then
             isDisabled = true
             if availabilityArgs.reason ~= "" then
@@ -92,15 +92,15 @@ function BattleState:enter(gameState, battleState, context)
         remoteWorkers = remote,
         placedWorkers = placed
     }
-    require("effects_dispatcher").dispatchEvent("onBattleStart", gameState, battleStartArgs)
-    require("effects_dispatcher").dispatchEvent("onWorkOrderDetermined", gameState, battleStartArgs)
+    require("effects_dispatcher").dispatchEvent("onBattleStart", gameState, { modal = context.modal }, battleStartArgs)
+    require("effects_dispatcher").dispatchEvent("onWorkOrderDetermined", gameState, { modal = context.modal }, battleStartArgs)
     
     battleState.activeEmployees = battleStartArgs.activeEmployees
     
     if #battleState.activeEmployees == 0 then
-        Drawing.showModal("No Active Staff!", "You need to hire and place at least one employee to start work. The hiring phase will continue.", {
+        context.modal:show("No Active Staff!", "You need to hire and place at least one employee to start work. The hiring phase will continue.", {
             {text = "Back to Hiring", onClick = function() 
-                Drawing.hideModal()
+                context.modal:hide()
                 if context.setGamePhase then 
                     context.setGamePhase("hiring_and_upgrades") 
                 end
@@ -138,7 +138,6 @@ function BattleState:draw(gameState, battleState, context)
     Drawing.drawWorkloadBar(panelRects.workloadBar, gameState, battleState)
     Drawing.drawShopPanel(panelRects.shop, gameState, uiElementRects, draggedItemState.item, Shop)
     Drawing.drawMainInteractionPanel(panelRects.mainInteraction, gameState, uiElementRects, draggedItemState.item, battleState, Placement, {overlaysToDraw = {}, tooltipsToDraw = Drawing.tooltipsToDraw})
-    Drawing.drawPurchasedUpgradesDisplay(panelRects.purchasedUpgradesDisplay, gameState, uiElementRects)
 end
 
 function BattleState:handleInput(x, y, button, gameState, battleState, context)

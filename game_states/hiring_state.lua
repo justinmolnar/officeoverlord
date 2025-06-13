@@ -50,7 +50,6 @@ function HiringState:draw(gameState, battleState, context)
     Drawing.drawWorkloadBar(panelRects.workloadBar, gameState, battleState)
     Drawing.drawShopPanel(panelRects.shop, gameState, uiElementRects, draggedItemState.item, Shop)
     Drawing.drawMainInteractionPanel(panelRects.mainInteraction, gameState, uiElementRects, draggedItemState.item, battleState, Placement, {overlaysToDraw = {}, tooltipsToDraw = Drawing.tooltipsToDraw})
-    Drawing.drawPurchasedUpgradesDisplay(panelRects.purchasedUpgradesDisplay, gameState, uiElementRects)
 end
 
 return HiringState

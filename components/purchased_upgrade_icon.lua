@@ -12,6 +12,7 @@ function PurchasedUpgradeIcon:new(params)
     instance.upgData = params.upgData
     instance.gameState = params.gameState
     instance.battleState = params.battleState
+    instance.modal = params.modal
     return instance
 end
 
@@ -116,7 +117,7 @@ function PurchasedUpgradeIcon:draw()
     -- Draw active effect border (pulsing gold)
     if isActive then
         local pulseIntensity = 0.3 + 0.2 * math.sin(love.timer.getTime() * 4)
-        love.graphics.setColor(1, 0.84, 0, pulseIntensity)
+        love.graphics.setColor(0, 0.1, 0, pulseIntensity)
         love.graphics.setLineWidth(3)
         love.graphics.rectangle("line", self.rect.x - 3, self.rect.y - 3, self.rect.w + 6, self.rect.h + 6, 5)
         love.graphics.setLineWidth(1)
@@ -129,7 +130,7 @@ function PurchasedUpgradeIcon:draw()
     end
 
     love.graphics.setFont(Drawing.UI.titleFont or Drawing.UI.fontLarge) 
-    love.graphics.setColor(Drawing.UI.colors.text_light)
+    love.graphics.setColor(0, 0.1, 0, 1)
     love.graphics.print(self.upgData.icon or "?", self.rect.x, self.rect.y)
 
     if isHovered then
@@ -141,9 +142,12 @@ end
 function PurchasedUpgradeIcon:handleMousePress(x, y, button)
     if button == 1 and self:_isClickable() and Drawing.isMouseOver(x, y, self.rect.x, self.rect.y, self.rect.w, self.rect.h) then
         if self.upgData.listeners and self.upgData.listeners.onActivate then
-            -- The listener is responsible for checking its own conditions.
-            if self.upgData.listeners.onActivate(self.upgData, self.gameState) then
-                return true -- The click was handled by the listener.
+            local eventArgs = {}
+            if self.upgData.listeners.onActivate(self.upgData, self.gameState, eventArgs) then
+                if eventArgs.showModal then
+                    self.modal:show(eventArgs.showModal.title, eventArgs.showModal.message)
+                end
+                return true
             end
         end
     end

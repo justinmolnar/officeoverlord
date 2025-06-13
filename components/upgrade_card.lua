@@ -15,6 +15,7 @@ function UpgradeCard:new(params)
     -- References to global state
     instance.gameState = params.gameState
     instance.uiElementRects = params.uiElementRects
+    instance.modal = params.modal
 
     return instance
 end
@@ -39,7 +40,7 @@ function UpgradeCard:handleMousePress(x, y, button)
     if Drawing.isMouseOver(x, y, self.rect.x, self.rect.y, self.rect.w, self.rect.h) then
         local success, msg = Shop:buyUpgrade(self.gameState, self.data.id)
         if not success then 
-            Drawing.showModal("Can't Upgrade", msg)
+            self.modal:show("Can't Upgrade", msg)
         else 
             Shop:markOfferSold(self.gameState.currentShopOffers, nil, self.data)
             -- FIX: Call the new master UI builder function

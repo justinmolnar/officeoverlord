@@ -33,7 +33,6 @@ function GameWonState:draw(gameState, battleState, context)
     local sprintOverviewState = context.sprintOverviewState
     
     Drawing.drawGameInfoPanel(panelRects.gameInfo, gameState, uiElementRects, false, battleState)
-    Drawing.drawPurchasedUpgradesDisplay(panelRects.purchasedUpgradesDisplay, gameState, uiElementRects)
     
     -- Draw a victory overlay
     local screenW, screenH = love.graphics.getDimensions()

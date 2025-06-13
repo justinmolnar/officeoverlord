@@ -22,10 +22,10 @@ return {
                     end
                 end
                 if #contractorsLeft > 0 then
-                    eventArgs.showModal = {
-                        title = "Contracts Ended",
-                        message = "The following contractors have left the company:\n" .. table.concat(contractorsLeft, ", ")
-                    }
+                    services.modal:show(
+                        "Contracts Ended",
+                        "The following contractors have left the company:\n" .. table.concat(contractorsLeft, ", ")
+                    )
                 end
             end
         }
@@ -103,10 +103,10 @@ return {
                     gameState.budget = gameState.budget - 1000
                     gameState.temporaryEffectFlags.motivationalBoostNextItem = true
                     gameState.temporaryEffectFlags.motivationalSpeakerUsedThisSprint = true
-                    eventArgs.showModal = {
-                        title = "Motivation Delivered!",
-                        message = "All employees will have doubled Focus for the next work item!"
-                    }
+                    services.modal:show(
+                        "Motivation Delivered!",
+                        "All employees will have doubled Focus for the next work item!"
+                    )
                     return true
                 end
                 return false
@@ -187,10 +187,10 @@ return {
                 if gameState.gamePhase == 'hiring_and_upgrades' and not gameState.temporaryEffectFlags.teamBuildingUsedThisSprint then
                     gameState.temporaryEffectFlags.teamBuildingFocusBoostNextWeek = true
                     gameState.temporaryEffectFlags.teamBuildingUsedThisSprint = true
-                    eventArgs.showModal = {
-                        title = "Team Building Success!",
-                        message = "All employees will have boosted focus for the next work item!"
-                    }
+                    services.modal:show(
+                        "Team Building Success!",
+                        "All employees will have boosted focus for the next work item!"
+                    )
                     return true
                 end
                 return false
@@ -629,10 +629,10 @@ return {
             onActivate = function(self, gameState, eventArgs)
                 if gameState.gamePhase == 'hiring_and_upgrades' and not gameState.temporaryEffectFlags.reOrgUsedThisSprint then
                     gameState.temporaryEffectFlags.reOrgSwapModeActive = true
-                    eventArgs.showModal = {
-                        title = "Re-Org Started",
-                        message = "Select a remote worker and an office worker to swap their positions."
-                    }
+                    services.modal:show(
+                        "Re-Org Started",
+                        "Select a remote worker and an office worker to swap their positions."
+                    )
                     return true -- Indicate success
                 end
                 return false -- Indicate failure or non-activation
@@ -652,10 +652,10 @@ return {
             onActivate = function(self, gameState, eventArgs)
                 if gameState.gamePhase == 'hiring_and_upgrades' and not gameState.temporaryEffectFlags.photocopierUsedThisSprint then
                     gameState.temporaryEffectFlags.photocopierCopyModeActive = true
-                    eventArgs.showModal = {
-                        title = "Photocopier Warmed Up",
-                        message = "Select a non-Legendary office worker to duplicate for the next work item."
-                    }
+                    services.modal:show(
+                        "Photocopier Warmed Up",
+                        "Select a non-Legendary office worker to duplicate for the next work item."
+                    )
                     return true
                 end
                 return false
@@ -682,15 +682,15 @@ return {
                         clone.baseFocus = target.baseFocus
                         table.insert(gameState.hiredEmployees, clone)
                         Placement:handleEmployeeDropOnDesk(gameState, clone, emptyDeskId, nil)
-                        eventArgs.showModal = {
-                            title = "Photocopied!",
-                            message = "A temporary clone of " .. target.name .. " has appeared for this work item!"
-                        }
+                        services.modal:show(
+                            "Photocopied!",
+                            "A temporary clone of " .. target.name .. " has appeared for this work item!"
+                        )
                     else
-                        eventArgs.showModal = {
-                            title = "Photocopy Failed",
-                            message = "Could not create a clone. Ensure there is an empty desk available."
-                        }
+                        services.modal:show(
+                            "Photocopy Failed",
+                            "Could not create a clone. Ensure there is an empty desk available."
+                        )
                     end
                     gameState.temporaryEffectFlags.photocopierTargetForNextItem = nil
                 end
@@ -717,7 +717,10 @@ return {
         listeners = {
             onPurchase = function(self, gameState)
                 if #gameState.hiredEmployees == 0 then
-                    require("drawing").showModal("Assimilation Failed", "There is no one to assimilate.")
+                        services.modal:show(
+                            "Assimilation Failed",
+                            "There is no one to assimilate."
+                        )                    
                     return
                 end
 
@@ -738,7 +741,10 @@ return {
                 table.insert(gameState.hiredEmployees, borgDrone)
                 require("placement"):handleEmployeeDropOnDesk(gameState, borgDrone, "desk-4", nil)
 
-                require("drawing").showModal("Resistance is Futile", "Your team has been assimilated into a single Borg Drone. You are now the Hivemind.")
+                services.modal:show(
+                    "Resistance is Futile",
+                    "Your team has been assimilated into a single Borg Drone. You are now the Hivemind."
+                )
             end
         }
     },
@@ -771,10 +777,10 @@ return {
                         local newHire = require("employee"):new(newHireOffer.id, newHireOffer.variant, newHireOffer.fullName)
                         table.insert(gameState.hiredEmployees, newHire)
                         
-                        eventArgs.showModal = {
-                            title = "Performance Review",
-                            message = "Sentient Resources has optimized the team.\n" .. firedName .. " was let go. Please welcome " .. newHire.fullName .. ", the " .. newHire.name .. "!"
-                        }
+                        services.modal:show(
+                            "Performance Review",
+                            "Sentient Resources has optimized the team.\n" .. firedName .. " was let go. Please welcome " .. newHire.fullName .. ", the " .. newHire.name .. "!"
+                        )
                     end
                 end
             end
@@ -789,7 +795,10 @@ return {
                 if gameState.gamePhase ~= 'hiring_and_upgrades' then return end
                 
                 if gameState.temporaryEffectFlags.fourthWallUsedThisSprint then
-                    require("drawing").showModal("Already Used", "The 4th Wall can only be broken once per sprint.")
+                services.modal:show(
+                    "Already Used",
+                    "The 4th Wall can only be broken once per sprint."
+                )
                     eventArgs.wasHandled = true
                     return
                 end
@@ -800,7 +809,10 @@ return {
                     local reduction = math.floor(workItemData.workload * 0.25)
                     workItemData.workload = workItemData.workload - reduction
                     gameState.temporaryEffectFlags.fourthWallUsedThisSprint = true
-                    require("drawing").showModal("CRACK!", "You reached through the screen and pulled the workload bar down, reducing the upcoming workload by 25%!")
+                    services.modal:show(
+                        "CRACK!",
+                        "You reached through the screen and pulled the workload bar down, reducing the upcoming workload by 25%!"
+                    )
                     eventArgs.wasHandled = true
                 end
             end
@@ -821,7 +833,10 @@ return {
                     if evictedEmployee then
                         evictedEmployee.variant = 'remote'
                         evictedEmployee.deskId = nil
-                        Drawing.showModal("Eviction Notice", evictedEmployee.name .. " was moved to remote work to make way for The Corporation.")
+                        services.modal:show(
+                            "Eviction Notice",
+                            evictedEmployee.name .. " was moved to remote work to make way for The Corporation."
+                        )
                     end
                     gameState.deskAssignments['desk-4'] = nil
                 end
@@ -834,7 +849,10 @@ return {
 
                     table.insert(gameState.hiredEmployees, corporation)
                     Placement:handleEmployeeDropOnDesk(gameState, corporation, "desk-4", nil)
-                    Drawing.showModal("Manifestation!", "The Office itself has become a sentient entity, taking its rightful place at the center of power.")
+                    services.modal:show(
+                        "Manifestation!",
+                        "The Office itself has become a sentient entity, taking its rightful place at the center of power."
+                    )
                 else
                     print("ERROR: Corporate Personhood is owned, but could not create 'corporate_personhood_employee'. Check its definition in data.lua.")
                 end
@@ -849,7 +867,10 @@ return {
             onPurchase = function(self, gameState)
                 gameState.temporaryEffectFlags.multiverseMergerAvailable = true
                 local Drawing = require("drawing")
-                Drawing.showModal("Multiverse Merger", "An unstable portal is ready. Activate it from the Acquired Upgrades panel at any time... if you dare.")
+                services.modal:show(
+                    "Multiverse Merger",
+                    "An unstable portal is ready. Activate it from the Acquired Upgrades panel at any time... if you dare."
+                )
             end,
             onActivate = function(self, gameState)
                 if gameState.temporaryEffectFlags.multiverseMergerAvailable then
@@ -860,7 +881,10 @@ return {
                     local confirmSwap = function()
                         local numEmployees = #gameState.hiredEmployees
                         if numEmployees == 0 then
-                            Drawing.showModal("Merger Failed", "There is no team to merge with the multiverse.")
+                        services.modal:show(
+                            "Merger Failed",
+                            "There is no team to merge with the multiverse."
+                        )
                             return
                         end
                         
@@ -898,15 +922,22 @@ return {
                         _G.buildUIComponents()
                         
                         Drawing.hideModal()
-                        Drawing.showModal("Worlds Collide!", "Your team has been swapped with one from an alternate reality!")
+                        services.modal:show(
+                            "Worlds Collide!",
+                            "Your team has been swapped with one from an alternate reality!"
+                        )
                     end
 
-                    Drawing.showModal("Confirm Merger", "Are you sure you want to swap your entire team with a random one from another dimension? This cannot be undone.", {
-                        {text = "Yes, Do It!", onClick = confirmSwap, style="danger"},
-                        {text = "No, Too Risky", onClick = function() Drawing.hideModal() end, style="primary"}
-                    })
-                    return true
-                end
+                        services.modal:show(
+                                "Confirm Merger",
+                                "Are you sure you want to swap your entire team with a random one from another dimension? This cannot be undone.",
+                            {
+                                {text = "Yes, Do It!", onClick = confirmSwap, style="danger"},
+                                {text = "No, Too Risky", onClick = function() end, style="primary"}
+                            }
+                        )
+                        return true
+                    end
                 return false
             end
         }

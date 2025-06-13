@@ -6,6 +6,8 @@ local Placement = require("placement")
 local GameData = require("data")
 local Employee = require("employee")
 local Shop = require("shop")
+local SoundManager = require("sound_manager")
+
 
 local DeskSlot = {}
 DeskSlot.__index = DeskSlot
@@ -15,6 +17,7 @@ function DeskSlot:new(params)
     instance.rect = params.rect
     instance.data = params.data -- The specific desk data from gameState.desks
     instance.gameState = params.gameState
+    instance.modal = params.modal
     return instance
 end
 
@@ -86,11 +89,42 @@ function DeskSlot:draw(context)
     elseif not self.gameState.deskAssignments[deskData.id] then
         love.graphics.setColor(Drawing.UI.colors.desk_text)
         if deskData.status == "owned" then
-            love.graphics.printf("Empty", x, y + height/2 - Drawing.UI.fontSmall:getHeight()/2, width, "center")
+            -- Draw ghost placeholder if an item was dragged from this desk
+            if context.draggedItemState and context.draggedItemState.item and context.draggedItemState.item.originalDeskId == self.data.id then
+                Drawing.drawPanel(x, y, width, height, {0.5, 0.5, 0.5, 0.2}, {0.7, 0.7, 0.7, 0.5}, 3)
+            else
+                love.graphics.printf("Empty", x, y + height/2 - Drawing.UI.fontSmall:getHeight()/2, width, "center")
+            end
         elseif deskData.status == "purchasable" then
             love.graphics.printf("Buy\n$" .. deskData.cost, x, y + height/2 - Drawing.UI.fontSmall:getHeight(), width, "center")
         elseif deskData.status == "locked" then
             love.graphics.printf("Locked", x, y + height/2 - Drawing.UI.fontSmall:getHeight()/2, width, "center")
+        end
+    end
+
+    -- Drop Zone Highlighting Logic
+    if context.draggedItemState and context.draggedItemState.item then
+        local droppedItem = context.draggedItemState.item
+        local isValidTarget = false
+        
+        -- Only check for validity if the dragged item is NOT a remote employee
+        if droppedItem.data.variant ~= 'remote' then
+            if (droppedItem.type == "shop_employee" or droppedItem.type == "placed_employee") then
+                if self.data.status == "owned" and not self.gameState.deskAssignments[self.data.id] then
+                    isValidTarget = true
+                end
+            elseif droppedItem.type == "shop_decoration" then
+                if self.data.status == "owned" and not self.gameState.deskDecorations[self.data.id] then
+                    isValidTarget = true
+                end
+            end
+        end
+
+        if isValidTarget then
+            love.graphics.setLineWidth(3)
+            love.graphics.setColor(Drawing.UI.colors.combine_target_ring) -- Use the existing green color
+            love.graphics.rectangle("line", x, y, width, height, 4)
+            love.graphics.setLineWidth(1)
         end
     end
 
@@ -130,7 +164,7 @@ function DeskSlot:handleMousePress(x, y, button)
         -- Attempt to buy the desk
         local success, msg = Placement:attemptBuyDesk(self.gameState, self.data.id)
         if not success then
-            Drawing.showModal("Purchase Failed", msg)
+            self.modal:show("Purchase Failed", msg)
         else
             Placement:updateDeskAvailability(self.gameState.desks)
             -- Rebuild the entire UI to reflect the new state of the desk
@@ -148,19 +182,22 @@ function DeskSlot:handleMouseDrop(x, y, droppedItem)
 
     if droppedItem.type == "shop_decoration" then
         if self.gameState.deskDecorations[self.data.id] then
-            Drawing.showModal("Placement Blocked", "This desk already has a decoration. Replace it from an inventory screen (not yet implemented).")
+            self.modal:show("Placement Blocked", "This desk already has a decoration. Replace it from an inventory screen (not yet implemented).")
+            SoundManager:playEffect('error')
             return false
         end
 
         if self.gameState.budget < droppedItem.cost then
-            Drawing.showModal("Can't Afford", "Not enough budget. Need $" .. droppedItem.cost)
+            self.modal:show("Can't Afford", "Not enough budget. Need $" .. droppedItem.cost)
+            SoundManager:playEffect('error')
             return false
         end
 
-        local success = Placement:handleDecorationDropOnDesk(self.gameState, droppedItem.data, self.data.id)
+        local success = Placement:handleDecorationDropOnDesk(self.gameState, droppedItem.data, self.data.id, self.modal)
         if success then
             self.gameState.budget = self.gameState.budget - droppedItem.cost
             Shop:markOfferSold(self.gameState.currentShopOffers, nil, nil, droppedItem.data.instanceId)
+            SoundManager:playEffect('place')
             _G.buildUIComponents()
         end
         return success
@@ -174,31 +211,38 @@ function DeskSlot:handleMouseDrop(x, y, droppedItem)
     
     if droppedItem.type == "shop_employee" then
         if self.gameState.budget < droppedItem.cost then
-            Drawing.showModal("Can't Afford", "Not enough budget to hire. Need $" .. droppedItem.cost)
+            self.modal:show("Can't Afford", "Not enough budget to hire. Need $" .. droppedItem.cost)
+            SoundManager:playEffect('error')
             return false
         elseif droppedEmployeeData.special and (droppedEmployeeData.special.type == 'haunt_target_on_hire' or droppedEmployeeData.special.type == 'slime_merge') then
-            Drawing.showModal("Invalid Placement", "This special unit must be placed on an existing employee, not an empty desk.")
+            self.modal:show("Invalid Placement", "This special unit must be placed on an existing employee, not an empty desk.")
+            SoundManager:playEffect('error')
             return false
         elseif droppedEmployeeData.variant == 'remote' then
-            Drawing.showModal("Invalid Placement", droppedEmployeeData.fullName .. " is a remote worker and cannot be placed on a desk.")
+            self.modal:show("Invalid Placement", droppedEmployeeData.fullName .. " is a remote worker and cannot be placed on a desk.")
+            SoundManager:playEffect('error')
             return false
         end
 
         local deskIndex = tonumber(string.match(self.data.id, "desk%-(%d+)"))
         if droppedEmployeeData.special and droppedEmployeeData.special.placement_restriction == 'not_top_row' and deskIndex and math.floor(deskIndex / GameData.GRID_WIDTH) == 0 then
-            Drawing.showModal("Placement Error", droppedEmployeeData.fullName .. " cannot be placed in the top row.")
+            self.modal:show("Placement Error", droppedEmployeeData.fullName .. " cannot be placed in the top row.")
+            SoundManager:playEffect('error')
             return false
         end
         
         self.gameState.budget = self.gameState.budget - droppedItem.cost
         local newEmp = Employee:new(droppedEmployeeData.id, droppedEmployeeData.variant, droppedEmployeeData.fullName)
         table.insert(self.gameState.hiredEmployees, newEmp)
-        Placement:handleEmployeeDropOnDesk(self.gameState, newEmp, self.data.id, nil)
+        Placement:handleEmployeeDropOnDesk(self.gameState, newEmp, self.data.id, nil, self.modal)
         Shop:markOfferSold(self.gameState.currentShopOffers, droppedItem.originalShopInstanceId, nil)
+        SoundManager:playEffect('hire')
         return true
 
     elseif droppedItem.type == "placed_employee" then
-        return Placement:handleEmployeeDropOnDesk(self.gameState, droppedEmployeeData, self.data.id, droppedItem.originalDeskId)
+        local success = Placement:handleEmployeeDropOnDesk(self.gameState, droppedEmployeeData, self.data.id, droppedItem.originalDeskId, self.modal)
+        if success then SoundManager:playEffect('place') end
+        return success
     end
 
     return false

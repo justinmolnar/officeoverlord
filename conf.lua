@@ -10,6 +10,11 @@ function love.conf(t)
     t.window.title = "Office Overlord - LÖVE 2D Edition" -- Set the window title
     t.window.width = 1280                -- Set the window width
     t.window.height = 720               -- Set the window height
+    
+    -- Add these three lines to enable resizing and set minimums
+    t.window.resizable = true
+    t.window.minwidth = 1024
+    t.window.minheight = 640
 
     t.window.vsync = 1
 
