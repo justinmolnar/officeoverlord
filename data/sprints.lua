@@ -10,9 +10,15 @@ return {
                     type = 'disable_top_row', 
                     description = "Management is observing. Top row of desks is disabled for this item.",
                     listeners = {
-                        onApply = function(self, gameState)
-                            gameState.temporaryEffectFlags.isTopRowDisabled = true
-                        end
+                        onApply = {
+                            {
+                                phase = 'BaseApplication',
+                                priority = 50,
+                                callback = function(self, gameState)
+                                    gameState.temporaryEffectFlags.isTopRowDisabled = true
+                                end
+                            }
+                        }
                     }
                 }
             },
@@ -28,9 +34,15 @@ return {
                     type = 'disable_remote_workers', 
                     description = "Mandatory in-office day! Remote employees are unavailable for this item.",
                     listeners = {
-                        onApply = function(self, gameState)
-                            gameState.temporaryEffectFlags.isRemoteWorkDisabled = true
-                        end
+                        onApply = {
+                            {
+                                phase = 'BaseApplication',
+                                priority = 50,
+                                callback = function(self, gameState)
+                                    gameState.temporaryEffectFlags.isRemoteWorkDisabled = true
+                                end
+                            }
+                        }
                     }
                 }
             },
@@ -48,9 +60,15 @@ return {
                     type = 'disable_shop', 
                     description = "A spending freeze is in effect. The Shop is disabled for this item.",
                     listeners = {
-                        onApply = function(self, gameState)
-                            gameState.temporaryEffectFlags.isShopDisabled = true
-                        end
+                        onApply = {
+                            {
+                                phase = 'BaseApplication',
+                                priority = 50,
+                                callback = function(self, gameState)
+                                    gameState.temporaryEffectFlags.isShopDisabled = true
+                                end
+                            }
+                        }
                     }
                 }
             },
@@ -65,9 +83,15 @@ return {
                   type = 'disable_remote_workers', 
                   description = "This complex task requires everyone on-site. Remote staff unavailable.",
                   listeners = {
-                      onApply = function(self, gameState)
-                          gameState.temporaryEffectFlags.isRemoteWorkDisabled = true
-                      end
+                      onApply = {
+                          {
+                              phase = 'BaseApplication',
+                              priority = 50,
+                              callback = function(self, gameState)
+                                  gameState.temporaryEffectFlags.isRemoteWorkDisabled = true
+                              end
+                          }
+                      }
                   }
               }
             },
@@ -84,9 +108,15 @@ return {
                   type = 'disable_top_row', 
                   description = "Investors are touring the main floor. Top row desks are unavailable.",
                   listeners = {
-                      onApply = function(self, gameState)
-                          gameState.temporaryEffectFlags.isTopRowDisabled = true
-                      end
+                      onApply = {
+                          {
+                              phase = 'BaseApplication',
+                              priority = 50,
+                              callback = function(self, gameState)
+                                  gameState.temporaryEffectFlags.isTopRowDisabled = true
+                              end
+                          }
+                      }
                   }
               }
             },
@@ -110,9 +140,15 @@ return {
                   type = 'disable_shop', 
                   description = "All hands on deck! The shop is closed until this is resolved.",
                   listeners = {
-                      onApply = function(self, gameState)
-                          gameState.temporaryEffectFlags.isShopDisabled = true
-                      end
+                      onApply = {
+                          {
+                              phase = 'BaseApplication',
+                              priority = 50,
+                              callback = function(self, gameState)
+                                  gameState.temporaryEffectFlags.isShopDisabled = true
+                              end
+                          }
+                      }
                   }
               }
             },

@@ -184,7 +184,76 @@ return {
         hiringBonus = 2400, weeklySalary = 480,
         baseProductivity = 7, baseFocus = 1.2,
         description = 'All positional effects (positive and negative) of employees in the same row AND column are increased by 25% per level.',
-        special = { type = 'amplify_positional_effects', multiplier = 1.25, scales_with_level = true }
+        special = { type = 'amplify_positional_effects', multiplier = 1.25, scales_with_level = true },
+        listeners = {
+            onCalculateStats = {
+                {
+                    phase = 'Amplification',
+                    priority = 50,
+                    callback = function(self, gameState, services, eventArgs)
+                        if not self.deskId then return end
+                        
+                        local organizerDeskIndex = tonumber(string.match(self.deskId, "desk%-(%d+)"))
+                        if not organizerDeskIndex then return end
+                        
+                        local GameData = require("data")
+                        local organizerRow = math.floor(organizerDeskIndex / GameData.GRID_WIDTH)
+                        local organizerCol = organizerDeskIndex % GameData.GRID_WIDTH
+                        
+                        local targetDeskIndex = tonumber(string.match(eventArgs.employee.deskId or "", "desk%-(%d+)"))
+                        if not targetDeskIndex then return end
+                        
+                        local targetRow = math.floor(targetDeskIndex / GameData.GRID_WIDTH)
+                        local targetCol = targetDeskIndex % GameData.GRID_WIDTH
+                        
+                        -- Only amplify if target is in same row OR column
+                        if targetRow == organizerRow or targetCol == organizerCol then
+                            local amplifier = self.special.multiplier
+                            if self.special.scales_with_level then
+                                amplifier = 1 + ((amplifier - 1) * (self.level or 1))
+                            end
+                            
+                            -- Look through the log for positional bonuses applied in BaseApplication phase
+                            local amplifiedProductivity = 0
+                            local amplifiedFocus = 0
+                            
+                            for _, logEntry in ipairs(eventArgs.stats.log.productivity or {}) do
+                                local value = string.match(logEntry, "([%+%-]%d+) from")
+                                if value then
+                                    local bonus = tonumber(value)
+                                    if bonus then
+                                        local amplification = math.floor(bonus * (amplifier - 1))
+                                        amplifiedProductivity = amplifiedProductivity + amplification
+                                    end
+                                end
+                            end
+                            
+                            for _, logEntry in ipairs(eventArgs.stats.log.focus or {}) do
+                                local value = string.match(logEntry, "([%+%-][%d%.]+)x from")
+                                if value then
+                                    local bonus = tonumber(value)
+                                    if bonus then
+                                        local amplification = bonus * (amplifier - 1)
+                                        amplifiedFocus = amplifiedFocus + amplification
+                                    end
+                                end
+                            end
+                            
+                            -- Apply amplifications
+                            if amplifiedProductivity ~= 0 then
+                                eventArgs.stats.productivity = eventArgs.stats.productivity + amplifiedProductivity
+                                table.insert(eventArgs.stats.log.productivity, string.format("%s%d from Organizer amplification", amplifiedProductivity > 0 and "+" or "", amplifiedProductivity))
+                            end
+                            
+                            if amplifiedFocus ~= 0 then
+                                eventArgs.stats.focus = eventArgs.stats.focus + amplifiedFocus
+                                table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from Organizer amplification", amplifiedFocus > 0 and "+" or "", amplifiedFocus))
+                            end
+                        end
+                    end
+                }
+            }
+        }
     },
     {
         id = 'cobol_coder1', name = 'Old-School Coder', icon = 'assets/portraits/prt0007.png', rarity = 'Rare',
@@ -1965,13 +2034,13 @@ return {
         description = 'Normalizes the workplace. All other employees cannot receive any positive or negative Focus modifiers from positional effects.',
         special = { type = 'neutralize_positional_focus_mods' },
         listeners = {
-            onCalculatePositionalBonuses = {
+            onCalculateStats = {
                 {
                     phase = 'PreCalculation',
-                    priority = 50,
-                    callback = function(self, gameState, eventArgs)
+                    priority = 10,
+                    callback = function(self, gameState, services, eventArgs)
                         if eventArgs.employee.instanceId ~= self.instanceId then
-                            eventArgs.neutralizeFocus = true
+                            eventArgs.neutralizePositionalFocus = true
                         end
                     end
                 }
@@ -2795,27 +2864,49 @@ return {
         description = 'Ignores the first negative positional effect applied to them each time stats are calculated.',
         special = { type = 'ignore_first_negative_positional' },
         listeners = {
-            onCalculatePositionalBonuses = {
+            onCalculateStats = {
                 {
                     phase = 'PostCalculation',
-                    priority = 50,
-                    callback = function(self, gameState, eventArgs)
-                        if eventArgs.employee.instanceId == self.instanceId then
-                            local ignoredNegative = false
-                            local originalApplyEffect = eventArgs.applyEffect
-                            
-                            eventArgs.applyEffect = function(effectDetails, sourceEmployee)
-                                local isNegative = (effectDetails.productivity_add and effectDetails.productivity_add < 0) or
-                                                (effectDetails.focus_add and effectDetails.focus_add < 0) or
-                                                (effectDetails.focus_mult and effectDetails.focus_mult < 1)
-                                
-                                if isNegative and not ignoredNegative then
-                                    ignoredNegative = true
-                                    table.insert(eventArgs.log.productivity, "Ignored negative effect from " .. sourceEmployee.name)
-                                    return
+                    priority = 90,
+                    callback = function(self, gameState, services, eventArgs)
+                        if eventArgs.employee.instanceId ~= self.instanceId then return end
+                        
+                        -- Look through the stat log to find the first negative effect
+                        local firstNegativeFound = false
+                        local negativeProductivity = 0
+                        local negativeFocus = 0
+                        
+                        -- Check productivity log for negative effects
+                        for _, logEntry in ipairs(eventArgs.stats.log.productivity or {}) do
+                            local negValue = string.match(logEntry, "^%-(%d+)")
+                            if negValue and not firstNegativeFound then
+                                negativeProductivity = tonumber(negValue)
+                                firstNegativeFound = true
+                                break
+                            end
+                        end
+                        
+                        -- Check focus log for negative effects if no negative productivity found
+                        if not firstNegativeFound then
+                            for _, logEntry in ipairs(eventArgs.stats.log.focus or {}) do
+                                local negValue = string.match(logEntry, "^%-([%d%.]+)")
+                                if negValue and not firstNegativeFound then
+                                    negativeFocus = tonumber(negValue)
+                                    firstNegativeFound = true
+                                    break
                                 end
-                                
-                                originalApplyEffect(effectDetails, sourceEmployee)
+                            end
+                        end
+                        
+                        -- Reverse the first negative effect found
+                        if firstNegativeFound then
+                            if negativeProductivity > 0 then
+                                eventArgs.stats.productivity = eventArgs.stats.productivity + negativeProductivity
+                                table.insert(eventArgs.stats.log.productivity, string.format("+%d from ignoring negative effect", negativeProductivity))
+                            end
+                            if negativeFocus > 0 then
+                                eventArgs.stats.focus = eventArgs.stats.focus + negativeFocus
+                                table.insert(eventArgs.stats.log.focus, string.format("+%.2fx from ignoring negative effect", negativeFocus))
                             end
                         end
                     end

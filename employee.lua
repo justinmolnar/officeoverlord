@@ -96,11 +96,17 @@ function Employee:calculateStatsWithPosition(employeeInstance, allHiredEmployees
     }
 
     -- Phase 3: Dispatch the main calculation event. All logic is now in listeners.
+    -- The event payload is enhanced with a structured log for programmatic use.
     local eventArgs = {
         employee = effectiveInstance,
         stats = stats,
-        gameState = gameState -- Pass gameState through for listeners
+        gameState = gameState, -- Pass gameState through for listeners
+
+        -- NEW (Phase 1.3): Structured log for programmatic analysis by other listeners.
+        -- This will be populated by listeners in the next phase.
+        bonusesApplied = {}
     }
+    
     require("effects_dispatcher").dispatchEvent("onCalculateStats", gameState, { modal = modal }, eventArgs)
     
     -- Phase 4: Return the final, modified stats
