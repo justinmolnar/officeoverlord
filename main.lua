@@ -54,29 +54,11 @@ local overlaysToDraw = {}
 
 -- UI Component Lists
 local uiComponents = {}
-local debugComponents = {}
 local sprintOverviewComponents = {}
 
 -- State variables are wrapped in tables to be passed by reference
 local sprintOverviewState = { isVisible = false }
 local sprintOverviewRects = {} -- To hold rects for the new panel UI
-
-local debugMenuState = { isVisible = false }
-local debug = {
-    rect = {},
-    employeeDropdown = { options = {}, selected = 1, isOpen = false, rect = {}, scrollOffset = 0 },
-    upgradeDropdown = { options = {}, selected = 1, isOpen = false, rect = {}, scrollOffset = 0 },
-    checkboxes = {
-        remote = { checked = false, rect = {} },
-        foil = { checked = false, rect = {} },
-        holo = { checked = false, rect = {} }
-    },
-    buttons = {},
-    hotkeyState = {
-        plus = { timer = 0, initial = 0.4, repeatDelay = 0.1 },
-        minus = { timer = 0, initial = 0.4, repeatDelay = 0.1 }
-    }
-}
 
 -- Timer system
 local pendingTimers = {}
@@ -131,22 +113,6 @@ local battleState = {
     changedEmployeesForAnimation = {},
     nextChangedEmployeeIndex = 1
 }
-
-function initializeDebugMenu()
-    -- Populate employee options
-    debug.employeeDropdown.options = {}
-    for _, card in ipairs(GameData.BASE_EMPLOYEE_CARDS) do
-        table.insert(debug.employeeDropdown.options, { name = card.name, id = card.id })
-    end
-    table.sort(debug.employeeDropdown.options, function(a, b) return a.name < b.name end)
-    
-    -- Populate upgrade options
-    debug.upgradeDropdown.options = {}
-    for _, upg in ipairs(GameData.ALL_UPGRADES) do
-        table.insert(debug.upgradeDropdown.options, { name = upg.name, id = upg.id })
-    end
-    table.sort(debug.upgradeDropdown.options, function(a, b) return a.name < b.name end)
-end
 
 function buildSprintOverviewUI()
     sprintOverviewComponents = {} -- Clear any existing components
@@ -559,6 +525,9 @@ function love.load()
    Drawing.foilShader = love.graphics.newShader("foil.fs") 
    Drawing.holoShader = love.graphics.newShader("holo.fs") 
 
+   -- Require the new manager
+   local DebugManager = require("debug_manager")
+
    gameState = GameState:new()
    love.window.setTitle("Office Overlord - Command Center v4.1 Sprints")
 
@@ -586,7 +555,6 @@ function love.load()
    end
    Drawing.UI.fontSmall = primaryFontSmall
    
-   -- NEW: Add a medium font for better text hierarchy
    local primaryFontMedium, emojiFontMedium
    success, primaryFontMedium = pcall(love.graphics.newFont, "Arial.ttf", 11)
    if not success then primaryFontMedium = love.graphics.newFont(11); print("Arial.ttf not found, using default font 11pt.") end
@@ -621,7 +589,6 @@ function love.load()
 
    definePanelRects()
    
-   initializeDebugMenu() 
    buildSprintOverviewUI()
 
    -- Initialize the state manager
@@ -635,8 +602,7 @@ function love.load()
        panelRects = panelRects,
        sprintOverviewState = sprintOverviewState,
        sprintOverviewRects = sprintOverviewRects,
-       debugMenuState = debugMenuState,
-       debug = debug,
+       -- REMOVED debug-related tables from here
        callbacks = {
            setGamePhase = setGamePhase,
            resetGameAndGlobals = resetGameAndGlobals
@@ -644,41 +610,12 @@ function love.load()
        modal = modal
    })
 
-   local panelW, panelH = 400, 450
-   local panelX, panelY = (love.graphics.getWidth() - panelW) / 2, (love.graphics.getHeight() - panelH) / 2
-   local padding = 15
-   local dbgW = panelW - padding * 2
-   local dbgX = panelX + padding
-   local currentY = panelY + 50
-   
-   table.insert(debugComponents, Dropdown:new({ rect = {x = dbgX, y = currentY, w = dbgW, h = 25}, state = debug.employeeDropdown }))
-   currentY = currentY + 35
-   
-   local chkW = 80
-   table.insert(debugComponents, Checkbox:new({ rect = {x=dbgX, y=currentY, w=chkW, h=20}, label="Remote", state=debug.checkboxes.remote, onToggle=function(c) if c then debug.checkboxes.foil.checked=false; debug.checkboxes.holo.checked=false end end }))
-   table.insert(debugComponents, Checkbox:new({ rect = {x=dbgX + chkW + 10, y=currentY, w=chkW, h=20}, label="Foil", state=debug.checkboxes.foil, onToggle=function(c) if c then debug.checkboxes.remote.checked=false; debug.checkboxes.holo.checked=false end end }))
-   table.insert(debugComponents, Checkbox:new({ rect = {x=dbgX + (chkW + 10) * 2, y=currentY, w=chkW, h=20}, label="Holo", state=debug.checkboxes.holo, onToggle=function(c) if c then debug.checkboxes.remote.checked=false; debug.checkboxes.foil.checked=false end end }))
-   currentY = currentY + 30
-   
-   table.insert(debugComponents, Button:new({ rect = {x=dbgX, y=currentY, w=dbgW, h=30}, text="Spawn Employee in Shop", style="secondary", onClick=function() local sel=debug.employeeDropdown.options[debug.employeeDropdown.selected].id; local v="standard"; if debug.checkboxes.remote.checked then v="remote" elseif debug.checkboxes.foil.checked then v="foil" elseif debug.checkboxes.holo.checked then v="holo" end; Shop:forceAddEmployeeOffer(gameState.currentShopOffers, sel, v); buildUIComponents() end }))
-   currentY = currentY + 50 + 20
-   
-   table.insert(debugComponents, Dropdown:new({ rect = {x = dbgX, y = currentY, w = dbgW, h = 25}, state = debug.upgradeDropdown }))
-   currentY = currentY + 35
-   
-   table.insert(debugComponents, Button:new({ rect = {x=dbgX, y=currentY, w=dbgW, h=30}, text="Spawn Upgrade in Shop", style="secondary", onClick=function() local sel=debug.upgradeDropdown.options[debug.upgradeDropdown.selected].id; Shop:forceAddUpgradeOffer(gameState.currentShopOffers, sel); buildUIComponents() end }))
-   currentY = currentY + 50
-   
-   local smallBtnW = (dbgW - 10) / 2
-   table.insert(debugComponents, Button:new({ rect = {x=dbgX, y=currentY, w=smallBtnW, h=30}, text="+ $1000", style="primary", onClick=function() gameState.budget=gameState.budget+1000 end }))
-   table.insert(debugComponents, Button:new({ rect = {x=dbgX + smallBtnW + 10, y=currentY, w=smallBtnW, h=30}, text="- $1000", style="primary", onClick=function() gameState.budget=gameState.budget-1000 end }))
-   currentY = currentY + 35
-   
-   table.insert(debugComponents, Button:new({ rect = {x=dbgX, y=currentY, w=dbgW, h=30}, text="Restock Shop", style="warning", onClick=function() Shop:attemptRestock(gameState) end }))
-   currentY = currentY + 35
-   
-   table.insert(debugComponents, Button:new({ rect = {x=dbgX, y=currentY, w=smallBtnW, h=30}, text="<< Prev Item", style="info", onClick=function() gameState.currentWorkItemIndex=gameState.currentWorkItemIndex-1; if gameState.currentWorkItemIndex<1 then gameState.currentSprintIndex=math.max(1,gameState.currentSprintIndex-1); gameState.currentWorkItemIndex=3 end; setGamePhase("hiring_and_upgrades") end }))
-   table.insert(debugComponents, Button:new({ rect = {x=dbgX+smallBtnW+10, y=currentY, w=smallBtnW, h=30}, text="Next Item >>", style="info", onClick=function() gameState.currentWorkItemIndex=gameState.currentWorkItemIndex+1; if gameState.currentWorkItemIndex>3 then gameState.currentWorkItemIndex=1; gameState.currentSprintIndex=math.min(#GameData.ALL_SPRINTS,gameState.currentSprintIndex+1) end; setGamePhase("hiring_and_upgrades") end }))
+    -- Initialize the Debug Manager, passing it the systems it needs to interact with
+    DebugManager:init({
+        gameState = gameState,
+        shop = Shop,
+        setGamePhase = setGamePhase -- Pass the function directly
+    })
    
    setGamePhase("hiring_and_upgrades")
    Placement:updateDeskAvailability(gameState.desks)
@@ -743,27 +680,19 @@ function Drawing.drawMainInteractionPanel(rect, gameState, uiElementRects, dragg
 end
 
 function love.update(dt)
+    local DebugManager = require("debug_manager")
+    DebugManager:update(dt) -- Call the manager's update function
+
     updateTimers(dt) 
     InputHandler.update(dt)
-    modal:update(dt) -- Update the modal component
+    modal:update(dt)
 
-    -- Update main UI components (if they have an update function)
     for _, component in ipairs(uiComponents) do
         if component.update then
             component:update(dt)
         end
     end
-
-    -- Update debug components if the menu is visible
-    if debugMenuState.isVisible then
-        for _, component in ipairs(debugComponents) do
-            if component.update then
-                component:update(dt)
-            end
-        end
-    end
     
-    -- Update Sprint Overview components if the panel is visible
     if sprintOverviewState.isVisible then
         for _, component in ipairs(sprintOverviewComponents) do
             if component.update then
@@ -789,56 +718,37 @@ function love.update(dt)
 end
 
 function love.keypressed(key)
+    local DebugManager = require("debug_manager")
+    if DebugManager:handleKeyPress(key) then
+        return -- Input was handled by the debug menu
+    end
     InputHandler.onKeyPress(key)
 end
 
 function love.mousewheelmoved(x, y)
-    if debugMenuState.isVisible then
-        for _, component in ipairs(debugComponents) do
-            if component.handleMouseWheel and component:handleMouseWheel(y) then
-                return -- Stop after the first component handles the scroll
-            end
-        end
+    local DebugManager = require("debug_manager")
+    if DebugManager:isVisible() and DebugManager:handleMouseWheel(y) then
+        return -- Input was handled by the debug menu
     end
 end
 
 function love.mousepressed(x, y, button, istouch, presses)
-    if debugMenuState.isVisible then
-        local aDropdownIsHandlingInput = false
-        for _, component in ipairs(debugComponents) do
-            if component.state and component.state.isOpen and component.handleMousePress then
-                if component:handleMousePress(x, y, button) then
-                    aDropdownIsHandlingInput = true
-                    break
-                end
-            end
-        end
-        if aDropdownIsHandlingInput then return end
-
-        for i = #debugComponents, 1, -1 do
-            local component = debugComponents[i]
-            if not (component.state and component.state.isOpen) then
-                if component.handleMousePress and component:handleMousePress(x, y, button) then
-                    return 
-                end
-            end
-        end
-        if Drawing.isMouseOver(x,y,debug.rect.x, debug.rect.y, debug.rect.w, debug.rect.h) then return end
+    local DebugManager = require("debug_manager")
+    if DebugManager:isVisible() and DebugManager:handleMousePress(x, y, button) then
+        return -- Input was handled by the debug menu
     end
     
     if sprintOverviewState.isVisible then
         for _, component in ipairs(sprintOverviewComponents) do
             if component.handleMousePress and component:handleMousePress(x, y, button) then
-                return -- Input was handled by a component
+                return
             end
         end
-        -- If no component was clicked, the panel itself consumes the click
         return
     end
 
     if modal:handleMouseClick(x, y) then return end
 
-    -- Create context for state manager
     local context = {
         uiComponents = uiComponents,
         panelRects = panelRects,
@@ -849,12 +759,10 @@ function love.mousepressed(x, y, button, istouch, presses)
         modal = modal,
     }
     
-    -- Use state manager for input handling
     if stateManager:handleInput(x, y, button, gameState, battleState, context) then
         return
     end
     
-    -- Fallback to the old handler for things not yet componentized
     InputHandler.onMousePress(x, y, button)
 end
 
@@ -865,6 +773,8 @@ end
 function love.draw()
     love.graphics.setBackgroundColor(Drawing.UI.colors.background)
     love.graphics.clear()
+
+    local DebugManager = require("debug_manager")
 
     tooltipsToDraw = {}
     Drawing.tooltipsToDraw = tooltipsToDraw 
@@ -908,14 +818,8 @@ function love.draw()
         end
     end
     
-    if debugMenuState.isVisible then
-        Drawing.drawDebugMenu(debug)
-        for _, component in ipairs(debugComponents) do
-            if component.draw then component:draw() end
-        end
-        for _, component in ipairs(debugComponents) do
-            if component.drawOpenList then component:drawOpenList() end
-        end
+    if DebugManager:isVisible() then
+        DebugManager:draw()
     end
     
     if draggedItemState.item then
@@ -931,7 +835,6 @@ function love.draw()
                 local cardWidth = CardSizing.getCardWidth()
                 local cardHeight = CardSizing.getCardHeight()
                 
-                -- Find the component that was picked up to get its animation state
                 local sourceComponent = nil
                 for _, component in ipairs(uiComponents) do
                     if component.data and component.data.instanceId == itemDataToDraw.instanceId then
@@ -941,53 +844,42 @@ function love.draw()
                 end
                 
                 local cardX, cardY
-                local isAnimating = false
                 
-                -- Check if we're in drop animation mode
                 if sourceComponent and sourceComponent.animationState.isDropping then
                     local anim = sourceComponent.animationState
-                    local progress = anim.dropProgress
-                    progress = 1 - (1 - progress)^2 -- Ease out quad
+                    local progress = 1 - (1 - anim.dropProgress)^2
                     
-                    -- Interpolate from drop start position to drop target
                     cardX = anim.dropStartX + (anim.dropTargetX - anim.dropStartX) * progress - cardWidth/2
                     cardY = anim.dropStartY + (anim.dropTargetY - anim.dropStartY) * progress - cardHeight/2
-                    isAnimating = true
                     
                 elseif sourceComponent and sourceComponent.animationState.initialX and sourceComponent.animationState.initialY and not sourceComponent.animationState.isDropping then
-                    -- Pickup animation - interpolate from card to mouse
                     local anim = sourceComponent.animationState
-                    local animationDuration = 0.3 -- seconds to animate from card to mouse
+                    local animationDuration = 0.3
                     local progress = math.min(1.0, (anim.currentTime or 0) / animationDuration)
-                    progress = 1 - (1 - progress)^3 -- Ease out cubic
+                    progress = 1 - (1 - progress)^3
                     
-                    -- Interpolate from initial position to mouse position
                     cardX = anim.initialX + (mouseX - anim.initialX) * progress - cardWidth/2
                     cardY = anim.initialY + (mouseY - anim.initialY) * progress - cardHeight/2
                     
-                    -- After pickup animation completes, follow mouse
                     if progress >= 1.0 then
                         cardX = mouseX - cardWidth/2
                         cardY = mouseY - cardHeight/2
                     end
                 else
-                    -- Fallback to mouse position
                     cardX = mouseX - cardWidth/2
                     cardY = mouseY - cardHeight/2
                 end
                 
-                -- Animation values for dragged item
-                local offsetY = -8  -- Lifted up
+                local offsetY = -8
                 local shadowAlpha = 0.7
                 local shadowOffset = 8
                 
                 cardY = cardY + offsetY
                 
-                -- Draw enhanced drop shadow for dragged item
                 love.graphics.setColor(0, 0, 0, shadowAlpha)
                 love.graphics.rectangle("fill", cardX + shadowOffset, cardY + shadowOffset - offsetY, cardWidth, cardHeight, 3)
                 
-                -- Use the same EmployeeCard component for dragged items
+                -- Create a temporary EmployeeCard instance to render the dragged item
                 local draggedCard = EmployeeCard:new({
                     data = itemDataToDraw,
                     rect = {x = cardX, y = cardY, w = cardWidth, h = cardHeight},
@@ -998,12 +890,11 @@ function love.draw()
                     uiElementRects = uiElementRects
                 })
                 
-                -- Make it semi-transparent and draw at calculated position
                 love.graphics.push()
                 love.graphics.setColor(1, 1, 1, 0.9)
-                draggedCard:draw(context)
+                draggedCard:draw(context) -- Use the component's own draw method
                 love.graphics.pop()
-                love.graphics.setColor(1, 1, 1, 1) -- Reset color
+                love.graphics.setColor(1, 1, 1, 1)
             end
         end
     end
@@ -1048,14 +939,11 @@ function love.draw()
         end
     end
 
-    -- Draw the panel background and its static contents
     Drawing.drawSprintOverviewPanel(sprintOverviewRects, sprintOverviewState.isVisible, gameState)
     
-    -- If the panel is visible, draw its interactive components
     if sprintOverviewState.isVisible then
         for _, component in ipairs(sprintOverviewComponents) do
             if sprintOverviewRects.backButton then
-                -- Dynamically update the component's position before drawing
                 component.rect = sprintOverviewRects.backButton
             end
             if component.draw then
