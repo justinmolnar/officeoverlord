@@ -102,6 +102,111 @@ function Drawing.drawTextWrapped(text, x, y, wrapLimit, font, align, maxLines, d
     return totalHeight 
 end
 
+function Drawing.calculateRemoteWorkerLayout(rect, gameState, draggedItem)
+    local cardWidth = CardSizing.getCardWidth()
+    local cardHeight = CardSizing.getCardHeight()
+
+    local layout = {
+        items = {},
+        positions = {},
+        stepSize = cardWidth + 5,
+        frontCardIndex = nil,
+        needsOverlapping = false,
+        ghostZoneIndex = nil
+    }
+
+    -- 1. Filter for active remote workers
+    local remoteWorkers = {}
+    for _, empData in ipairs(gameState.hiredEmployees) do
+        if empData.variant == 'remote' then
+            if not (draggedItem and draggedItem.type == "placed_employee" and empData.instanceId == draggedItem.data.instanceId) then
+                table.insert(remoteWorkers, empData)
+            end
+        end
+    end
+
+    -- 2. Determine ghost zone position if dragging a remote worker
+    local showGhostZone = false
+    if draggedItem and draggedItem.data.variant == 'remote' then
+        local mouseX, mouseY = love.mouse.getPosition()
+        if Drawing.isMouseOver(mouseX, mouseY, rect.x, rect.y, rect.width, rect.height) then
+            local canCombine = false
+            for _, empData in ipairs(remoteWorkers) do
+                if require("placement"):isPotentialCombineTarget(gameState, empData, draggedItem.data) then canCombine = true; break; end
+                if draggedItem.type == "shop_employee" and draggedItem.data.special and 
+                   (draggedItem.data.special.type == 'haunt_target_on_hire' or draggedItem.data.special.type == 'slime_merge') then
+                    canCombine = true; break;
+                end
+            end
+            if not canCombine then showGhostZone = true end
+        end
+    end
+
+    -- 3. Build the final list of items to be laid out (employees + ghost)
+    if showGhostZone then
+        local relativeMouseX = love.mouse.getX() - (rect.x + 10)
+        local proportion = math.max(0, math.min(1, relativeMouseX / (rect.width - 20)))
+        layout.ghostZoneIndex = math.floor(proportion * (#remoteWorkers + 1)) + 1
+        layout.ghostZoneIndex = math.max(1, math.min(layout.ghostZoneIndex, #remoteWorkers + 1))
+
+        local tempWorkers = {}
+        for i, emp in ipairs(remoteWorkers) do table.insert(tempWorkers, {type="employee", data=emp}) end
+        table.insert(tempWorkers, layout.ghostZoneIndex, {type="ghost"})
+        layout.items = tempWorkers
+    else
+        for _, emp in ipairs(remoteWorkers) do table.insert(layout.items, {type="employee", data=emp}) end
+    end
+
+    -- 4. Calculate step size for potential overlapping
+    local totalCards = #layout.items
+    local availableWidth = rect.width - 20
+    local totalNormalWidth = (totalCards * cardWidth) + ((totalCards - 1) * 5)  
+    
+    layout.needsOverlapping = totalNormalWidth > availableWidth
+    if layout.needsOverlapping and totalCards > 1 then
+        local spaceForAllButLast = availableWidth - cardWidth 
+        layout.stepSize = spaceForAllButLast / (totalCards - 1)
+    end
+    
+    -- 5. Calculate positions for each item
+    for i, item in ipairs(layout.items) do
+        local cardX = rect.x + 10 + (i - 1) * layout.stepSize
+        local cardY = rect.y + (rect.height - cardHeight) / 2
+        
+        if item.type == "employee" then
+            layout.positions[item.data.instanceId] = {
+                x = cardX,
+                y = cardY,
+                w = cardWidth,
+                h = cardHeight
+            }
+        elseif item.type == "ghost" then
+            layout.ghostZoneRect = {
+                x = cardX,
+                y = cardY,
+                w = cardWidth,
+                h = cardHeight
+            }
+        end
+    end
+    
+    -- 6. Determine which card should be drawn in the front
+    if not showGhostZone then
+        local mouseX, mouseY = love.mouse.getPosition()
+        for i, item in ipairs(layout.items) do
+            if item.type == "employee" and layout.positions[item.data.instanceId] then
+                local pos = layout.positions[item.data.instanceId]
+                if Drawing.isMouseOver(mouseX, mouseY, pos.x, pos.y, pos.w, pos.h) then
+                    layout.frontCardIndex = i
+                    break
+                end
+            end
+        end
+    end
+
+    return layout
+end
+
 function Drawing.drawButton(text, x, y, width, height, style, isEnabled, isHovered, buttonFont, isPressed)
     local baseBgColor, hoverBgColor, currentTextColor
     local currentStyle = style or "primary"
@@ -353,89 +458,9 @@ Drawing.UI.colors = {
     rarity_legendary_bg = {1, 0.98, 0.92, 1},
 }
 
--- local helper to determine the layout of remote workers, including ghost zones and overlapping.
 local function _getRemoteWorkerLayout(rect, gameState, draggedItem, Placement)
-    local cardWidth = CardSizing.getCardWidth()
-    local cardHeight = CardSizing.getCardHeight()
-
-    local layout = {
-        items = {},
-        stepSize = cardWidth + 5,  -- USE SHOP CARD WIDTH HERE
-        frontCardIndex = nil,
-        needsOverlapping = false,
-        ghostZoneIndex = nil
-    }
-
-    -- 1. Filter for active remote workers
-    local remoteWorkers = {}
-    for _, empData in ipairs(gameState.hiredEmployees) do
-        if empData.variant == 'remote' then
-            if not (draggedItem and draggedItem.type == "placed_employee" and empData.instanceId == draggedItem.data.instanceId) then
-                table.insert(remoteWorkers, empData)
-            end
-        end
-    end
-
-    -- 2. Determine ghost zone position if dragging a remote worker
-    local showGhostZone = false
-    if draggedItem and draggedItem.data.variant == 'remote' then
-        local mouseX, mouseY = love.mouse.getPosition()
-        if Drawing.isMouseOver(mouseX, mouseY, rect.x, rect.y, rect.width, rect.height) then
-            local canCombine = false
-            for _, empData in ipairs(remoteWorkers) do
-                if Placement:isPotentialCombineTarget(gameState, empData, draggedItem.data) then canCombine = true; break; end
-                if draggedItem.type == "shop_employee" and draggedItem.data.special and 
-                   (draggedItem.data.special.type == 'haunt_target_on_hire' or draggedItem.data.special.type == 'slime_merge') then
-                    canCombine = true; break;
-                end
-            end
-            if not canCombine then showGhostZone = true end
-        end
-    end
-
-    -- 3. Build the final list of items to be laid out (employees + ghost)
-    if showGhostZone then
-        local relativeMouseX = love.mouse.getX() - (rect.x + 10)
-        local proportion = math.max(0, math.min(1, relativeMouseX / (rect.width - 20)))
-        layout.ghostZoneIndex = math.floor(proportion * (#remoteWorkers + 1)) + 1
-        layout.ghostZoneIndex = math.max(1, math.min(layout.ghostZoneIndex, #remoteWorkers + 1))
-
-        local tempWorkers = {}
-        for i, emp in ipairs(remoteWorkers) do table.insert(tempWorkers, {type="employee", data=emp}) end
-        table.insert(tempWorkers, layout.ghostZoneIndex, {type="ghost"})
-        layout.items = tempWorkers
-    else
-        for _, emp in ipairs(remoteWorkers) do table.insert(layout.items, {type="employee", data=emp}) end
-    end
-
-    -- 4. Calculate step size for potential overlapping
-    local totalCards = #layout.items
-    local availableWidth = rect.width - 20
-    local totalNormalWidth = (totalCards * cardWidth) + ((totalCards - 1) * 5)  
-    
-    layout.needsOverlapping = totalNormalWidth > availableWidth
-    if layout.needsOverlapping then
-        local spaceForAllButLast = availableWidth - cardWidth 
-        layout.stepSize = spaceForAllButLast / math.max(1, totalCards - 1)
-    end
-    
-    -- 5. Determine which card should be drawn in the front
-    if not showGhostZone then
-        local mouseX, mouseY = love.mouse.getPosition()
-        for i, item in ipairs(layout.items) do
-            if item.type == "employee" then
-                local cardX = rect.x + 10 + (i - 1) * layout.stepSize
-                local cardY = rect.y + Drawing.UI.font:getHeight() + 8
-                local cardHeight = rect.height - (Drawing.UI.font:getHeight() + 15)
-                if Drawing.isMouseOver(mouseX, mouseY, cardX, cardY, cardWidth, cardHeight) then
-                    layout.frontCardIndex = i
-                    break
-                end
-            end
-        end
-    end
-
-    return layout
+    -- Just delegate to the main layout function
+    return Drawing.calculateRemoteWorkerLayout(rect, gameState, draggedItem)
 end
 
 -- local helper to draw a single card within the remote worker panel.
@@ -504,7 +529,6 @@ end
 
 
 function Drawing.drawRemoteWorkersPanel(rect, gameState, uiElementRects, draggedItem, battleState, Placement)
-
     local cardWidth = CardSizing.getCardWidth()
     local cardHeight = CardSizing.getCardHeight()
 
@@ -530,16 +554,15 @@ function Drawing.drawRemoteWorkersPanel(rect, gameState, uiElementRects, dragged
         return
     end
 
-    -- 4. Calculate positions for full-sized cards using the corrected layout logic
-    uiElementRects.remote = {}
-    local layout = _getRemoteWorkerLayout(rect, gameState, draggedItem, Placement)
-
-    for i, item in ipairs(layout.items) do
-        if item.type == "employee" then
-            local cardX = rect.x + 10 + (i - 1) * layout.stepSize
-            local cardY = rect.y + (rect.height - cardHeight) / 2 
-            uiElementRects.remote[item.data.instanceId] = {x = cardX, y = cardY, w = cardWidth, h = cardHeight} 
-        end
+    -- 4. Use the centralized layout calculation
+    local layout = Drawing.calculateRemoteWorkerLayout(rect, gameState, draggedItem)
+    
+    -- 5. Store positions in uiElementRects for consistency
+    uiElementRects.remote = layout.positions
+    
+    -- 6. Store ghost zone if it exists
+    if layout.ghostZoneRect then
+        uiElementRects.remoteGhostZone = layout.ghostZoneRect
     end
 end
 

@@ -162,6 +162,11 @@ function buildSprintOverviewUI()
     }))
 end
 
+function calculateRemoteWorkerPositions(gameState, draggedItemState)
+    local layout = Drawing.calculateRemoteWorkerLayout(panelRects.remoteWorkers, gameState, draggedItemState.item)
+    return layout.positions
+end
+
 --- Clears and rebuilds ALL active UI components based on the current gameState.
 function buildUIComponents()
    uiComponents = {}
@@ -292,6 +297,9 @@ function buildUIComponents()
        end
    end
 
+   -- Calculate remote worker positions BEFORE creating components
+   local remoteWorkerPositions = calculateRemoteWorkerPositions(gameState, draggedItemState)
+
    -- Remote worker cards
    for _, empData in ipairs(gameState.hiredEmployees) do
        if empData.variant == 'remote' then
@@ -308,7 +316,21 @@ function buildUIComponents()
                if not isWorkerActive then contextArgs.context = "worker_done" end
            end
            
-           table.insert(uiComponents, EmployeeCard:new({data = empData, rect = {x = 0, y = 0, w = cardWidth, h = cardHeight}, context = contextArgs.context, gameState=gameState, battleState=battleState, draggedItemState=draggedItemState, uiElementRects=uiElementRects}))
+           -- Get the calculated position for this remote worker
+           local workerRect = remoteWorkerPositions[empData.instanceId] or {x = 0, y = 0, w = cardWidth, h = cardHeight}
+           
+           table.insert(uiComponents, EmployeeCard:new({
+               data = empData, 
+               rect = workerRect, 
+               context = contextArgs.context, 
+               gameState=gameState, 
+               battleState=battleState, 
+               draggedItemState=draggedItemState, 
+               uiElementRects=uiElementRects
+           }))
+           
+           -- Store the position in uiElementRects.remote for consistency
+           uiElementRects.remote[empData.instanceId] = workerRect
        end
    end
 
