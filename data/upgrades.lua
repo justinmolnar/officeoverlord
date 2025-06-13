@@ -1,4 +1,35 @@
 return {
+
+    {
+        id = 'base_game_effects', name = 'Base Game Effects', rarity = 'Common', cost = 0, isNotPurchasable = true,
+        description = 'A container for baseline game mechanics that are handled by the event system.',
+        listeners = {
+            onCalculateStats = function(self, gameState, services, eventArgs)
+                local globalBonusProductivity = 0
+                local globalBonusFocusAdd = 0
+                local log = eventArgs.stats.log
+
+                -- Apply Foil and Holo bonuses
+                if gameState.hiredEmployees then
+                    for _, emp in ipairs(gameState.hiredEmployees) do
+                        if emp.variant == 'foil' then 
+                            globalBonusProductivity = globalBonusProductivity + 5
+                            table.insert(log.productivity, "+5 from a Foil employee") 
+                        end
+                        if emp.variant == 'holo' then 
+                            globalBonusFocusAdd = globalBonusFocusAdd + 0.5
+                            table.insert(log.focus, "+0.5x from a Holo employee") 
+                        end
+                    end
+                end
+
+                eventArgs.stats.productivity = eventArgs.stats.productivity + globalBonusProductivity
+                eventArgs.stats.focus = eventArgs.stats.focus + globalBonusFocusAdd
+            end
+        }
+    },
+
+
     -- COMMON UPGRADES --
     { 
         id = 'scrum_board', name = 'The "Scrum" Board', rarity = 'Common', cost = 500, icon = '📌',
@@ -292,27 +323,19 @@ return {
                     print("Specialist for this round: " .. specialist.name)
                 end
             end,
-            onFinalizeStats = function(self, gameState, eventArgs)
+            onCalculateStats = function(self, gameState, services, eventArgs)
                 local specialistId = gameState.temporaryEffectFlags.specialistId
+                if not specialistId then return end
+
                 local isSpecialist = specialistId == eventArgs.employee.instanceId
-                
                 local multiplier = isSpecialist and 2 or 0.5
+                
                 eventArgs.stats.productivity = math.floor(eventArgs.stats.productivity * multiplier)
                 eventArgs.stats.focus = eventArgs.stats.focus * multiplier
+
                 local logText = string.format("%s from Specialist's Niche", isSpecialist and "*2" or "/2")
                 table.insert(eventArgs.stats.log.productivity, logText)
                 table.insert(eventArgs.stats.log.focus, logText)
-
-                if isSpecialist and eventArgs.employee.positionalEffects then
-                    for _, otherEmp in ipairs(gameState.hiredEmployees) do
-                        if otherEmp.instanceId ~= eventArgs.employee.instanceId and otherEmp.deskId then
-                            for _, effect in pairs(eventArgs.employee.positionalEffects) do
-                                if effect.productivity_add then otherEmp.baseProductivity = otherEmp.baseProductivity + effect.productivity_add end
-                                if effect.focus_add then otherEmp.baseFocus = otherEmp.baseFocus + effect.focus_add end
-                            end
-                        end
-                    end
-                end
             end
         }
     },
@@ -334,14 +357,19 @@ return {
     { 
         id = 'positional_inverter', name = 'Positional Inverter', rarity = 'Uncommon', cost = 1000, icon = '🔄',
         description = 'All positive positional effects are now negative, and all negative effects are now positive.',
-        effect = { type = 'positional_inverter' }
+        effect = { type = 'positional_inverter' },
+        listeners = {
+            onCalculateStats = function(self, gameState, services, eventArgs)
+                eventArgs.isPositionalInversionActive = true
+            end
+        }
     },
     { 
         id = 'focus_funnel', name = 'Focus Funnel', rarity = 'Uncommon', cost = 1300, icon = '✨',
         description = 'All Focus bonuses from all sources are collected and granted to a single random employee each work item.',
         effect = { type = 'focus_funnel' },
         listeners = {
-            onBattleStart = function(self, gameState, eventArgs)
+            onBattleStart = function(self, gameState, services, eventArgs)
                 if #eventArgs.activeEmployees > 0 then
                     local target = eventArgs.activeEmployees[love.math.random(#eventArgs.activeEmployees)]
                     gameState.temporaryEffectFlags.focusFunnelTargetId = target.instanceId
@@ -367,6 +395,16 @@ return {
                 end
                 gameState.temporaryEffectFlags.focusFunnelTotalBonus = totalBonus
                 print("Focus Funnel collected a total bonus multiplier of: " .. totalBonus)
+            end,
+            onCalculateStats = function(self, gameState, services, eventArgs)
+                -- Signal that normal positional calculations should be skipped.
+                eventArgs.isPositionalCalculationOverridden = true
+
+                if eventArgs.employee.instanceId == gameState.temporaryEffectFlags.focusFunnelTargetId then
+                    local totalBonus = gameState.temporaryEffectFlags.focusFunnelTotalBonus or 1.0
+                    eventArgs.stats.focus = eventArgs.stats.focus * totalBonus
+                    table.insert(eventArgs.stats.log.focus, string.format("*%.2fx from Focus Funnel", totalBonus))
+                end
             end
         }
     },

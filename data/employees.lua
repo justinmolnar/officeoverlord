@@ -61,6 +61,31 @@ return {
                 if eventArgs.employee.instanceId == self.instanceId then
                     eventArgs.context = "worker_training"
                 end
+            end,
+            onCalculateStats = function(self, gameState, services, eventArgs)
+                if not self.deskId then return end
+                local targetDeskId = eventArgs.employee.deskId
+                if not targetDeskId or targetDeskId == self.deskId then return end
+
+                local Placement = require("placement")
+                local GameData = require("data")
+
+                local directions = {"up", "down", "left", "right"}
+                for _, direction in ipairs(directions) do
+                    if Placement:getNeighboringDeskId(self.deskId, direction, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, gameState.desks) == targetDeskId then
+                        local effect = self.positionalEffects.all_adjacent
+                        local level_mult = (effect.scales_with_level and (self.level or 1) or 1)
+                        local focus_mult = 1 + ((effect.focus_mult - 1) * level_mult)
+
+                        if eventArgs.isPositionalInversionActive then
+                           if focus_mult ~= 0 then focus_mult = 1 / focus_mult end
+                        end
+
+                        eventArgs.stats.focus = eventArgs.stats.focus * focus_mult
+                        if focus_mult ~= 1 then table.insert(eventArgs.stats.log.focus, string.format("*%.2fx from %s", focus_mult, self.name)) end
+                        break -- Apply once for all_adjacent
+                    end
+                end
             end
         }
     },
@@ -71,7 +96,7 @@ return {
         description = 'Must be placed in the office. Doubles the Productivity and Focus of all remote workers.',
         special = { type = 'boost_remote_workers', prod_mult = 2.0, focus_mult = 2.0 },
         listeners = {
-            onFinalizeStats = function(self, gameState, eventArgs)
+            onCalculateStats = function(self, gameState, services, eventArgs)
                 if eventArgs.employee.variant == 'remote' and eventArgs.employee.instanceId ~= self.instanceId then
                     eventArgs.stats.productivity = eventArgs.stats.productivity * self.special.prod_mult
                     eventArgs.stats.focus = eventArgs.stats.focus * self.special.focus_mult
@@ -126,7 +151,7 @@ return {
         description = 'Productivity is 5x on "Database Migration" or "Refactor Legacy Code" work items, but only 0.2x on all other items.',
         special = { type = 'conditional_productivity_by_work_item', prod_mult = 5.0, penalty_mult = 0.2, target_work_items = { s4_item1 = true, s4_item2 = true } },
         listeners = {
-            onFinalizeStats = function(self, gameState, eventArgs)
+            onCalculateStats = function(self, gameState, services, eventArgs)
                 if eventArgs.employee.instanceId == self.instanceId then
                     local currentSprint = require("data").ALL_SPRINTS[gameState.currentSprintIndex]
                     local currentWorkItem = currentSprint and currentSprint.workItems[gameState.currentWorkItemIndex]
@@ -389,12 +414,12 @@ return {
         description = 'Gains +1.5x Focus per level when adjacent to a Project Manager. After each completed work item, has a 25% chance to "train" a random employee, disabling them for the next item but giving them a permanent +3 Productivity per level.',
         special = { type = 'dwight_behavior', manager_id = 'project_manager', focus_mult = 1.5, train_chance = 0.25, train_prod_boost = 3, scales_with_level = true },
         listeners = {
-            onFinalizeStats = function(self, gameState, eventArgs)
+            onCalculateStats = function(self, gameState, services, eventArgs)
                 if eventArgs.employee.instanceId == self.instanceId and eventArgs.employee.deskId then
                     local hasAdjacentManager = false
                     local directions = {"up", "down", "left", "right"}
                     for _, dir in ipairs(directions) do
-                        local neighborDeskId = require("employee"):getNeighboringDeskId(eventArgs.employee.deskId, dir, require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
+                        local neighborDeskId = require("placement"):getNeighboringDeskId(eventArgs.employee.deskId, dir, require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
                         if neighborDeskId and gameState.deskAssignments[neighborDeskId] then
                             local neighbor = require("employee"):getFromState(gameState, gameState.deskAssignments[neighborDeskId])
                             if neighbor and neighbor.id == self.special.manager_id then
@@ -431,7 +456,7 @@ return {
                 end
             end
         }
-        },
+    },
     {
         id = 'red_shirt_intern1', name = 'Red-Shirt Intern', icon = 'assets/portraits/prt0017.png', rarity = 'Rare',
         hiringBonus = 1000, weeklySalary = 200,
@@ -572,7 +597,7 @@ return {
         description = "If placed in a bottom-row corner, focus becomes 5.0x. If you try to move him, there's a 50% chance he burns the office down (Game Over).",
         special = { type = 'stapler_guy_placement', corner_focus_multiplier = 5.0, move_risk_chance = 0.5 },
         listeners = {
-            onFinalizeStats = function(self, gameState, eventArgs)
+            onCalculateStats = function(self, gameState, services, eventArgs)
                 if eventArgs.employee.instanceId == self.instanceId and eventArgs.employee.deskId then
                     local deskIndex = tonumber(string.match(eventArgs.employee.deskId, "desk%-(%d+)"))
                     if deskIndex and (deskIndex == 6 or deskIndex == 8) then
@@ -627,7 +652,7 @@ return {
                     eventArgs.effectiveData = effectiveData
                 end
             end,
-            onCalculateStats = function(self, gameState, eventArgs)
+            onGetEffectiveEmployee = function(self, gameState, services, eventArgs)
                 if eventArgs.employee.instanceId == self.instanceId and self.copiedState then
                     local effectiveInstance = {}
                     for k, v in pairs(self) do effectiveInstance[k] = v end
@@ -696,7 +721,7 @@ return {
         special = { type = 'boost_other_remotes', prod_mult = 2.0, focus_mult = 2.0, upgrade_cost_increase = 1.1, scales_with_level = true },
         forceVariant = 'remote',
         listeners = {
-            onFinalizeStats = function(self, gameState, eventArgs)
+            onCalculateStats = function(self, gameState, services, eventArgs)
                 if eventArgs.employee.variant == 'remote' and eventArgs.employee.instanceId ~= self.instanceId then
                     eventArgs.stats.productivity = eventArgs.stats.productivity * self.special.prod_mult
                     eventArgs.stats.focus = eventArgs.stats.focus * self.special.focus_mult
@@ -764,7 +789,7 @@ return {
         description = 'A fourth-wall-breaking employee. Their productivity is equal to the game\'s current frames-per-second.',
         special = { type = 'developer_fps_prod' },
         listeners = {
-            onFinalizeStats = function(self, gameState, eventArgs)
+            onCalculateStats = function(self, gameState, services, eventArgs)
                 if eventArgs.employee.instanceId == self.instanceId then
                     eventArgs.stats.productivity = love.timer.getFPS()
                     eventArgs.stats.log.productivity = {"Base: " .. eventArgs.stats.productivity .. " (from FPS)"}
@@ -870,6 +895,30 @@ return {
                         end 
                     end
                 end
+            end,
+            onCalculateStats = function(self, gameState, services, eventArgs)
+                if not self.deskId then return end
+                local targetDeskId = eventArgs.employee.deskId
+                if not targetDeskId or targetDeskId == self.deskId then return end
+
+                local Placement = require("placement")
+                local GameData = require("data")
+
+                local directions = {"up", "down", "left", "right"}
+                for _, direction in ipairs(directions) do
+                    if Placement:getNeighboringDeskId(self.deskId, direction, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, gameState.desks) == targetDeskId then
+                        local effect = self.positionalEffects.all_adjacent
+                        local focus_mult = 1 + ((effect.focus_mult - 1) * (effect.scales_with_level and (self.level or 1) or 1))
+
+                        if eventArgs.isPositionalInversionActive then
+                           if focus_mult ~= 0 then focus_mult = 1 / focus_mult end
+                        end
+
+                        eventArgs.stats.focus = eventArgs.stats.focus * focus_mult
+                        if focus_mult ~= 1 then table.insert(eventArgs.stats.log.focus, string.format("*%.2fx from %s", focus_mult, self.name)) end
+                        break -- Apply once
+                    end
+                end
             end
         }
     },
@@ -888,13 +937,7 @@ return {
                     end
                 end
             end,
-            onCalculatePositionalBonuses = function(self, gameState, eventArgs)
-                if eventArgs.employee.instanceId == self.instanceId then
-                    eventArgs.override = true
-                    eventArgs.results = { prod = 0, focusMult = 1.0, log = { productivity = {"Ignores positional bonuses"}, focus = {"Ignores positional bonuses"} } }
-                end
-            end,
-            onFinalizeStats = function(self, gameState, eventArgs)
+            onCalculateStats = function(self, gameState, services, eventArgs)
                 if eventArgs.employee.instanceId == self.instanceId then
                     if gameState.budget < self.special.lower_budget_threshold then
                         eventArgs.stats.productivity = eventArgs.stats.productivity * self.special.prod_mult
@@ -912,7 +955,7 @@ return {
         special = { type = 'virus_on_hire' },
         positionalEffects = { all_adjacent = { productivity_add = 5, scales_with_level = true } },
         listeners = {
-            onHire = function(self, gameState, eventArgs)
+            onHire = function(self, gameState, services, eventArgs)
                 if eventArgs.employee.instanceId == self.instanceId then
                     local potentialTargets = {}
                     for _, emp in ipairs(gameState.hiredEmployees) do 
@@ -955,7 +998,7 @@ return {
                     eventArgs.effectiveData = effectiveData
                 end
             end,
-            onCalculateStats = function(self, gameState, eventArgs)
+            onGetEffectiveEmployee = function(self, gameState, services, eventArgs)
                 if eventArgs.employee.isSmithCopy then
                     local smithData = self
                     local effectiveInstance = {}
@@ -966,6 +1009,31 @@ return {
                         end
                     end
                     eventArgs.employee = effectiveInstance
+                end
+            end,
+            onCalculateStats = function(self, gameState, services, eventArgs)
+                if not self.deskId then return end
+                local targetDeskId = eventArgs.employee.deskId
+                if not targetDeskId or targetDeskId == self.deskId then return end
+                if self.isSmithCopy and eventArgs.employee.isSmithCopy then return end -- Copies don't affect each other
+
+                local Placement = require("placement")
+                local GameData = require("data")
+
+                local directions = {"up", "down", "left", "right"}
+                for _, direction in ipairs(directions) do
+                    if Placement:getNeighboringDeskId(self.deskId, direction, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, gameState.desks) == targetDeskId then
+                        local effect = self.positionalEffects.all_adjacent
+                        local prod_add = (effect.productivity_add or 0) * (effect.scales_with_level and (self.level or 1) or 1)
+
+                        if eventArgs.isPositionalInversionActive then
+                            prod_add = -prod_add
+                        end
+
+                        eventArgs.stats.productivity = eventArgs.stats.productivity + prod_add
+                        if prod_add ~= 0 then table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s", prod_add > 0 and "+" or "", prod_add, self.name)) end
+                        break
+                    end
                 end
             end
         }
@@ -1022,7 +1090,37 @@ return {
         baseProductivity = 0, baseFocus = 1.0,
         description = 'The company itself, manifest. Its power grows with your assets. Provides massive bonuses to all adjacent employees.',
         positionalEffects = { all_adjacent = { productivity_add = 50, focus_add = 1.0 } },
-        special = { type = 'corporate_personhood_special' } -- This is a temporary battle entity
+        special = { type = 'corporate_personhood_special' }, -- This is a temporary battle entity
+        listeners = {
+            onCalculateStats = function(self, gameState, services, eventArgs)
+                if not self.deskId then return end
+                local targetDeskId = eventArgs.employee.deskId
+                if not targetDeskId or targetDeskId == self.deskId then return end
+
+                local Placement = require("placement")
+                local GameData = require("data")
+
+                local directions = {"up", "down", "left", "right"}
+                for _, direction in ipairs(directions) do
+                    if Placement:getNeighboringDeskId(self.deskId, direction, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, gameState.desks) == targetDeskId then
+                        local effect = self.positionalEffects.all_adjacent
+                        local prod_add = effect.productivity_add or 0
+                        local focus_add = effect.focus_add or 0
+
+                        if eventArgs.isPositionalInversionActive then
+                            prod_add = -prod_add
+                            focus_add = -focus_add
+                        end
+
+                        eventArgs.stats.productivity = eventArgs.stats.productivity + prod_add
+                        eventArgs.stats.focus = eventArgs.stats.focus + focus_add
+                        if prod_add ~= 0 then table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s", prod_add > 0 and "+" or "", prod_add, self.name)) end
+                        if focus_add ~= 0 then table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name)) end
+                        break
+                    end
+                end
+            end
+        }
     },
     -- UNCOMMON EMPLOYEES
     {
@@ -1111,7 +1209,7 @@ return {
         description = 'All employees gain +2 base Productivity per level. Employee salaries cannot be reduced by any means.',
         special = { type = 'global_prod_boost_flat', value = 2, prevents_salary_reduction = true, scales_with_level = true },
         listeners = {
-            onFinalizeStats = function(self, gameState, eventArgs)
+            onCalculateStats = function(self, gameState, services, eventArgs)
                 local bonus = self.special.value
                 if self.special.scales_with_level then
                     bonus = bonus * (self.level or 1)
@@ -1175,7 +1273,34 @@ return {
         hiringBonus = 3000, weeklySalary = 600,
         baseProductivity = 30, baseFocus = 1.0,
         description = 'Productive, high salary. Up: -3 Prod, -0.15x Focus.',
-        positionalEffects = { up = { productivity_add = -3, focus_add = -0.15 } } 
+        positionalEffects = { up = { productivity_add = -3, focus_add = -0.15 } },
+        listeners = {
+            onCalculateStats = function(self, gameState, services, eventArgs)
+                if not self.deskId then return end
+                local targetDeskId = eventArgs.employee.deskId
+                if not targetDeskId or targetDeskId == self.deskId then return end
+
+                local Placement = require("placement")
+                local GameData = require("data")
+
+                for direction, effect in pairs(self.positionalEffects) do
+                    if Placement:getNeighboringDeskId(self.deskId, direction, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, gameState.desks) == targetDeskId then
+                        local prod_add = effect.productivity_add or 0
+                        local focus_add = effect.focus_add or 0
+
+                        if eventArgs.isPositionalInversionActive then
+                            prod_add = -prod_add
+                            focus_add = -focus_add
+                        end
+
+                        eventArgs.stats.productivity = eventArgs.stats.productivity + prod_add
+                        eventArgs.stats.focus = eventArgs.stats.focus + focus_add
+                        if prod_add ~= 0 then table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s", prod_add > 0 and "+" or "", prod_add, self.name)) end
+                        if focus_add ~= 0 then table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name)) end
+                    end
+                end
+            end
+        }
     },
     {
         id = 'project_manager', name = 'Project Manager', icon = 'assets/portraits/prt0046.png', rarity = 'Uncommon',
@@ -1184,14 +1309,14 @@ return {
         description = '+0.3x focus per level to ALL PLACED staff.',
         special = { type = 'focus_boost_all_placed_flat', value = 0.3, scales_with_level = true },
         listeners = {
-            onFinalizeStats = function(self, gameState, eventArgs)
+            onCalculateStats = function(self, gameState, services, eventArgs)
                 if eventArgs.employee.deskId and eventArgs.employee.instanceId ~= self.instanceId then
                     local bonus = self.special.value
                     if self.special.scales_with_level then
                         bonus = bonus * (self.level or 1)
                     end
-                    eventArgs.stats.focus = eventArgs.stats.focus * (1 + bonus)
-                    table.insert(eventArgs.stats.log.focus, string.format("+%.1f%% from Project Manager", bonus * 100))
+                    eventArgs.stats.focus = eventArgs.stats.focus + bonus
+                    table.insert(eventArgs.stats.log.focus, string.format("+%.2fx from Project Manager", bonus))
                 end
             end
         }
@@ -1203,24 +1328,14 @@ return {
         description = 'Highly focused when alone. +0.5x Focus per level for each empty adjacent desk.',
         special = { type = 'focus_per_empty_adjacent_desk', value_per_desk = 0.5, scales_with_level = true },
         listeners = {
-            onFinalizeStats = function(self, gameState, eventArgs)
+            onCalculateStats = function(self, gameState, services, eventArgs)
                 if eventArgs.employee.instanceId == self.instanceId and eventArgs.employee.deskId then
                     local emptyAdjacentCount = 0
                     local directions = {"up", "down", "left", "right"}
                     for _, dir in ipairs(directions) do
-                        local neighborDeskId = require("employee"):getNeighboringDeskId(eventArgs.employee.deskId, dir, require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
-                        if neighborDeskId then
-                            local neighborDesk = nil
-                            for _, desk in ipairs(gameState.desks) do
-                                if desk.id == neighborDeskId then
-                                    neighborDesk = desk
-                                    break
-                                end
-                            end
-                            -- Count both owned empty desks AND unpurchased/locked desks as empty
-                            if neighborDesk and ((neighborDesk.status == "owned" and not gameState.deskAssignments[neighborDeskId]) or neighborDesk.status ~= "owned") then
-                                emptyAdjacentCount = emptyAdjacentCount + 1
-                            end
+                        local neighborDeskId = require("placement"):getNeighboringDeskId(eventArgs.employee.deskId, dir, require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
+                        if not neighborDeskId or not gameState.deskAssignments[neighborDeskId] then
+                            emptyAdjacentCount = emptyAdjacentCount + 1
                         end
                     end
                     
@@ -1230,8 +1345,8 @@ return {
                             bonusPerDesk = bonusPerDesk * (self.level or 1)
                         end
                         local totalBonus = emptyAdjacentCount * bonusPerDesk
-                        eventArgs.stats.focus = eventArgs.stats.focus * (1 + totalBonus)
-                        table.insert(eventArgs.stats.log.focus, string.format("+%.1f%% from %d empty spaces", totalBonus * 100, emptyAdjacentCount))
+                        eventArgs.stats.focus = eventArgs.stats.focus + totalBonus
+                        table.insert(eventArgs.stats.log.focus, string.format("+%.2fx from %d empty spaces", totalBonus, emptyAdjacentCount))
                     end
                 end
             end
@@ -1242,7 +1357,44 @@ return {
         hiringBonus = 1800, weeklySalary = 400,
         baseProductivity = 8, baseFocus = 1.0,
         description = 'Boosts adjacent non-Synergists (+2P, +0.2x F per level).',
-        positionalEffects = { all_adjacent = { focus_add = 0.2, productivity_add = 2, condition_not_id = 'the_synergist', scales_with_level = true } }
+        positionalEffects = { all_adjacent = { focus_add = 0.2, productivity_add = 2, condition_not_id = 'the_synergist', scales_with_level = true } },
+        listeners = {
+            onCalculateStats = function(self, gameState, services, eventArgs)
+                if not self.deskId then return end
+                local targetEmployee = eventArgs.employee
+                local targetDeskId = targetEmployee.deskId
+                if not targetDeskId or targetDeskId == self.deskId then return end
+
+                local Placement = require("placement")
+                local GameData = require("data")
+
+                local directions = {"up", "down", "left", "right"}
+                for _, direction in ipairs(directions) do
+                    if Placement:getNeighboringDeskId(self.deskId, direction, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, gameState.desks) == targetDeskId then
+                        local effect = self.positionalEffects.all_adjacent
+                        
+                        -- Check condition
+                        if effect.condition_not_id and targetEmployee.id == effect.condition_not_id then
+                            -- Condition met, do not apply effect
+                        else
+                            local prod_add = (effect.productivity_add or 0) * (effect.scales_with_level and (self.level or 1) or 1)
+                            local focus_add = (effect.focus_add or 0) * (effect.scales_with_level and (self.level or 1) or 1)
+
+                            if eventArgs.isPositionalInversionActive then
+                                prod_add = -prod_add
+                                focus_add = -focus_add
+                            end
+
+                            eventArgs.stats.productivity = eventArgs.stats.productivity + prod_add
+                            eventArgs.stats.focus = eventArgs.stats.focus + focus_add
+                            if prod_add ~= 0 then table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s", prod_add > 0 and "+" or "", prod_add, self.name)) end
+                            if focus_add ~= 0 then table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name)) end
+                        end
+                        break -- Apply once for all_adjacent
+                    end
+                end
+            end
+        }
     },
     {
         id = 'data_analyst', name = 'Data Analyst', icon = 'assets/portraits/prt0049.png', rarity = 'Uncommon',
@@ -1251,7 +1403,7 @@ return {
         description = 'Productivity scales with Budget (+1P per level per $1k).',
         special = { type = 'prod_scales_with_budget', per_1k_budget = 1, scales_with_level = true },
         listeners = {
-            onFinalizeStats = function(self, gameState, eventArgs)
+            onCalculateStats = function(self, gameState, services, eventArgs)
                 if eventArgs.employee.instanceId == self.instanceId then
                     local budgetInThousands = math.floor(gameState.budget / 1000)
                     local multiplier = self.special.per_1k_budget or 1
@@ -1270,7 +1422,30 @@ return {
         hiringBonus = 2600, weeklySalary = 550,
         baseProductivity = 10, baseFocus = 1.0,
         description = 'Boosts Productivity of employee directly below by +10 per level.',
-        positionalEffects = { down = { productivity_add = 10, scales_with_level = true } }
+        positionalEffects = { down = { productivity_add = 10, scales_with_level = true } },
+        listeners = {
+            onCalculateStats = function(self, gameState, services, eventArgs)
+                if not self.deskId then return end
+                local targetDeskId = eventArgs.employee.deskId
+                if not targetDeskId or targetDeskId == self.deskId then return end
+
+                local Placement = require("placement")
+                local GameData = require("data")
+
+                for direction, effect in pairs(self.positionalEffects) do
+                    if Placement:getNeighboringDeskId(self.deskId, direction, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, gameState.desks) == targetDeskId then
+                        local prod_add = (effect.productivity_add or 0) * (effect.scales_with_level and (self.level or 1) or 1)
+
+                        if eventArgs.isPositionalInversionActive then
+                            prod_add = -prod_add
+                        end
+
+                        eventArgs.stats.productivity = eventArgs.stats.productivity + prod_add
+                        if prod_add ~= 0 then table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s", prod_add > 0 and "+" or "", prod_add, self.name)) end
+                    end
+                end
+            end
+        }
     },
     {
         id = 'creative_genius', name = 'Creative Genius', icon = 'assets/portraits/prt0051.png', rarity = 'Uncommon',
@@ -1291,7 +1466,7 @@ return {
         description = 'High Prod, but Focus is fixed at 0.8x.',
         special = { type = 'fixed_focus_multiplier', value = 0.8 },
         listeners = {
-            onFinalizeStats = function(self, gameState, eventArgs)
+            onCalculateStats = function(self, gameState, services, eventArgs)
                 if eventArgs.employee.instanceId == self.instanceId then
                     eventArgs.stats.focus = self.special.value
                     eventArgs.stats.log.focus = {string.format("Fixed to %.2fx by ability", self.special.value)}
@@ -1306,7 +1481,7 @@ return {
         description = 'Higher Focus if placed in bottom row.',
         special = { type = 'focus_if_in_row', rowIndex = 2, focus_multiplier = 1.5 },
         listeners = {
-            onFinalizeStats = function(self, gameState, eventArgs)
+            onCalculateStats = function(self, gameState, services, eventArgs)
                 if eventArgs.employee.instanceId == self.instanceId and eventArgs.employee.deskId then
                     local deskIndex = tonumber(string.match(eventArgs.employee.deskId, "desk%-(%d+)"))
                     if deskIndex then
@@ -1327,7 +1502,7 @@ return {
         description = '+1 Prod per level to all employees for each owned corner desk.',
         special = { type = 'prod_boost_per_corner_desk_owned', value_per_corner = 1, scales_with_level = true },
         listeners = {
-            onFinalizeStats = function(self, gameState, eventArgs)
+            onCalculateStats = function(self, gameState, services, eventArgs)
                 local cornerDeskIds = {"desk-0", "desk-2", "desk-6", "desk-8"}
                 local ownedCorners = 0
                 for _, deskId in ipairs(cornerDeskIds) do
@@ -1372,25 +1547,26 @@ return {
         description = 'Employees in the same row gain +0.2x Focus. All other employees get -0.1x Focus. Effect strength scales per level. Has no effect if remote.',
         special = { type = 'row_based_focus_mod', same_row_bonus = 0.2, other_row_penalty = -0.1, scales_with_level = true },
         listeners = {
-            onFinalizeStats = function(self, gameState, eventArgs)
+            onCalculateStats = function(self, gameState, services, eventArgs)
                 if self.variant == 'remote' or not self.deskId then return end
+                if eventArgs.employee.instanceId == self.instanceId then return end
                 
-                local djRow = math.floor((tonumber(string.match(self.deskId, "desk%-(%d+)")) or 0) / require("data").GRID_WIDTH)
-                local targetRow = nil
+                local djRow = math.floor((tonumber(string.match(self.deskId, "desk%-(%d+)")) or -1) / require("data").GRID_WIDTH)
+                local targetRow = -2
                 
                 if eventArgs.employee.deskId then
-                    targetRow = math.floor((tonumber(string.match(eventArgs.employee.deskId, "desk%-(%d+)")) or 0) / require("data").GRID_WIDTH)
+                    targetRow = math.floor((tonumber(string.match(eventArgs.employee.deskId, "desk%-(%d+)")) or -1) / require("data").GRID_WIDTH)
                 end
                 
-                if targetRow ~= nil and eventArgs.employee.instanceId ~= self.instanceId then
+                if djRow >= 0 and targetRow >= 0 then
                     local modifier = (targetRow == djRow) and self.special.same_row_bonus or self.special.other_row_penalty
                     if self.special.scales_with_level then
                         modifier = modifier * (self.level or 1)
                     end
                     
-                    eventArgs.stats.focus = eventArgs.stats.focus * (1 + modifier)
+                    eventArgs.stats.focus = eventArgs.stats.focus + modifier
                     local description = (targetRow == djRow) and "good music" or "annoying music"
-                    table.insert(eventArgs.stats.log.focus, string.format("%+.1f%% from %s", modifier * 100, description))
+                    table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", modifier > 0 and "+" or "", modifier, description))
                 end
             end
         }
@@ -1400,7 +1576,38 @@ return {
         hiringBonus = 1900, weeklySalary = 420,
         baseProductivity = 8, baseFocus = 1.0,
         description = 'Adjacent employees have their productivity doubled and their focus is halved. Effect strength scales per level.',
-        positionalEffects = { all_adjacent = { productivity_mult = 2.0, focus_mult = 0.5, scales_with_level = true } }
+        positionalEffects = { all_adjacent = { productivity_mult = 2.0, focus_mult = 0.5, scales_with_level = true } },
+        listeners = {
+            onCalculateStats = function(self, gameState, services, eventArgs)
+                if not self.deskId then return end
+                local targetDeskId = eventArgs.employee.deskId
+                if not targetDeskId or targetDeskId == self.deskId then return end
+
+                local Placement = require("placement")
+                local GameData = require("data")
+
+                local directions = {"up", "down", "left", "right"}
+                for _, direction in ipairs(directions) do
+                    if Placement:getNeighboringDeskId(self.deskId, direction, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, gameState.desks) == targetDeskId then
+                        local effect = self.positionalEffects.all_adjacent
+                        local level_mult = (effect.scales_with_level and (self.level or 1) or 1)
+                        local prod_mult = 1 + ((effect.productivity_mult - 1) * level_mult)
+                        local focus_mult = 1 + ((effect.focus_mult - 1) * level_mult)
+
+                        if eventArgs.isPositionalInversionActive then
+                           if prod_mult ~= 0 then prod_mult = 1 / prod_mult end
+                           if focus_mult ~= 0 then focus_mult = 1 / focus_mult end
+                        end
+
+                        eventArgs.stats.productivity = eventArgs.stats.productivity * prod_mult
+                        eventArgs.stats.focus = eventArgs.stats.focus * focus_mult
+                        if prod_mult ~= 1 then table.insert(eventArgs.stats.log.productivity, string.format("*%.2fx from %s", prod_mult, self.name)) end
+                        if focus_mult ~= 1 then table.insert(eventArgs.stats.log.focus, string.format("*%.2fx from %s", focus_mult, self.name)) end
+                        break
+                    end
+                end
+            end
+        }
     },
     {
         id = 'seo_wizard1', name = 'SEO Wizard', icon = 'assets/portraits/prt0058.png', rarity = 'Uncommon',
@@ -1474,7 +1681,7 @@ return {
         description = 'Gains +1 base Productivity per level for every Sprint completed so far in this run. (Bonus begins in Sprint 2).',
         special = { type = 'prod_per_sprint_completed', value = 1, scales_with_level = true },
         listeners = {
-            onFinalizeStats = function(self, gameState, eventArgs)
+            onCalculateStats = function(self, gameState, services, eventArgs)
                 if eventArgs.employee.instanceId == self.instanceId then
                     local sprintBonus = (gameState.currentSprintIndex - 1) * (self.special.value or 1)
                     if self.special.scales_with_level then
@@ -1495,7 +1702,33 @@ return {
         hiringBonus = 1100, weeklySalary = 220,
         baseProductivity = 6, baseFocus = 1.0,
         description = '+1 Productivity per level to all adjacent employees.',
-        positionalEffects = { all_adjacent = { productivity_add = 1, scales_with_level = true } }
+        positionalEffects = { all_adjacent = { productivity_add = 1, scales_with_level = true } },
+        listeners = {
+            onCalculateStats = function(self, gameState, services, eventArgs)
+                if not self.deskId then return end
+                local targetDeskId = eventArgs.employee.deskId
+                if not targetDeskId or targetDeskId == self.deskId then return end
+
+                local Placement = require("placement")
+                local GameData = require("data")
+
+                local directions = {"up", "down", "left", "right"}
+                for _, direction in ipairs(directions) do
+                    if Placement:getNeighboringDeskId(self.deskId, direction, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, gameState.desks) == targetDeskId then
+                        local effect = self.positionalEffects.all_adjacent
+                        local prod_add = (effect.productivity_add or 0) * (effect.scales_with_level and (self.level or 1) or 1)
+
+                        if eventArgs.isPositionalInversionActive then
+                            prod_add = -prod_add
+                        end
+
+                        eventArgs.stats.productivity = eventArgs.stats.productivity + prod_add
+                        if prod_add ~= 0 then table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s", prod_add > 0 and "+" or "", prod_add, self.name)) end
+                        break -- Apply once for all_adjacent
+                    end
+                end
+            end
+        }
     },
     {
         id = 'data_clerk1', name = 'Data Entry Clerk', icon = 'assets/portraits/prt0062.png', rarity = 'Common',
@@ -1538,21 +1771,90 @@ return {
         hiringBonus = 500, weeklySalary = 100,
         baseProductivity = 5, baseFocus = 1.0,
         description = 'Cheap, enthusiastic. Right: +0.5x Focus per level.',
-        positionalEffects = { right = { focus_add = 0.5, scales_with_level = true } } 
+        positionalEffects = { right = { focus_add = 0.5, scales_with_level = true } },
+        listeners = {
+            onCalculateStats = function(self, gameState, services, eventArgs)
+                if not self.deskId then return end
+                local targetDeskId = eventArgs.employee.deskId
+                if not targetDeskId or targetDeskId == self.deskId then return end
+
+                local Placement = require("placement")
+                local GameData = require("data")
+
+                for direction, effect in pairs(self.positionalEffects) do
+                    if Placement:getNeighboringDeskId(self.deskId, direction, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, gameState.desks) == targetDeskId then
+                        local focus_add = (effect.focus_add or 0) * (effect.scales_with_level and (self.level or 1) or 1)
+                        
+                        if eventArgs.isPositionalInversionActive then
+                            focus_add = -focus_add
+                        end
+
+                        eventArgs.stats.focus = eventArgs.stats.focus + focus_add
+                        if focus_add ~= 0 then table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name)) end
+                    end
+                end
+            end
+        }
     },
     {
         id = 'dev1', name = 'Junior Developer', icon = 'assets/portraits/prt0065.png', rarity = 'Common',
         hiringBonus = 1500, weeklySalary = 300,
         baseProductivity = 15, baseFocus = 1.0,
         description = 'Solid coder. Down: +8 Prod per level.',
-        positionalEffects = { down = { productivity_add = 8, scales_with_level = true } }
+        positionalEffects = { down = { productivity_add = 8, scales_with_level = true } },
+        listeners = {
+            onCalculateStats = function(self, gameState, services, eventArgs)
+                if not self.deskId then return end
+                local targetDeskId = eventArgs.employee.deskId
+                if not targetDeskId or targetDeskId == self.deskId then return end
+
+                local Placement = require("placement")
+                local GameData = require("data")
+
+                for direction, effect in pairs(self.positionalEffects) do
+                    if Placement:getNeighboringDeskId(self.deskId, direction, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, gameState.desks) == targetDeskId then
+                        local prod_add = (effect.productivity_add or 0) * (effect.scales_with_level and (self.level or 1) or 1)
+
+                        if eventArgs.isPositionalInversionActive then
+                            prod_add = -prod_add
+                        end
+
+                        eventArgs.stats.productivity = eventArgs.stats.productivity + prod_add
+                        if prod_add ~= 0 then table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s", prod_add > 0 and "+" or "", prod_add, self.name)) end
+                    end
+                end
+            end
+        }
     },
     {
         id = 'designer1', name = 'Graphic Designer', icon = 'assets/portraits/prt0066.png', rarity = 'Common',
         hiringBonus = 1200, weeklySalary = 250,
         baseProductivity = 12, baseFocus = 1.0,
         description = 'Great eye for detail. Sides: +0.6x Focus per level.',
-        positionalEffects = { left = { focus_add = 0.6, scales_with_level = true }, right = { focus_add = 0.6, scales_with_level = true } }
+        positionalEffects = { left = { focus_add = 0.6, scales_with_level = true }, right = { focus_add = 0.6, scales_with_level = true } },
+        listeners = {
+            onCalculateStats = function(self, gameState, services, eventArgs)
+                if not self.deskId then return end
+                local targetDeskId = eventArgs.employee.deskId
+                if not targetDeskId or targetDeskId == self.deskId then return end
+
+                local Placement = require("placement")
+                local GameData = require("data")
+
+                for direction, effect in pairs(self.positionalEffects) do
+                    if Placement:getNeighboringDeskId(self.deskId, direction, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, gameState.desks) == targetDeskId then
+                        local focus_add = (effect.focus_add or 0) * (effect.scales_with_level and (self.level or 1) or 1)
+                        
+                        if eventArgs.isPositionalInversionActive then
+                            focus_add = -focus_add
+                        end
+
+                        eventArgs.stats.focus = eventArgs.stats.focus + focus_add
+                        if focus_add ~= 0 then table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name)) end
+                    end
+                end
+            end
+        }
     },
     {
         id = 'va1', name = 'Office Assistant', icon = 'assets/portraits/prt0067.png', rarity = 'Common',
@@ -1571,7 +1873,30 @@ return {
         hiringBonus = 500, weeklySalary = 100,
         baseProductivity = 3, baseFocus = 1.0,
         description = 'Up: +0.4x F per level, Down: -0.2x F per level.',
-        positionalEffects = { up = { focus_add = 0.4, scales_with_level = true }, down = { focus_add = -0.2, scales_with_level = true } }
+        positionalEffects = { up = { focus_add = 0.4, scales_with_level = true }, down = { focus_add = -0.2, scales_with_level = true } },
+        listeners = {
+            onCalculateStats = function(self, gameState, services, eventArgs)
+                if not self.deskId then return end
+                local targetDeskId = eventArgs.employee.deskId
+                if not targetDeskId or targetDeskId == self.deskId then return end
+
+                local Placement = require("placement")
+                local GameData = require("data")
+
+                for direction, effect in pairs(self.positionalEffects) do
+                    if Placement:getNeighboringDeskId(self.deskId, direction, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, gameState.desks) == targetDeskId then
+                        local focus_add = (effect.focus_add or 0) * (effect.scales_with_level and (self.level or 1) or 1)
+                        
+                        if eventArgs.isPositionalInversionActive then
+                            focus_add = -focus_add
+                        end
+
+                        eventArgs.stats.focus = eventArgs.stats.focus + focus_add
+                        if focus_add ~= 0 then table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name)) end
+                    end
+                end
+            end
+        }
     },
     {
         id = 'the_minimalist', name = 'The Minimalist', icon = 'assets/portraits/prt0070.png', rarity = 'Common',
@@ -1580,12 +1905,12 @@ return {
         description = '+10 Prod per level if no adjacent employees.',
         special = { type = 'prod_if_no_adjacent', prod_bonus = 10, scales_with_level = true },
         listeners = {
-            onFinalizeStats = function(self, gameState, eventArgs)
+            onCalculateStats = function(self, gameState, services, eventArgs)
                 if eventArgs.employee.instanceId == self.instanceId and eventArgs.employee.deskId then
                     local hasAdjacentEmployees = false
                     local directions = {"up", "down", "left", "right"}
                     for _, dir in ipairs(directions) do
-                        local neighborDeskId = require("employee"):getNeighboringDeskId(eventArgs.employee.deskId, dir, require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
+                        local neighborDeskId = require("placement"):getNeighboringDeskId(eventArgs.employee.deskId, dir, require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
                         if neighborDeskId and gameState.deskAssignments[neighborDeskId] then
                             hasAdjacentEmployees = true
                             break
@@ -1611,12 +1936,12 @@ return {
         description = '+0.1x Focus per level for each adjacent employee.',
         special = { type = 'focus_per_adjacent_employee_mult', value_per_emp = 0.1, scales_with_level = true },
         listeners = {
-            onFinalizeStats = function(self, gameState, eventArgs)
+            onCalculateStats = function(self, gameState, services, eventArgs)
                 if eventArgs.employee.instanceId == self.instanceId and eventArgs.employee.deskId then
                     local adjacentCount = 0
                     local directions = {"up", "down", "left", "right"}
                     for _, dir in ipairs(directions) do
-                        local neighborDeskId = require("employee"):getNeighboringDeskId(eventArgs.employee.deskId, dir, require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
+                        local neighborDeskId = require("placement"):getNeighboringDeskId(eventArgs.employee.deskId, dir, require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
                         if neighborDeskId and gameState.deskAssignments[neighborDeskId] then
                             adjacentCount = adjacentCount + 1
                         end
@@ -1628,8 +1953,8 @@ return {
                             bonusPerEmp = bonusPerEmp * (self.level or 1)
                         end
                         local totalBonus = adjacentCount * bonusPerEmp
-                        eventArgs.stats.focus = eventArgs.stats.focus * (1 + totalBonus)
-                        table.insert(eventArgs.stats.log.focus, string.format("+%.1f%% per adjacent teammate", totalBonus * 100))
+                        eventArgs.stats.focus = eventArgs.stats.focus + totalBonus
+                        table.insert(eventArgs.stats.log.focus, string.format("+%.2fx from %d teammates", totalBonus, adjacentCount))
                     end
                 end
             end
@@ -1640,7 +1965,30 @@ return {
         hiringBonus = 1300, weeklySalary = 280,
         baseProductivity = 2, baseFocus = 1.0,
         description = '+0.5x Focus per level to employees left & right.',
-        positionalEffects = { left = { focus_add = 0.5, scales_with_level = true }, right = { focus_add = 0.5, scales_with_level = true } }
+        positionalEffects = { left = { focus_add = 0.5, scales_with_level = true }, right = { focus_add = 0.5, scales_with_level = true } },
+        listeners = {
+            onCalculateStats = function(self, gameState, services, eventArgs)
+                if not self.deskId then return end
+                local targetDeskId = eventArgs.employee.deskId
+                if not targetDeskId or targetDeskId == self.deskId then return end
+
+                local Placement = require("placement")
+                local GameData = require("data")
+
+                for direction, effect in pairs(self.positionalEffects) do
+                    if Placement:getNeighboringDeskId(self.deskId, direction, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, gameState.desks) == targetDeskId then
+                        local focus_add = (effect.focus_add or 0) * (effect.scales_with_level and (self.level or 1) or 1)
+                        
+                        if eventArgs.isPositionalInversionActive then
+                            focus_add = -focus_add
+                        end
+
+                        eventArgs.stats.focus = eventArgs.stats.focus + focus_add
+                        if focus_add ~= 0 then table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name)) end
+                    end
+                end
+            end
+        }
     },
     {
         id = 'the_intern_classic', name = 'The Intern (Classic)', icon = 'assets/portraits/prt0073.png', rarity = 'Common',
@@ -1661,7 +2009,7 @@ return {
         description = 'Gains +0.1x Focus for each unique type of employee on the floor (including themselves).',
         special = { type = 'focus_per_unique_employee_type', value_per_type = 0.1 },
         listeners = {
-            onFinalizeStats = function(self, gameState, eventArgs)
+            onCalculateStats = function(self, gameState, services, eventArgs)
                 if eventArgs.employee.instanceId == self.instanceId then
                     local uniqueTypes = {}
                     for _, emp in ipairs(gameState.hiredEmployees) do
@@ -1676,8 +2024,8 @@ return {
                     end
                     
                     local bonus = typeCount * self.special.value_per_type
-                    eventArgs.stats.focus = eventArgs.stats.focus * (1 + bonus)
-                    table.insert(eventArgs.stats.log.focus, string.format("+%.1f%% from %d unique types", bonus * 100, typeCount))
+                    eventArgs.stats.focus = eventArgs.stats.focus + bonus
+                    table.insert(eventArgs.stats.log.focus, string.format("+%.2fx from %d unique types", bonus, typeCount))
                 end
             end
         }
@@ -1690,11 +2038,37 @@ return {
         special = { type = 'self_focus_reduction', value = 0.1 },
         positionalEffects = { all_adjacent = { focus_add = 0.2, scales_with_level = true } },
         listeners = {
-            onFinalizeStats = function(self, gameState, eventArgs)
+            onCalculateStats = function(self, gameState, services, eventArgs)
+                -- Handle self-reduction
                 if eventArgs.employee.instanceId == self.instanceId then
                     local reduction = self.special.value or 0.1
                     eventArgs.stats.focus = eventArgs.stats.focus * (1 - reduction)
-                    table.insert(eventArgs.stats.log.focus, string.format("-%.1f%% from self-doubt", reduction * 100))
+                    table.insert(eventArgs.stats.log.focus, string.format("-%.0f%% from self-doubt", reduction * 100))
+                    return -- Stop here for self-calculation
+                end
+
+                -- Handle positional bonus for others
+                if not self.deskId then return end
+                local targetDeskId = eventArgs.employee.deskId
+                if not targetDeskId or targetDeskId == self.deskId then return end
+
+                local Placement = require("placement")
+                local GameData = require("data")
+
+                local directions = {"up", "down", "left", "right"}
+                for _, direction in ipairs(directions) do
+                    if Placement:getNeighboringDeskId(self.deskId, direction, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, gameState.desks) == targetDeskId then
+                        local effect = self.positionalEffects.all_adjacent
+                        local focus_add = (effect.focus_add or 0) * (effect.scales_with_level and (self.level or 1) or 1)
+                        
+                        if eventArgs.isPositionalInversionActive then
+                            focus_add = -focus_add
+                        end
+
+                        eventArgs.stats.focus = eventArgs.stats.focus + focus_add
+                        if focus_add ~= 0 then table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name)) end
+                        break -- Apply once for all_adjacent
+                    end
                 end
             end
         }
@@ -1752,15 +2126,15 @@ return {
         description = 'Gains +5 Productivity per level if placed directly between two other employees (horizontally or vertically).',
         special = { type = 'between_bonus', prod_bonus = 5, scales_with_level = true },
         listeners = {
-            onFinalizeStats = function(self, gameState, eventArgs)
+            onCalculateStats = function(self, gameState, services, eventArgs)
                 if eventArgs.employee.instanceId == self.instanceId and eventArgs.employee.deskId then
                     local isBetweenHorizontally = false
                     local isBetweenVertically = false
                     
-                    local leftId = require("employee"):getNeighboringDeskId(eventArgs.employee.deskId, "left", require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
-                    local rightId = require("employee"):getNeighboringDeskId(eventArgs.employee.deskId, "right", require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
-                    local upId = require("employee"):getNeighboringDeskId(eventArgs.employee.deskId, "up", require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
-                    local downId = require("employee"):getNeighboringDeskId(eventArgs.employee.deskId, "down", require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
+                    local leftId = require("placement"):getNeighboringDeskId(eventArgs.employee.deskId, "left", require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
+                    local rightId = require("placement"):getNeighboringDeskId(eventArgs.employee.deskId, "right", require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
+                    local upId = require("placement"):getNeighboringDeskId(eventArgs.employee.deskId, "up", require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
+                    local downId = require("placement"):getNeighboringDeskId(eventArgs.employee.deskId, "down", require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
                     
                     if leftId and rightId and gameState.deskAssignments[leftId] and gameState.deskAssignments[rightId] then
                         isBetweenHorizontally = true

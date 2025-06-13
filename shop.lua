@@ -311,7 +311,9 @@ function Shop:_generateRandomUpgradeOffer(purchasedPermanentUpgrades)
             for _, purchasedId in ipairs(purchasedPermanentUpgrades) do
                 if upgData.id == purchasedId then
                     local nonUniqueTypes = { ['budget_add_flat'] = true, ['one_time_team_focus_boost_multiplier'] = true, ['one_time_workload_reduction_percent'] = true, ['temporary_focus_boost_all'] = true, ['code_debt'] = true }
-                    if not nonUniqueTypes[upgData.effect.type] then
+                    
+                    -- If the upgrade has no effect OR its effect type is not in the non-unique list, treat it as unique.
+                    if not (upgData.effect and nonUniqueTypes[upgData.effect.type]) then
                         isAlreadyPermanentAndUnique = true 
                     end
                     break

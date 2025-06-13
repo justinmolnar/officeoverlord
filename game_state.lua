@@ -33,7 +33,7 @@ function GameState:new()
             decorations = {}, -- NEW: Table of decoration data for current shop offers
             restockCountThisWeek = 0
         },
-        purchasedPermanentUpgrades = {}, -- Table to store IDs of purchased permanent upgrades
+        purchasedPermanentUpgrades = { 'base_game_effects' }, -- Add the base effects upgrade
 
         -- Transient State for Current Operations
         currentWeekWorkload = 0, -- Stores the workload for the active challenge
