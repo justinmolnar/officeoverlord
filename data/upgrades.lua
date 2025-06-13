@@ -1,4 +1,35 @@
 return {
+
+    {
+        id = 'base_game_effects', name = 'Base Game Effects', rarity = 'Common', cost = 0, isNotPurchasable = true,
+        description = 'A container for baseline game mechanics that are handled by the event system.',
+        listeners = {
+            onCalculateStats = function(self, gameState, services, eventArgs)
+                local globalBonusProductivity = 0
+                local globalBonusFocusAdd = 0
+                local log = eventArgs.stats.log
+
+                -- Apply Foil and Holo bonuses
+                if gameState.hiredEmployees then
+                    for _, emp in ipairs(gameState.hiredEmployees) do
+                        if emp.variant == 'foil' then 
+                            globalBonusProductivity = globalBonusProductivity + 5
+                            table.insert(log.productivity, "+5 from a Foil employee") 
+                        end
+                        if emp.variant == 'holo' then 
+                            globalBonusFocusAdd = globalBonusFocusAdd + 0.5
+                            table.insert(log.focus, "+0.5x from a Holo employee") 
+                        end
+                    end
+                end
+
+                eventArgs.stats.productivity = eventArgs.stats.productivity + globalBonusProductivity
+                eventArgs.stats.focus = eventArgs.stats.focus + globalBonusFocusAdd
+            end
+        }
+    },
+
+
     -- COMMON UPGRADES --
     { 
         id = 'scrum_board', name = 'The "Scrum" Board', rarity = 'Common', cost = 500, icon = '📌',
@@ -10,7 +41,7 @@ return {
         description = 'All salaries are 50% lower, but employees have a 25% chance of leaving after each Sprint.',
         effect = { type = 'gig_economy' },
         listeners = {
-            onSprintStart = function(self, gameState)
+            onSprintStart = function(self, gameState, eventArgs)
                 local contractorsLeft = {}
                 for i = #gameState.hiredEmployees, 1, -1 do
                     if love.math.random() < 0.25 then
@@ -22,7 +53,10 @@ return {
                     end
                 end
                 if #contractorsLeft > 0 then
-                    _G.showMessage("Contracts Ended", "The following contractors have left the company:\n" .. table.concat(contractorsLeft, ", "))
+                    services.modal:show(
+                        "Contracts Ended",
+                        "The following contractors have left the company:\n" .. table.concat(contractorsLeft, ", ")
+                    )
                 end
             end
         }
@@ -32,16 +66,16 @@ return {
         description = 'All employees gain +1.0x Focus, but have a 5% chance each turn to "break the build," contributing 0 and costing $100.',
         effect = { type = 'move_fast_break_things' },
         listeners = {
+            onApplyUpgradeModifiers = function(self, gameState, eventArgs)
+                eventArgs.focus = eventArgs.focus + 1.0
+                table.insert(eventArgs.log.focus, "+1.0x from Move Fast Memo")
+            end,
             onBeforeContribution = function(self, gameState, eventArgs)
                 if love.math.random() < 0.05 then
                     print(eventArgs.employee.fullName .. " broke the build! Costing $100.")
                     gameState.budget = gameState.budget - 100
                     eventArgs.overrideContribution = { productivity = 0, focus = 0, totalContribution = 0 }
                 end
-            end,
-            onFinalizeStats = function(self, gameState, eventArgs)
-                eventArgs.stats.focus = eventArgs.stats.focus + 1.0
-                table.insert(eventArgs.stats.log.focus, "+1.0x from Move Fast Memo")
             end
         }
     },
@@ -71,6 +105,12 @@ return {
                     gameState.temporaryEffectFlags.automatedEmployeeId = lowestProdEmp.instanceId
                     print("Automation v1 targeting: " .. lowestProdEmp.fullName)
                 end
+            end,
+            onBeforeContribution = function(self, gameState, eventArgs)
+                if eventArgs.employee.isAutomated then
+                    eventArgs.contributionMultiplier = eventArgs.contributionMultiplier * 2
+                    print("Automation Script doubled " .. eventArgs.employee.fullName .. "'s contribution!")
+                end
             end
         }
     },
@@ -84,41 +124,70 @@ return {
             end
         }
     },
+    {
+        id = 'motivational_speaker', name = 'Motivational Speaker', rarity = 'Common', cost = 1000, icon = '📢',
+        description = 'Once per sprint, pay $1000 to give all employees +100% Focus for the next work item.',
+        effect = { type = 'motivational_speaker' },
+        listeners = {
+            onActivate = function(self, gameState, eventArgs)
+                if gameState.gamePhase == 'hiring_and_upgrades' and not gameState.temporaryEffectFlags.motivationalSpeakerUsedThisSprint and gameState.budget >= 1000 then
+                    gameState.budget = gameState.budget - 1000
+                    gameState.temporaryEffectFlags.motivationalBoostNextItem = true
+                    gameState.temporaryEffectFlags.motivationalSpeakerUsedThisSprint = true
+                    services.modal:show(
+                        "Motivation Delivered!",
+                        "All employees will have doubled Focus for the next work item!"
+                    )
+                    return true
+                end
+                return false
+            end,
+            onWorkItemStart = function(self, gameState, eventArgs)
+                if gameState.temporaryEffectFlags.motivationalBoostNextItem then
+                    gameState.temporaryEffectFlags.globalFocusMultiplier = 2.0
+                    gameState.temporaryEffectFlags.motivationalBoostNextItem = nil
+                end
+            end
+        }
+        },
     { 
         id = 'headhunter', name = 'Corporate Headhunter', rarity = 'Common', cost = 500, icon = '🕵️',
         description = 'The shop is now guaranteed to have at least one \'Rare\' or \'Legendary\' employee. Restock cost is doubled.',
         effect = { type = 'corporate_headhunter' },
         listeners = {
             onPopulateShop = function(self, gameState, eventArgs)
-                local hasRareOrLegendary = false
-                for _, offer in ipairs(eventArgs.offers) do
-                    if offer and (offer.rarity == 'Rare' or offer.rarity == 'Legendary') then
-                        hasRareOrLegendary = true
-                        break
-                    end
-                end
-
-                if not hasRareOrLegendary then
-                    local potentialSlotsToReplace = {}
-                    for i, offer in ipairs(eventArgs.offers) do
-                        if offer and not offer.isLocked and not offer.sold then
-                            table.insert(potentialSlotsToReplace, i)
-                        end
-                    end
-
-                    if #potentialSlotsToReplace > 0 then
-                        local slotToReplace = potentialSlotsToReplace[love.math.random(#potentialSlotsToReplace)]
-                        print("Headhunter forcing a Rare/Legendary into shop slot " .. slotToReplace)
-                        eventArgs.offers[slotToReplace] = _G.Shop:_generateRandomEmployeeOfMinRarity('Rare')
-                    end
-                end
+                eventArgs.guaranteeRareOrLegendary = true
+            end,
+            onCalculateRestockCost = function(self, gameState, eventArgs)
+                eventArgs.finalCost = eventArgs.finalCost * 2
             end
         }
     },
     { 
         id = 'first_mover', name = 'First-Mover Advantage', rarity = 'Common', cost = 800, icon = '🥇',
         description = 'The first employee to act in every work cycle has their Productivity and Focus doubled.',
-        effect = { type = 'first_mover' }
+        effect = { type = 'first_mover' },
+        listeners = {
+            onWorkOrderDetermined = function(self, gameState, eventArgs)
+                if #eventArgs.activeEmployees > 0 then
+                    eventArgs.activeEmployees[1].isFirstMover = true
+                    print("First Mover Advantage: " .. eventArgs.activeEmployees[1].fullName .. " will get double stats this round!")
+                end
+            end,
+            onBeforeContribution = function(self, gameState, eventArgs)
+                if eventArgs.employee.isFirstMover then
+                    eventArgs.productivityMultiplier = eventArgs.productivityMultiplier * 2
+                    eventArgs.focusMultiplier = eventArgs.focusMultiplier * 2
+                    eventArgs.employee.isFirstMover = nil
+                    print("First Mover Advantage doubled " .. eventArgs.employee.fullName .. "'s stats!")
+                end
+            end
+        }
+    },
+    { 
+        id = 'watering_can', name = 'Watering Can', rarity = 'Common', cost = 400, icon = '🪣',
+        description = 'Doubles the effectiveness of the Office Plant.',
+        effect = { type = 'special_plant_boost' }
     },
     {
         id = 'ballpoint_pens', name = 'Bulk-Order Ballpoint Pens', rarity = 'Common', cost = 300, icon = '✒️',
@@ -135,6 +204,42 @@ return {
 
 
     -- UNCOMMON UPGRADES --
+    { 
+        id = 'advanced_crm', name = 'Advanced CRM System', rarity = 'Uncommon', cost = 1400, icon = '📊',
+        description = 'Marketing employees gain an additional $250 per win.',
+        effect = { type = 'advanced_crm', budget_per_win_bonus = 250 }
+    },
+    { 
+        id = 'team_building_event', name = 'Team Building Event', rarity = 'Uncommon', cost = 800, icon = '🏕️',
+        description = 'Once per sprint, boosts team focus for the next work item.',
+        effect = { type = 'one_time_team_focus_boost_multiplier', value = 1.3 },
+        listeners = {
+            onActivate = function(self, gameState, eventArgs)
+                if gameState.gamePhase == 'hiring_and_upgrades' and not gameState.temporaryEffectFlags.teamBuildingUsedThisSprint then
+                    gameState.temporaryEffectFlags.teamBuildingFocusBoostNextWeek = true
+                    gameState.temporaryEffectFlags.teamBuildingUsedThisSprint = true
+                    services.modal:show(
+                        "Team Building Success!",
+                        "All employees will have boosted focus for the next work item!"
+                    )
+                    return true
+                end
+                return false
+            end,
+            onWorkItemStart = function(self, gameState, eventArgs)
+                if gameState.temporaryEffectFlags.teamBuildingFocusBoostNextWeek then
+                    gameState.temporaryEffectFlags.teamBuildingActiveThisWeek = true
+                    gameState.temporaryEffectFlags.teamBuildingFocusBoostNextWeek = nil
+                    print("Team Spirit High! Focus boosted this week.")
+                end
+            end,
+            onApplyGlobalFocusModifiers = function(self, gameState, eventArgs)
+                if gameState.temporaryEffectFlags.teamBuildingActiveThisWeek then
+                    eventArgs.focusMultiplier = eventArgs.focusMultiplier * self.effect.value
+                end
+            end
+        }
+    },
     { 
         id = 'stock_options', name = 'Stock Options', rarity = 'Uncommon', cost = 1400, icon = '💹',
         description = 'When budget is below $10,000, employees have a 10% chance to gain double productivity for a turn, motivated by their stock options.',
@@ -164,7 +269,26 @@ return {
     { 
         id = 'assembly_line', name = 'The Assembly Line', rarity = 'Uncommon', cost = 900, icon = '→',
         description = 'Employees work in a fixed top-to-bottom order. Each employee gains +0.1x Focus for each employee that acted before them.',
-        effect = { type = 'assembly_line' }
+        effect = { type = 'assembly_line' },
+        listeners = {
+            onWorkOrderDetermined = function(self, gameState, eventArgs)
+                table.sort(eventArgs.activeEmployees, function(a, b)
+                    local aIndex = tonumber(string.match(a.deskId or "desk-999", "desk%-(%d+)")) or 999
+                    local bIndex = tonumber(string.match(b.deskId or "desk-999", "desk%-(%d+)")) or 999
+                    return aIndex < bIndex
+                end)
+                
+                for i, emp in ipairs(eventArgs.activeEmployees) do
+                    emp.assemblyLinePosition = i
+                end
+            end,
+            onBeforeContribution = function(self, gameState, eventArgs)
+                if eventArgs.employee.assemblyLinePosition then
+                    local focusBonus = (eventArgs.employee.assemblyLinePosition - 1) * 0.1
+                    eventArgs.focusMultiplier = eventArgs.focusMultiplier * (1 + focusBonus)
+                end
+            end
+        }
     },
     { 
         id = 'code_debt', name = 'Code Debt', rarity = 'Uncommon', cost = 100, icon = '💻',
@@ -198,19 +322,60 @@ return {
                     gameState.temporaryEffectFlags.specialistId = specialist.instanceId
                     print("Specialist for this round: " .. specialist.name)
                 end
+            end,
+            onCalculateStats = function(self, gameState, services, eventArgs)
+                local specialistId = gameState.temporaryEffectFlags.specialistId
+                if not specialistId then return end
+
+                local isSpecialist = specialistId == eventArgs.employee.instanceId
+                local multiplier = isSpecialist and 2 or 0.5
+                
+                eventArgs.stats.productivity = math.floor(eventArgs.stats.productivity * multiplier)
+                eventArgs.stats.focus = eventArgs.stats.focus * multiplier
+
+                local logText = string.format("%s from Specialist's Niche", isSpecialist and "*2" or "/2")
+                table.insert(eventArgs.stats.log.productivity, logText)
+                table.insert(eventArgs.stats.log.focus, logText)
+            end
+        }
+    },
+    { 
+        id = 'consultant_visit', name = 'Consultant Visit', rarity = 'Uncommon', cost = 1200, icon = '👔',
+        description = 'Once per work item, reduces workload by 15% at the start.',
+        effect = { type = 'one_time_workload_reduction_percent', value = 0.15 },
+        listeners = {
+            onWorkItemStart = function(self, gameState, eventArgs)
+                if gameState.temporaryEffectFlags.consultantVisitUsedThisWeek ~= true then
+                    local reduction = math.floor(gameState.currentWeekWorkload * self.effect.value)
+                    gameState.currentWeekWorkload = gameState.currentWeekWorkload - reduction
+                    gameState.temporaryEffectFlags.consultantVisitUsedThisWeek = true
+                    print("Consultant Visit! Workload reduced by " .. reduction)
+                end
             end
         }
     },
     { 
         id = 'positional_inverter', name = 'Positional Inverter', rarity = 'Uncommon', cost = 1000, icon = '🔄',
         description = 'All positive positional effects are now negative, and all negative effects are now positive.',
-        effect = { type = 'positional_inverter' }
+        effect = { type = 'positional_inverter' },
+        listeners = {
+            onCalculateStats = function(self, gameState, services, eventArgs)
+                eventArgs.isPositionalInversionActive = true
+            end
+        }
     },
     { 
         id = 'focus_funnel', name = 'Focus Funnel', rarity = 'Uncommon', cost = 1300, icon = '✨',
         description = 'All Focus bonuses from all sources are collected and granted to a single random employee each work item.',
         effect = { type = 'focus_funnel' },
         listeners = {
+            onBattleStart = function(self, gameState, services, eventArgs)
+                if #eventArgs.activeEmployees > 0 then
+                    local target = eventArgs.activeEmployees[love.math.random(#eventArgs.activeEmployees)]
+                    gameState.temporaryEffectFlags.focusFunnelTargetId = target.instanceId
+                    print(target.name .. " is the Focus Funnel target for this item.")
+                end
+            end,
             onWorkItemStart = function(self, gameState, eventArgs)
                 local totalBonus = 1.0
                 for _, sourceEmp in ipairs(gameState.hiredEmployees) do
@@ -230,18 +395,64 @@ return {
                 end
                 gameState.temporaryEffectFlags.focusFunnelTotalBonus = totalBonus
                 print("Focus Funnel collected a total bonus multiplier of: " .. totalBonus)
+            end,
+            onCalculateStats = function(self, gameState, services, eventArgs)
+                -- Signal that normal positional calculations should be skipped.
+                eventArgs.isPositionalCalculationOverridden = true
+
+                if eventArgs.employee.instanceId == gameState.temporaryEffectFlags.focusFunnelTargetId then
+                    local totalBonus = gameState.temporaryEffectFlags.focusFunnelTotalBonus or 1.0
+                    eventArgs.stats.focus = eventArgs.stats.focus * totalBonus
+                    table.insert(eventArgs.stats.log.focus, string.format("*%.2fx from Focus Funnel", totalBonus))
+                end
             end
         }
     },
     { 
         id = 'payroll_glitch', name = 'Glitch in the Payroll', rarity = 'Uncommon', cost = 700, icon = '💸',
         description = 'Employee salaries are now randomized each pay cycle, ranging from $1 to double their normal amount.',
-        effect = { type = 'payroll_glitch' }
+        effect = { type = 'payroll_glitch' },
+        listeners = {
+            onCalculateSalaries = function(self, gameState, eventArgs)
+                local originalCalculation = eventArgs.cumulativePercentReduction
+                eventArgs.cumulativePercentReduction = function(emp)
+                    local randomMultiplier = love.math.random() * 2
+                    return math.max(1, math.floor(emp.weeklySalary * randomMultiplier))
+                end
+            end
+        }
     },
     { 
         id = 'synergy_generator', name = '"Synergy" Buzzword Generator', rarity = 'Uncommon', cost = 1100, icon = '⚡',
         description = 'Every unique type of positional bonus active on the board grants a stacking +0.1x Focus to ALL employees.',
-        effect = { type = 'synergy_generator' }
+        effect = { type = 'synergy_generator' },
+        listeners = {
+            onFinalizeStats = function(self, gameState, eventArgs)
+                local uniqueBonusTypes = {}
+                for _, emp in ipairs(gameState.hiredEmployees) do
+                    if emp.deskId and emp.positionalEffects then
+                        for direction, effect in pairs(emp.positionalEffects) do
+                            for effectType, _ in pairs(effect) do
+                                if effectType == 'productivity_add' or effectType == 'focus_add' or effectType == 'focus_mult' then
+                                    uniqueBonusTypes[effectType] = true
+                                end
+                            end
+                        end
+                    end
+                end
+                
+                local bonusCount = 0
+                for _ in pairs(uniqueBonusTypes) do
+                    bonusCount = bonusCount + 1
+                end
+                
+                if bonusCount > 0 then
+                    local synergyBonus = bonusCount * 0.1
+                    eventArgs.stats.focus = eventArgs.stats.focus * (1 + synergyBonus)
+                    table.insert(eventArgs.stats.log.focus, string.format("+%.1f%% from synergy (%d types)", synergyBonus * 100, bonusCount))
+                end
+            end
+        }
     },
     {
         id = 'four_day_week', name = 'Four-Day Work Week', rarity = 'Uncommon', cost = 2000, icon = '🗓️',
@@ -259,10 +470,18 @@ return {
             end
         }
     },
-    {
+    { 
         id = 'delorean_espresso', name = 'Espresso Machine (DeLorean-Powered)', rarity = 'Uncommon', cost = 1800, icon = '🚀',
         description = 'The first employee to act each round gets two turns.',
-        effect = { type = 'delorean_espresso' }
+        effect = { type = 'delorean_espresso' },
+        listeners = {
+            onWorkOrderDetermined = function(self, gameState, eventArgs)
+                if #eventArgs.activeEmployees > 0 then
+                    local firstEmployee = eventArgs.activeEmployees[1]
+                    table.insert(eventArgs.activeEmployees, 2, firstEmployee)
+                end
+            end
+        }
     },
     {
         id = 'subsidized_housing', name = 'Subsidized Housing', rarity = 'Uncommon', cost = 1500, icon = '🏠',
@@ -277,6 +496,21 @@ return {
 
 
     -- RARE UPGRADES --
+    { 
+        id = 'legal_retainer', name = 'Legal Retainer', rarity = 'Rare', cost = 2200, icon = '⚖️',
+        description = '25% chance bailouts are free due to legal loopholes.',
+        effect = { type = 'chance_avoid_bailout_cost', chance = 0.25 }
+    },  
+    { 
+        id = 'office_plant', name = 'Office Plant', rarity = 'Rare', cost = 800, icon = '🌱',
+        description = 'A plant in the office boosts Focus by +0.5x for all employees.',
+        effect = { type = 'special_office_plant' },
+        listeners = {
+            onApplyGlobalFocusModifiers = function(self, gameState, eventArgs)
+                eventArgs.focusMultiplier = eventArgs.focusMultiplier * 1.5
+            end
+        }
+    },
     { 
         id = 'automation_scripts', name = 'Automation Scripts', rarity = 'Rare', cost = 2000, icon = '📜🤖',
         description = 'On the first work cycle of any item, all employees have their total contribution multiplied by 1.5x.',
@@ -338,13 +572,28 @@ return {
             end
         }
     },
-    { 
+    {
         id = 'nepotism_hire', name = 'Nepotism Hire', rarity = 'Rare', cost = 1000, icon = '🤦',
         description = 'The next \'Rare\' or \'Legendary\' employee to appear in the shop costs $0, but their salary is tripled.',
         effect = { type = 'nepotism_hire' },
         listeners = {
             onPurchase = function(self, gameState)
                 gameState.temporaryEffectFlags.nepotismHireActive = true
+            end,
+            onPopulateShop = function(self, gameState, eventArgs)
+                if gameState.temporaryEffectFlags.nepotismHireActive then
+                    for _, offer in ipairs(eventArgs.offers) do
+                        if offer.rarity == 'Rare' or offer.rarity == 'Legendary' then
+                            offer.hiringBonus = 0
+                            offer.weeklySalary = offer.weeklySalary * 3
+                            offer.isNepotismBaby = true
+                            offer.displayCost = 0
+                            gameState.temporaryEffectFlags.nepotismHireActive = false
+                            print("NEPOTISM! " .. offer.fullName .. " is the Nepo hire.")
+                            break
+                        end
+                    end
+                end
             end
         }
     },
@@ -365,8 +614,8 @@ return {
                     end
                 end
 
-                -- This line is corrected to load the constants file directly.
-                if dogWalkerIsPresent or love.math.random() < require("data.constants").OFFICE_DOG_CHANCE then
+                local dogChance = require("data").OFFICE_DOG_CHANCE
+                if dogWalkerIsPresent or love.math.random() < dogChance then
                     gameState.temporaryEffectFlags.officeDogActiveThisTurn = true
                     gameState.temporaryEffectFlags.officeDogTarget = currentEmployee.instanceId
                     print("Office Dog is motivating " .. currentEmployee.fullName)
@@ -415,10 +664,13 @@ return {
         description = 'Once per sprint, you can swap a remote worker with an office worker.',
         effect = { type = 'the_reorg' },
         listeners = {
-            onActivate = function(self, gameState)
+            onActivate = function(self, gameState, eventArgs)
                 if gameState.gamePhase == 'hiring_and_upgrades' and not gameState.temporaryEffectFlags.reOrgUsedThisSprint then
                     gameState.temporaryEffectFlags.reOrgSwapModeActive = true
-                    _G.showMessage("Re-Org Started", "Select a remote worker and an office worker to swap their positions.")
+                    services.modal:show(
+                        "Re-Org Started",
+                        "Select a remote worker and an office worker to swap their positions."
+                    )
                     return true -- Indicate success
                 end
                 return false -- Indicate failure or non-activation
@@ -435,13 +687,51 @@ return {
         description = 'Once per Sprint, copy a non-Legendary employee. An identical, temporary clone appears for the next work item.',
         effect = { type = 'sentient_photocopier' },
         listeners = {
-            onActivate = function(self, gameState)
+            onActivate = function(self, gameState, eventArgs)
                 if gameState.gamePhase == 'hiring_and_upgrades' and not gameState.temporaryEffectFlags.photocopierUsedThisSprint then
                     gameState.temporaryEffectFlags.photocopierCopyModeActive = true
-                    _G.showMessage("Photocopier Warmed Up", "Select a non-Legendary office worker to duplicate for the next work item.")
+                    services.modal:show(
+                        "Photocopier Warmed Up",
+                        "Select a non-Legendary office worker to duplicate for the next work item."
+                    )
                     return true
                 end
                 return false
+            end,
+            onWorkItemStart = function(self, gameState, eventArgs)
+                if gameState.temporaryEffectFlags.photocopierTargetForNextItem then
+                    local target = require("employee"):getFromState(gameState, gameState.temporaryEffectFlags.photocopierTargetForNextItem)
+                    local emptyDeskId = nil
+                    for _, desk in ipairs(gameState.desks) do
+                        if desk.status == 'owned' and not gameState.deskAssignments[desk.id] then
+                            emptyDeskId = desk.id
+                            break
+                        end
+                    end
+
+                    if target and emptyDeskId then
+                        local Employee = require("employee")
+                        local Placement = require("placement")
+                        local clone = Employee:new(target.id, target.variant, "Clone of " .. target.fullName)
+                        clone.isTemporaryClone = true
+                        clone.weeklySalary = 0
+                        clone.level = target.level
+                        clone.baseProductivity = target.baseProductivity
+                        clone.baseFocus = target.baseFocus
+                        table.insert(gameState.hiredEmployees, clone)
+                        Placement:handleEmployeeDropOnDesk(gameState, clone, emptyDeskId, nil)
+                        services.modal:show(
+                            "Photocopied!",
+                            "A temporary clone of " .. target.name .. " has appeared for this work item!"
+                        )
+                    else
+                        services.modal:show(
+                            "Photocopy Failed",
+                            "Could not create a clone. Ensure there is an empty desk available."
+                        )
+                    end
+                    gameState.temporaryEffectFlags.photocopierTargetForNextItem = nil
+                end
             end
         }
     },
@@ -464,7 +754,35 @@ return {
         effect = { type = 'borg_hivemind' },
         listeners = {
             onPurchase = function(self, gameState)
-                _G.assimilateTeamIntoBorg(gameState)
+                if #gameState.hiredEmployees == 0 then
+                        services.modal:show(
+                            "Assimilation Failed",
+                            "There is no one to assimilate."
+                        )                    
+                    return
+                end
+
+                local totalProd, totalFocus = 0, 0
+                for _, emp in ipairs(gameState.hiredEmployees) do
+                    totalProd = totalProd + emp.baseProductivity
+                    totalFocus = totalFocus + emp.baseFocus
+                end
+
+                gameState.hiredEmployees = {}
+                gameState.deskAssignments = {}
+
+                local Employee = require("employee")
+                local borgDrone = Employee:new('borg_drone', 'standard', "Borg Drone")
+                borgDrone.baseProductivity = totalProd
+                borgDrone.baseFocus = totalFocus
+                
+                table.insert(gameState.hiredEmployees, borgDrone)
+                require("placement"):handleEmployeeDropOnDesk(gameState, borgDrone, "desk-4", nil)
+
+                services.modal:show(
+                    "Resistance is Futile",
+                    "Your team has been assimilated into a single Borg Drone. You are now the Hivemind."
+                )
             end
         }
     },
@@ -473,12 +791,11 @@ return {
         description = 'At the start of each Sprint, fires the employee with the lowest contribution and replaces them with a new random one of the same rarity for free.',
         effect = { type = 'sentient_hr' },
         listeners = {
-            onSprintStart = function(self, gameState)
+            onSprintStart = function(self, gameState, eventArgs)
                 if #gameState.hiredEmployees > 0 then
                     local lowestContributor = nil
                     for _, emp in ipairs(gameState.hiredEmployees) do
-                        -- contributionThisItem holds the value from the last completed item of the previous sprint
-                        if not lowestContributor or (emp.contributionThisItem or 0) < (lowestContributor.contributionThisItem or 0) then
+                        if not lowestContributor or (emp.contributionThisSprint or 0) < (lowestContributor.contributionThisSprint or 0) then
                             lowestContributor = emp
                         end
                     end
@@ -494,11 +811,14 @@ return {
                             end
                         end
                         
-                        local newHireOffer = _G.Shop:_generateRandomEmployeeOfRarity(firedRarity)
-                        local newHire = Employee:new(newHireOffer.id, newHireOffer.variant, newHireOffer.fullName)
+                        local newHireOffer = require("shop"):_generateRandomEmployeeOfRarity(gameState, firedRarity)
+                        local newHire = require("employee"):new(newHireOffer.id, newHireOffer.variant, newHireOffer.fullName)
                         table.insert(gameState.hiredEmployees, newHire)
                         
-                        _G.showMessage("Performance Review", "Sentient Resources has optimized the team.\n" .. firedName .. " was let go. Please welcome " .. newHire.fullName .. ", the " .. newHire.name .. "!")
+                        services.modal:show(
+                            "Performance Review",
+                            "Sentient Resources has optimized the team.\n" .. firedName .. " was let go. Please welcome " .. newHire.fullName .. ", the " .. newHire.name .. "!"
+                        )
                     end
                 end
             end
@@ -507,7 +827,34 @@ return {
     { 
         id = 'fourth_wall', name = 'The 4th Wall', rarity = 'Legendary', cost = 6000, icon = '📺',
         description = 'The UI becomes a tool. Once per Sprint, you can physically drag the Workload bar down by 25%.',
-        effect = { type = 'fourth_wall' }
+        effect = { type = 'fourth_wall' },
+        listeners = {
+            onWorkloadBarClick = function(self, gameState, eventArgs)
+                if gameState.gamePhase ~= 'hiring_and_upgrades' then return end
+                
+                if gameState.temporaryEffectFlags.fourthWallUsedThisSprint then
+                services.modal:show(
+                    "Already Used",
+                    "The 4th Wall can only be broken once per sprint."
+                )
+                    eventArgs.wasHandled = true
+                    return
+                end
+
+                local sprintData = require("data").ALL_SPRINTS[gameState.currentSprintIndex]
+                local workItemData = sprintData and sprintData.workItems[gameState.currentWorkItemIndex]
+                if workItemData then
+                    local reduction = math.floor(workItemData.workload * 0.25)
+                    workItemData.workload = workItemData.workload - reduction
+                    gameState.temporaryEffectFlags.fourthWallUsedThisSprint = true
+                    services.modal:show(
+                        "CRACK!",
+                        "You reached through the screen and pulled the workload bar down, reducing the upcoming workload by 25%!"
+                    )
+                    eventArgs.wasHandled = true
+                end
+            end
+        }
     },
     { 
         id = 'corporate_personhood', name = 'Corporate Personhood', rarity = 'Legendary', cost = 7500, icon = '🏛️',
@@ -515,24 +862,120 @@ return {
         effect = { type = 'corporate_personhood' },
         listeners = {
             onPurchase = function(self, gameState)
-                _G.enactCorporatePersonhood(gameState)
+                local Employee = require("employee")
+                local Placement = require("placement")
+                local Drawing = require("drawing")
+                
+                if gameState.deskAssignments['desk-4'] then
+                    local evictedEmployee = Employee:getFromState(gameState, gameState.deskAssignments['desk-4'])
+                    if evictedEmployee then
+                        evictedEmployee.variant = 'remote'
+                        evictedEmployee.deskId = nil
+                        services.modal:show(
+                            "Eviction Notice",
+                            evictedEmployee.name .. " was moved to remote work to make way for The Corporation."
+                        )
+                    end
+                    gameState.deskAssignments['desk-4'] = nil
+                end
+
+                local corporation = Employee:new('corporate_personhood_employee', 'standard', "The Corporation")
+                if corporation then
+                    local ownedDesks = Placement:getOwnedDeskCount(gameState)
+                    corporation.baseProductivity = (ownedDesks * 20) + (#gameState.purchasedPermanentUpgrades * 10)
+                    corporation.baseFocus = 1.0 + (ownedDesks * 0.1)
+
+                    table.insert(gameState.hiredEmployees, corporation)
+                    Placement:handleEmployeeDropOnDesk(gameState, corporation, "desk-4", nil)
+                    services.modal:show(
+                        "Manifestation!",
+                        "The Office itself has become a sentient entity, taking its rightful place at the center of power."
+                    )
+                else
+                    print("ERROR: Corporate Personhood is owned, but could not create 'corporate_personhood_employee'. Check its definition in data.lua.")
+                end
             end
         }
     },
-    { 
+    {
         id = 'multiverse_merger', name = 'Multiverse Merger', rarity = 'Legendary', cost = 3000, icon = '🌌',
         description = 'Once per run, swap your entire team with a randomly generated team from an alternate reality. High risk, high reward.',
         effect = { type = 'multiverse_merger' },
         listeners = {
             onPurchase = function(self, gameState)
                 gameState.temporaryEffectFlags.multiverseMergerAvailable = true
-                _G.showMessage("Multiverse Merger", "An unstable portal is ready. Activate it from the Acquired Upgrades panel at any time... if you dare.")
+                local Drawing = require("drawing")
+                services.modal:show(
+                    "Multiverse Merger",
+                    "An unstable portal is ready. Activate it from the Acquired Upgrades panel at any time... if you dare."
+                )
             end,
             onActivate = function(self, gameState)
                 if gameState.temporaryEffectFlags.multiverseMergerAvailable then
-                    performMultiverseMerger(gameState)
-                    return true
-                end
+                    local Drawing = require("drawing")
+                    local Shop = require("shop")
+                    local Placement = require("placement")
+                    
+                    local confirmSwap = function()
+                        local numEmployees = #gameState.hiredEmployees
+                        if numEmployees == 0 then
+                        services.modal:show(
+                            "Merger Failed",
+                            "There is no team to merge with the multiverse."
+                        )
+                            return
+                        end
+                        
+                        gameState.hiredEmployees = {}
+                        gameState.deskAssignments = {}
+                        
+                        local newTeam = {}
+                        for i = 1, numEmployees do
+                            local newOffer = Shop:_generateRandomEmployeeOffer(gameState)
+                            local Employee = require("employee")
+                            local newEmployee = Employee:new(newOffer.id, newOffer.variant, newOffer.fullName)
+                            table.insert(newTeam, newEmployee)
+                        end
+                        
+                        gameState.hiredEmployees = newTeam
+
+                        local officeWorkers = {}
+                        for _, emp in ipairs(gameState.hiredEmployees) do
+                            if emp.variant ~= 'remote' then
+                                table.insert(officeWorkers, emp)
+                            end
+                        end
+
+                        for _, desk in ipairs(gameState.desks) do
+                            if #officeWorkers == 0 then break end
+                            if desk.status == 'owned' then
+                                local worker = table.remove(officeWorkers, 1)
+                                Placement:handleEmployeeDropOnDesk(gameState, worker, desk.id, nil)
+                            end
+                        end
+
+                        gameState.temporaryEffectFlags.multiverseMergerAvailable = false
+                        
+                        -- Force UI rebuild immediately
+                        _G.buildUIComponents()
+                        
+                        Drawing.hideModal()
+                        services.modal:show(
+                            "Worlds Collide!",
+                            "Your team has been swapped with one from an alternate reality!"
+                        )
+                    end
+
+                        services.modal:show(
+                                "Confirm Merger",
+                                "Are you sure you want to swap your entire team with a random one from another dimension? This cannot be undone.",
+                            {
+                                {text = "Yes, Do It!", onClick = confirmSwap, style="danger"},
+                                {text = "No, Too Risky", onClick = function() end, style="primary"}
+                            }
+                        )
+                        return true
+                    end
                 return false
             end
         }
@@ -555,7 +998,20 @@ return {
                     }
                     print("Hive Mind Active. Avg Prod: " .. gameState.temporaryEffectFlags.hiveMindStats.productivity .. ", Avg Focus: " .. gameState.temporaryEffectFlags.hiveMindStats.focus)
                 end
+            end,
+            onCalculateStats = function(self, gameState, eventArgs)
+                if gameState.temporaryEffectFlags.hiveMindStats then
+                    local hiveMindStats = gameState.temporaryEffectFlags.hiveMindStats
+                    eventArgs.employee = {
+                        instanceId = eventArgs.employee.instanceId,
+                        baseProductivity = hiveMindStats.productivity,
+                        baseFocus = hiveMindStats.focus,
+                        level = eventArgs.employee.level,
+                        variant = eventArgs.employee.variant,
+                        deskId = eventArgs.employee.deskId
+                    }
+                end
             end
         }
-    },
+        },
 }

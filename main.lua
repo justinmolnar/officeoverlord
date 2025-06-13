@@ -12,10 +12,40 @@ local Battle = require("battle")
 local Employee = require("employee")
 local EffectsDispatcher = require("effects_dispatcher")
 local InputHandler = require("input_handler")
+local SoundManager = require("sound_manager")
+local CardSizing = require("card_sizing")
+local battlePhaseManager
+
+
+-- Component Imports
+local Button = require("components/button")
+local EmployeeCard = require("components/employee_card")
+local UpgradeCard = require("components/upgrade_card")
+local Checkbox = require("components/checkbox")
+local Dropdown = require("components/dropdown")
+local PurchasedUpgradeIcon = require("components/purchased_upgrade_icon")
+local DeskSlot = require("components/desk_slot")
+local DecorationCard = require("components/decoration_card")
+local PlacedDecorationIcon = require("components/placed_decoration_icon")
+local Modal = require("components/modal")
+local modal = Modal:new()
+
+
+
+local StateManager = require("game_states.state_manager")
+local stateManager
+local overlaysToDraw = {}
+
+
+
+
+
+
+
 
 function _G.getCurrentMaxLevel(gameState)
     local eventArgs = { maxLevel = 3 }
-    require("effects_dispatcher").dispatchEvent("onGetMaxLevel", gameState, eventArgs)
+    require("effects_dispatcher").dispatchEvent("onGetMaxLevel", gameState, eventArgs, { modal = modal })
     return eventArgs.maxLevel
 end
 
@@ -23,30 +53,32 @@ local gameState
 local tooltipsToDraw = {}
 local overlaysToDraw = {}
 
+-- UI Component Lists
+local uiComponents = {}
+local sprintOverviewComponents = {}
+
 -- State variables are wrapped in tables to be passed by reference
 local sprintOverviewState = { isVisible = false }
 local sprintOverviewRects = {} -- To hold rects for the new panel UI
 
-local debugMenuState = { isVisible = false }
-local debug = {
-    rect = {},
-    employeeDropdown = { options = {}, selected = 1, isOpen = false, rect = {} },
-    upgradeDropdown = { options = {}, selected = 1, isOpen = false, rect = {} },
-    checkboxes = {
-        remote = { checked = false, rect = {} },
-        foil = { checked = false, rect = {} },
-        holo = { checked = false, rect = {} }
-    },
-    buttons = {}
-}
+-- Timer system
+local pendingTimers = {}
 
 local function safeTimerAfter(delay, callback)
-    local timerToUse = love.timer or timer
-    if timerToUse and type(timerToUse.after) == "function" then
-        timerToUse.after(delay, callback)
-    else
-        print("FATAL ERROR: Timer module is not available. Check conf.lua. Executing callback immediately.")
-        callback()
+    table.insert(pendingTimers, {
+        timeRemaining = delay,
+        callback = callback
+    })
+end
+
+local function updateTimers(dt)
+    for i = #pendingTimers, 1, -1 do
+        local timer = pendingTimers[i]
+        timer.timeRemaining = timer.timeRemaining - dt
+        if timer.timeRemaining <= 0 then
+            timer.callback()
+            table.remove(pendingTimers, i)
+        end
     end
 end
 
@@ -82,199 +114,813 @@ local battleState = {
     changedEmployeesForAnimation = {},
     nextChangedEmployeeIndex = 1
 }
-_G.battleState = battleState -- Make battleState global for Drawing module to access
 
-_G.showMessage = function(title, message, buttons, customWidth)
-    Drawing.showModal(title, message, buttons, customWidth) 
+function buildSprintOverviewUI()
+    sprintOverviewComponents = {} -- Clear any existing components
+
+    table.insert(sprintOverviewComponents, Button:new({
+        -- The rect will be updated in love.draw
+        rect = {x=0, y=0, w=0, h=0}, 
+        text = "Back",
+        style = "primary",
+        onClick = function()
+            sprintOverviewState.isVisible = false
+        end
+    }))
 end
 
-function getEmployeeFromGameState(gs, instanceId)
-    if not gs or not gs.hiredEmployees or not instanceId then return nil end
-    for _, emp in ipairs(gs.hiredEmployees) do
-        if emp.instanceId == instanceId then return emp end
-    end
-    return nil
+function calculateRemoteWorkerPositions(gameState, draggedItemState)
+    local layout = Drawing.calculateRemoteWorkerLayout(panelRects.remoteWorkers, gameState, draggedItemState.item)
+    return layout.positions
 end
-_G.getEmployeeFromGameState = getEmployeeFromGameState -- Make global for Drawing module to access
 
-function initializeDebugMenu()
-    -- Populate employee options
-    debug.employeeDropdown.options = {}
-    for _, card in ipairs(GameData.BASE_EMPLOYEE_CARDS) do
-        table.insert(debug.employeeDropdown.options, { name = card.name, id = card.id })
-    end
-    table.sort(debug.employeeDropdown.options, function(a, b) return a.name < b.name end)
-    debug.employeeDropdown.selected = 1
-    debug.employeeDropdown.scrollOffset = 0
+--- Clears and rebuilds ALL active UI components based on the current gameState.
+function buildUIComponents()
+   uiComponents = {}
+   uiElementRects.desks = {}
+   uiElementRects.remote = {}
+   
+   -- Define shop rect and card dimensions
+   local shopRect = panelRects.shop
+   local cardWidth = CardSizing.getCardWidth()
+   local cardHeight = CardSizing.getCardHeight()
+   local shopCardPadding = CardSizing.getStandardCardDimensions().shopPadding
+   
+   if gameState.gamePhase == "hiring_and_upgrades" then
+       local infoPanelRect = panelRects.gameInfo
+       local btnWidth, btnHeight, btnX = infoPanelRect.width - 20, 35, infoPanelRect.x + 10
+       local mainActionBtnY = infoPanelRect.y + infoPanelRect.height - btnHeight - 10
+       local viewSprintBtnY = mainActionBtnY - btnHeight - 5
+       table.insert(uiComponents, Button:new({ rect = {x=btnX, y=viewSprintBtnY, w=btnWidth, h=btnHeight}, text = "View Sprint Details", style = "info", onClick = function() sprintOverviewState.isVisible = true end }))
+       table.insert(uiComponents, Button:new({ rect = {x=btnX, y=mainActionBtnY, w=btnWidth, h=btnHeight}, text = "Start Work Item", style = "secondary", onClick = function() setGamePhase("battle_active") end }))
 
-    -- Populate upgrade options
-    debug.upgradeDropdown.options = {}
-    for _, upg in ipairs(GameData.ALL_UPGRADES) do
-        table.insert(debug.upgradeDropdown.options, { name = upg.name, id = upg.id })
+       local currentY = shopRect.y + Drawing.UI.fontLarge:getHeight() + 20
+       
+       -- Draw Employee subtitle and then create cards
+       love.graphics.setFont(Drawing.UI.font)
+       love.graphics.printf("Looking for Work", shopRect.x, currentY, shopRect.width, "center")
+       currentY = currentY + Drawing.UI.font:getHeight() + 8
+
+       if gameState.currentShopOffers and gameState.currentShopOffers.employees then
+           for i, empData in ipairs(gameState.currentShopOffers.employees) do
+               if empData then
+                   table.insert(uiComponents, EmployeeCard:new({ data = empData, rect = {x=shopRect.x+shopCardPadding, y=currentY, w=cardWidth, h=cardHeight}, context = "shop_offer", gameState=gameState, battleState=battleState, draggedItemState=draggedItemState, uiElementRects=uiElementRects, battlePhaseManager = battlePhaseManager }))
+                   currentY = currentY + cardHeight + 5
+               end
+           end
+       end
+       
+       -- Draw Decoration subtitle and then create cards
+       if gameState.currentShopOffers and gameState.currentShopOffers.decorations then
+           currentY = currentY + 15
+           love.graphics.setFont(Drawing.UI.font)
+           love.graphics.printf("Desk Decorations", shopRect.x, currentY, shopRect.width, "center")
+           currentY = currentY + Drawing.UI.font:getHeight() + 8
+
+           for _, decoData in ipairs(gameState.currentShopOffers.decorations) do
+               if decoData then
+                   table.insert(uiComponents, DecorationCard:new({
+                       data = decoData,
+                       rect = {x = shopRect.x + shopCardPadding, y = currentY, w = cardWidth, h = 90},
+                       gameState = gameState,
+                       draggedItemState = draggedItemState
+                   }))
+                   currentY = currentY + 90 + 5
+               end
+           end
+       end
+       
+       -- Draw Upgrade subtitle and then create card
+       currentY = currentY + 15
+       love.graphics.setFont(Drawing.UI.font)
+       love.graphics.printf("Office Upgrades", shopRect.x, currentY, shopRect.width, "center")
+       currentY = currentY + Drawing.UI.font:getHeight() + 8
+       
+       if gameState.currentShopOffers and gameState.currentShopOffers.upgrade then
+           table.insert(uiComponents, UpgradeCard:new({ data = gameState.currentShopOffers.upgrade, rect = {x=shopRect.x+shopCardPadding, y=currentY, w=cardWidth, h=110}, gameState = gameState, uiElementRects = uiElementRects, modal = modal }))
+       end
+       
+       -- Create the Restock button
+       local restockBtnY = shopRect.y + shopRect.height - 35 - 10
+       local restockButton = Button:new({ rect = {x = shopRect.x + shopCardPadding, y = restockBtnY, w = cardWidth, h = 35}, text = "Restock", style = "warning", context = "shop_button", isEnabled = function() local cost = GameData.BASE_RESTOCK_COST * (2 ^ (gameState.currentShopOffers.restockCountThisWeek or 0)); return gameState.budget >= cost and not draggedItemState.item end, onClick = function() local success, msg = Shop:attemptRestock(gameState); if not success then modal:show("Restock Failed", msg) end end })
+       function restockButton:draw() local cost = GameData.BASE_RESTOCK_COST * (2 ^ (gameState.currentShopOffers.restockCountThisWeek or 0)); if Shop:isUpgradePurchased(gameState.purchasedPermanentUpgrades, 'headhunter') then cost = cost * 2 end; self.text = "Restock ($" .. cost .. ")"; Button.draw(self); end
+       restockButton.gameState = gameState
+       table.insert(uiComponents, restockButton)
+   end
+
+   if gameState.gamePhase == "game_over" or gameState.gamePhase == "game_won" then
+       local infoPanelRect = panelRects.gameInfo
+       local btnWidth, btnHeight, btnX = infoPanelRect.width - 20, 35, infoPanelRect.x + 10
+       local mainActionBtnY = infoPanelRect.y + infoPanelRect.height - btnHeight - 10
+       local buttonText = (gameState.gamePhase == "game_won" and "Play Again?" or "Restart Game")
+       local buttonStyle = (gameState.gamePhase == "game_won" and "primary" or "danger")
+       table.insert(uiComponents, Button:new({ rect = {x=btnX, y=mainActionBtnY, w=btnWidth, h=btnHeight}, text = buttonText, style = buttonStyle, onClick = function() resetGameAndGlobals() end }))
+   end
+
+   local gridGeometry = Drawing._calculateDeskGridGeometry(panelRects.mainInteraction)
+   for i, deskData in ipairs(gameState.desks) do
+       local col = (i - 1) % GameData.GRID_WIDTH
+       local row = math.floor((i - 1) / GameData.GRID_WIDTH)
+       local deskRect = { x = gridGeometry.startX + col * (gridGeometry.width + gridGeometry.spacing), y = gridGeometry.startY + row * (gridGeometry.height + gridGeometry.spacing), w = gridGeometry.width, h = gridGeometry.height }
+       uiElementRects.desks[i] = {id = deskData.id, x = deskRect.x, y = deskRect.y, w = deskRect.w, h = deskRect.h}
+        table.insert(uiComponents, DeskSlot:new({rect = deskRect, data = deskData, gameState = gameState, modal = modal}))       
+       local empId = gameState.deskAssignments[deskData.id]
+       if empId then
+           local empData = Employee:getFromState(gameState, empId)
+           if empData then
+               local contextArgs = { employee = empData, context = "desk_placed" }
+               EffectsDispatcher.dispatchEvent("onEmployeeContextCheck", gameState, contextArgs, { modal = modal })
+               
+               local deskRow = math.floor((tonumber(string.match(deskData.id, "%d+")) or 0) / GameData.GRID_WIDTH)
+               local isDeskDisabled = (gameState.temporaryEffectFlags.isTopRowDisabled and deskRow == 0)
+               
+               if empData.isTraining or isDeskDisabled or (empData.special and empData.special.does_not_work) then 
+                   contextArgs.context = "worker_training"
+               elseif gameState.gamePhase == "battle_active" and battleState.activeEmployees then
+                   local workerIndexInBattle = -1
+                   for j, activeEmp in ipairs(battleState.activeEmployees) do 
+                       if activeEmp.instanceId == empData.instanceId then 
+                           workerIndexInBattle = j
+                           break 
+                       end 
+                   end
+                   if workerIndexInBattle ~= -1 and workerIndexInBattle < battleState.nextEmployeeIndex then 
+                       contextArgs.context = "worker_done" 
+                   end
+               end
+               
+               table.insert(uiComponents, EmployeeCard:new({data = empData, rect = {x = deskRect.x+2, y=deskRect.y+2, w=deskRect.w-4, h=deskRect.h-4}, context = contextArgs.context, gameState=gameState, battleState=battleState, draggedItemState=draggedItemState, uiElementRects=uiElementRects, battlePhaseManager = battlePhaseManager}))
+           end
+       end
+
+       local decoration = Placement:getDecorationOnDesk(gameState, deskData.id)
+       if decoration then
+           local iconFont = Drawing.UI.titleFont or love.graphics.getFont()
+           local iconSize = iconFont:getHeight()
+           local iconX = deskRect.x + deskRect.w - iconSize - 4
+           local iconY = deskRect.y + 4 + iconSize
+           local iconRect = { x = iconX, y = iconY, w = iconSize, h = iconSize }
+           table.insert(uiComponents, PlacedDecorationIcon:new({ data = decoration, rect = iconRect }))
+       end
+   end
+
+   -- Calculate remote worker positions BEFORE creating components
+   local remoteWorkerPositions = calculateRemoteWorkerPositions(gameState, draggedItemState)
+
+   -- Remote worker cards
+   for _, empData in ipairs(gameState.hiredEmployees) do
+       if empData.variant == 'remote' then
+           local contextArgs = { employee = empData, context = "remote_worker" }
+           EffectsDispatcher.dispatchEvent("onEmployeeContextCheck", gameState, contextArgs, { modal = modal })
+           
+           if empData.isTraining or gameState.temporaryEffectFlags.isRemoteWorkDisabled or (empData.special and empData.special.does_not_work) then
+               contextArgs.context = "worker_training"
+           elseif gameState.gamePhase == "battle_active" and battleState.activeEmployees then
+               local isWorkerActive = false
+               for _, activeEmp in ipairs(battleState.activeEmployees) do
+                   if activeEmp.instanceId == empData.instanceId then isWorkerActive = true; break; end
+               end
+               if not isWorkerActive then contextArgs.context = "worker_done" end
+           end
+           
+           -- Get the calculated position for this remote worker
+           local workerRect = remoteWorkerPositions[empData.instanceId] or {x = 0, y = 0, w = cardWidth, h = cardHeight}
+           
+           table.insert(uiComponents, EmployeeCard:new({
+               data = empData, 
+               rect = workerRect, 
+               context = contextArgs.context, 
+               gameState=gameState, 
+               battleState=battleState, 
+               draggedItemState=draggedItemState, 
+               uiElementRects=uiElementRects,
+               battlePhaseManager = battlePhaseManager
+           }))
+           
+           -- Store the position in uiElementRects.remote for consistency
+           uiElementRects.remote[empData.instanceId] = workerRect
+       end
+   end
+
+   -- CREATE UPGRADE ICONS ACROSS THE TOP OF THE OFFICE FLOOR
+   local officeRect = panelRects.mainInteraction
+   local iconSize = 32
+   local iconPadding = 5
+   local currentX = officeRect.x + 10
+   local iconY = officeRect.y + 10
+   
+   for _, upgradeId in ipairs(gameState.purchasedPermanentUpgrades) do
+       local upgData = nil
+       for _, u in ipairs(GameData.ALL_UPGRADES) do if u.id == upgradeId then upgData = u; break; end end
+       if upgData and (currentX + iconSize <= officeRect.x + officeRect.width - 10) then
+           table.insert(uiComponents, PurchasedUpgradeIcon:new({ rect = { x = currentX, y = iconY, w = iconSize, h = iconSize }, upgData = upgData, gameState = gameState, battleState = battleState, modal = modal }))
+           currentX = currentX + iconSize + iconPadding
+       end
+   end
+end
+
+function love.resize(w, h)
+    -- This function is called by LÖVE whenever the window is resized.
+    -- We recalculate all panel positions and then rebuild the UI components
+    -- to fit the new dimensions.
+    definePanelRects()
+    buildUIComponents()
+end
+
+
+
+function onMouseRelease(x, y, button)
+    if button == 1 and draggedItemState.item then
+        local successfullyProcessedDrop = false
+        local draggedItem = draggedItemState.item
+        local dropTargetX, dropTargetY = x, y
+
+        -- Find the source component for animation BEFORE processing the drop
+        local sourceComponent = nil
+        if draggedItem and draggedItem.data then
+            for _, component in ipairs(uiComponents) do
+                if component.data and component.data.instanceId == draggedItem.data.instanceId then
+                    sourceComponent = component
+                    break
+                end
+            end
+        end
+
+        -- Loop backwards through components so we check top-most items first (e.g., employee card before the desk slot under it)
+        for i = #uiComponents, 1, -1 do
+            local component = uiComponents[i]
+            if component.handleMouseDrop then
+                -- The component's method will do its own isMouseOver check
+                if component:handleMouseDrop(x, y, draggedItem) then
+                    successfullyProcessedDrop = true
+                    -- Store the drop target position for animation
+                    if component.rect then
+                        dropTargetX = component.rect.x + component.rect.w/2
+                        dropTargetY = component.rect.y + component.rect.h/2
+                    end
+                    break -- Drop was handled, exit the loop
+                end
+            end
+        end
+
+        -- Fallback for non-component drop targets, like the general remote panel area
+        if not successfullyProcessedDrop then
+            if draggedItem.data.variant == 'remote' and Drawing.isMouseOver(x, y, uiElementRects.remotePanelDropTarget.x, uiElementRects.remotePanelDropTarget.y, uiElementRects.remotePanelDropTarget.w, uiElementRects.remotePanelDropTarget.h) then
+                if draggedItem.type == "shop_employee" then
+                    if gameState.budget < draggedItem.cost then
+                        modal:show("Can't Afford", "Not enough budget. Need $" .. draggedItem.cost)
+                        SoundManager:playEffect('error')
+                    elseif draggedItem.data.special and (draggedItem.data.special.type == 'haunt_target_on_hire' or draggedItem.data.special.type == 'slime_merge') then
+                        modal:show("Invalid Placement", "This employee must be placed on top of another employee.")
+                        SoundManager:playEffect('error')
+                    else
+                        gameState.budget = gameState.budget - draggedItem.cost
+                        local newEmp = Employee:new(draggedItem.data.id, draggedItem.data.variant, draggedItem.data.fullName)
+                        newEmp.instanceId = draggedItem.data.instanceId -- Preserve the shop offer's instanceId
+                        table.insert(gameState.hiredEmployees, newEmp)
+                        Shop:markOfferSold(gameState.currentShopOffers, draggedItem.originalShopInstanceId, nil) 
+                        SoundManager:playEffect('hire')
+                        successfullyProcessedDrop = true
+                        
+                        -- Calculate where this employee will end up by simulating the layout
+                        local cardWidth = CardSizing.getCardWidth()
+                        local rect = uiElementRects.remotePanelDropTarget
+                        
+                        -- Count existing remote workers (excluding the one being dragged if it's a move)
+                        local remoteCount = 0
+                        for _, emp in ipairs(gameState.hiredEmployees) do
+                            if emp.variant == 'remote' and emp.instanceId ~= draggedItem.data.instanceId then
+                                remoteCount = remoteCount + 1
+                            end
+                        end
+                        
+                        -- The new employee will be at the end of the list
+                        local availableWidth = rect.w - 20
+                        local normalGap = 5
+                        local totalCards = remoteCount + 1 -- +1 for the new employee
+                        local normalStepSize = cardWidth + normalGap
+                        local totalNormalWidth = (totalCards * cardWidth) + ((totalCards - 1) * normalGap)
+                        
+                        local stepSize = normalStepSize
+                        if totalNormalWidth > availableWidth and totalCards > 1 then
+                            local spaceForAllButLast = availableWidth - cardWidth
+                            stepSize = spaceForAllButLast / (totalCards - 1)
+                        end
+                        
+                        -- Calculate final position (new employee goes at the end)
+                        dropTargetX = rect.x + 10 + (totalCards - 1) * stepSize + cardWidth/2
+                        dropTargetY = rect.y + rect.h/2
+                    end
+                elseif draggedItem.type == "placed_employee" then
+                    successfullyProcessedDrop = Placement:handleEmployeeDropOnRemote(gameState, draggedItem.data, draggedItem.originalDeskId)
+                    if successfullyProcessedDrop then
+                        SoundManager:playEffect('place')
+                        
+                        -- Calculate where this employee will end up by simulating the layout
+                        local cardWidth = CardSizing.getCardWidth()
+                        local rect = uiElementRects.remotePanelDropTarget
+                        
+                        -- Count existing remote workers
+                        local remoteCount = 0
+                        for _, emp in ipairs(gameState.hiredEmployees) do
+                            if emp.variant == 'remote' then
+                                remoteCount = remoteCount + 1
+                            end
+                        end
+                        
+                        -- Find the index of this employee in the remote worker list
+                        local targetIndex = 1
+                        local currentIndex = 1
+                        for _, emp in ipairs(gameState.hiredEmployees) do
+                            if emp.variant == 'remote' then
+                                if emp.instanceId == draggedItem.data.instanceId then
+                                    targetIndex = currentIndex
+                                    break
+                                end
+                                currentIndex = currentIndex + 1
+                            end
+                        end
+                        
+                        -- Calculate layout
+                        local availableWidth = rect.w - 20
+                        local normalGap = 5
+                        local normalStepSize = cardWidth + normalGap
+                        local totalNormalWidth = (remoteCount * cardWidth) + ((remoteCount - 1) * normalGap)
+                        
+                        local stepSize = normalStepSize
+                        if totalNormalWidth > availableWidth and remoteCount > 1 then
+                            local spaceForAllButLast = availableWidth - cardWidth
+                            stepSize = spaceForAllButLast / (remoteCount - 1)
+                        end
+                        
+                        -- Calculate final position
+                        dropTargetX = rect.x + 10 + (targetIndex - 1) * stepSize + cardWidth/2
+                        dropTargetY = rect.y + rect.h/2
+                    end
+                end
+            end
+        end
+
+        -- Finalize the drop action
+        if successfullyProcessedDrop then
+            -- Start drop animation for successful drops
+            if sourceComponent and sourceComponent.startDropAnimation then
+                -- Pass a callback that gets called when animation completes
+                sourceComponent:startDropAnimation(dropTargetX, dropTargetY, function()
+                    draggedItemState.item = nil
+                    buildUIComponents()
+                end)
+            else
+                -- No animation available, finish immediately
+                draggedItemState.item = nil
+                buildUIComponents()
+            end
+            
+        else
+            -- Cancel pickup animation and snap back for failed drops
+            if sourceComponent and sourceComponent.cancelPickupAnimation then
+                sourceComponent:cancelPickupAnimation()
+            end
+            
+            if draggedItem.type == "placed_employee" then
+                local originalEmp = Employee:getFromState(gameState, draggedItem.data.instanceId)            
+                if originalEmp then
+                    if draggedItem.originalDeskId then
+                        originalEmp.deskId = draggedItem.originalDeskId
+                        gameState.deskAssignments[draggedItem.originalDeskId] = originalEmp.instanceId
+                    elseif draggedItem.originalVariant == 'remote' then
+                        originalEmp.variant = 'remote'
+                    end
+                end
+            end
+            
+            -- End the drag operation immediately for failed drops
+            draggedItemState.item = nil
+        end
     end
-    table.sort(debug.upgradeDropdown.options, function(a, b) return a.name < b.name end)
-    debug.upgradeDropdown.selected = 1
-    debug.upgradeDropdown.scrollOffset = 0
-    
-    -- State for hotkey repeating (only for money keys)
-    debug.hotkeyState = {
-        plus = { timer = 0, initial = 0.4, repeatDelay = 0.1 },
-        minus = { timer = 0, initial = 0.4, repeatDelay = 0.1 }
-    }
+end
+
+
+
+local function drawPositionalOverlays()
+    if #overlaysToDraw > 0 then
+        for _, overlay in ipairs(overlaysToDraw) do
+            -- Find the desk rect for this overlay
+            for _, deskRect in ipairs(uiElementRects.desks) do
+                if deskRect.id == overlay.targetDeskId then
+                    -- Draw the colored overlay
+                    love.graphics.setColor(overlay.color)
+                    love.graphics.rectangle("fill", deskRect.x, deskRect.y, deskRect.w, deskRect.h, 3)
+                    
+                    -- Draw the text
+                    love.graphics.setFont(Drawing.UI.titleFont or Drawing.UI.fontLarge)
+                    love.graphics.setColor(1, 1, 1, 0.9)
+                    love.graphics.printf(overlay.text, deskRect.x, deskRect.y + (deskRect.h - (Drawing.UI.titleFont or Drawing.UI.fontLarge):getHeight()) / 2, deskRect.w, "center")
+                    break
+                end
+            end
+        end
+    end
 end
 
 function love.load()
-    -- New shader variables
-    Drawing.foilShader = love.graphics.newShader("foil.fs") 
-    Drawing.holoShader = love.graphics.newShader("holo.fs") 
+   Drawing.foilShader = love.graphics.newShader("foil.fs") 
+   Drawing.holoShader = love.graphics.newShader("holo.fs") 
 
-    gameState = GameState:new()
-    _G.gameState = gameState
-    love.window.setTitle("Office Overlord - Command Center v4.1 Sprints")
+   -- Require the new manager
+   local DebugManager = require("debug_manager")
+   local BattlePhaseManager = require("battle_phase_manager")
 
-    local success
-    
-    -- Load the primary font and its emoji fallback for the regular size
-    local primaryFont, emojiFont
-    success, primaryFont = pcall(love.graphics.newFont, "Arial.ttf", 13)
-    if not success then primaryFont = love.graphics.newFont(13); print("Arial.ttf not found, using default font 13pt.") end
-    success, emojiFont = pcall(love.graphics.newFont, "NotoEmoji.ttf", 13)
-    if success then
-        primaryFont:setFallbacks(emojiFont)
-        print("Emoji fallback font loaded for size 13.")
-    else
-        print("WARNING: NotoEmoji.ttf not found. Emojis will not render.")
-    end
-    Drawing.UI.font = primaryFont
+   gameState = GameState:new()
+   love.window.setTitle("Office Overlord - Command Center v4.1 Sprints")
 
-    -- Load the primary font and its emoji fallback for the small size
-    local primaryFontSmall, emojiFontSmall
-    success, primaryFontSmall = pcall(love.graphics.newFont, "Arial.ttf", 9)
-    if not success then primaryFontSmall = love.graphics.newFont(9); print("Arial.ttf not found, using default font 9pt.") end
-    success, emojiFontSmall = pcall(love.graphics.newFont, "NotoEmoji.ttf", 9)
-    if success then
-        primaryFontSmall:setFallbacks(emojiFontSmall)
-        print("Emoji fallback font loaded for size 9.")
-    end
-    Drawing.UI.fontSmall = primaryFontSmall
+   local success
+   
+   local primaryFont, emojiFont
+   success, primaryFont = pcall(love.graphics.newFont, "Arial.ttf", 13)
+   if not success then primaryFont = love.graphics.newFont(13); print("Arial.ttf not found, using default font 13pt.") end
+   success, emojiFont = pcall(love.graphics.newFont, "NotoEmoji.ttf", 13)
+   if success then
+       primaryFont:setFallbacks(emojiFont)
+       print("Emoji fallback font loaded for size 13.")
+   else
+       print("WARNING: NotoEmoji.ttf not found. Emojis will not render.")
+   end
+   Drawing.UI.font = primaryFont
 
-    -- Load the primary font and its emoji fallback for the large size
-    local primaryFontLarge, emojiFontLarge
-    success, primaryFontLarge = pcall(love.graphics.newFont, "Arial.ttf", 18)
-    if not success then primaryFontLarge = love.graphics.newFont(18); print("Arial.ttf not found, using default font 18pt.") end
-    success, emojiFontLarge = pcall(love.graphics.newFont, "NotoEmoji.ttf", 18)
-    if success then
-        primaryFontLarge:setFallbacks(emojiFontLarge)
-        print("Emoji fallback font loaded for size 18.")
-    end
-    Drawing.UI.fontLarge = primaryFontLarge
+   local primaryFontSmall, emojiFontSmall
+   success, primaryFontSmall = pcall(love.graphics.newFont, "Arial.ttf", 9)
+   if not success then primaryFontSmall = love.graphics.newFont(9); print("Arial.ttf not found, using default font 9pt.") end
+   success, emojiFontSmall = pcall(love.graphics.newFont, "NotoEmoji.ttf", 9)
+   if success then
+       primaryFontSmall:setFallbacks(emojiFontSmall)
+       print("Emoji fallback font loaded for size 9.")
+   end
+   Drawing.UI.fontSmall = primaryFontSmall
+   
+   local primaryFontMedium, emojiFontMedium
+   success, primaryFontMedium = pcall(love.graphics.newFont, "Arial.ttf", 11)
+   if not success then primaryFontMedium = love.graphics.newFont(11); print("Arial.ttf not found, using default font 11pt.") end
+   success, emojiFontMedium = pcall(love.graphics.newFont, "NotoEmoji.ttf", 11)
+   if success then
+       primaryFontMedium:setFallbacks(emojiFontMedium)
+       print("Emoji fallback font loaded for size 11.")
+   end
+   Drawing.UI.fontMedium = primaryFontMedium
 
-    -- The title font can also have a fallback if you plan to use emojis in titles
-    local primaryFontTitle, emojiFontTitle
-    success, primaryFontTitle = pcall(love.graphics.newFont, "Arial.ttf", 24)
-    if not success then primaryFontTitle = love.graphics.newFont(24); print("Arial.ttf not found, using default font 24pt.") end
-    success, emojiFontTitle = pcall(love.graphics.newFont, "NotoEmoji.ttf", 24)
-    if success then
-        primaryFontTitle:setFallbacks(emojiFontTitle)
-        print("Emoji fallback font loaded for size 24.")
-    end
-    Drawing.UI.titleFont = primaryFontTitle
-    
-    love.graphics.setFont(Drawing.UI.font) 
-    _G.userId = "Player-" .. love.math.random(1000, 9999)
+   local primaryFontLarge, emojiFontLarge
+   success, primaryFontLarge = pcall(love.graphics.newFont, "Arial.ttf", 18)
+   if not success then primaryFontLarge = love.graphics.newFont(18); print("Arial.ttf not found, using default font 18pt.") end
+   success, emojiFontLarge = pcall(love.graphics.newFont, "NotoEmoji.ttf", 18)
+   if success then
+       primaryFontLarge:setFallbacks(emojiFontLarge)
+       print("Emoji fallback font loaded for size 18.")
+   end
+   Drawing.UI.fontLarge = primaryFontLarge
 
-    definePanelRects()
-    
-    initializeDebugMenu() 
+   local primaryFontTitle, emojiFontTitle
+   success, primaryFontTitle = pcall(love.graphics.newFont, "Arial.ttf", 24)
+   if not success then primaryFontTitle = love.graphics.newFont(24); print("Arial.ttf not found, using default font 24pt.") end
+   success, emojiFontTitle = pcall(love.graphics.newFont, "NotoEmoji.ttf", 24)
+   if success then
+       primaryFontTitle:setFallbacks(emojiFontTitle)
+       print("Emoji fallback font loaded for size 24.")
+   end
+   Drawing.UI.titleFont = primaryFontTitle
+   
+   love.graphics.setFont(Drawing.UI.font) 
 
-    InputHandler.init({
+   definePanelRects()
+   
+   buildSprintOverviewUI()
+
+   -- Initialize the state manager
+   stateManager = StateManager:new()
+
+   -- Initialize the new battle phase manager
+   battlePhaseManager = BattlePhaseManager:new() 
+
+   battlePhaseManager:init({ modal = modal }, {
+       idle = require("phases.idle_phase"),
+       starting_turn = require("phases.starting_turn_phase"),
+       showing_productivity = require("phases.showing_productivity_phase"),
+       showing_focus = require("phases.showing_focus_phase"),
+       showing_total = require("phases.showing_total_phase"),
+       turn_over = require("phases.turn_over_phase"),
+       pre_apply_contribution = require("phases.pre_apply_contribution_phase"),
+       apply_round_contribution = require("phases.apply_round_contribution_phase"),
+       chipping_workload = require("phases.chipping_workload_phase"),
+       ending_round = require("phases.ending_round_phase"),
+       paying_salaries = require("phases.paying_salaries_phase"),
+       chipping_salaries = require("phases.chipping_salaries_phase"),
+       pausing_between_rounds = require("phases.pausing_between_rounds_phase"),
+       fast_recalculate_and_setup = require("phases.fast_recalculate_and_setup_phase"),
+       animating_changes = require("phases.animating_changes_phase"),
+       wait_for_apply = require("phases.wait_for_apply_phase")
+   })
+
+   InputHandler.init({
+       gameState = gameState,
+       uiElementRects = uiElementRects,
+       draggedItemState = draggedItemState,
+       battleState = battleState,
+       panelRects = panelRects,
+       sprintOverviewState = sprintOverviewState,
+       sprintOverviewRects = sprintOverviewRects,
+       -- REMOVED debug-related tables from here
+       callbacks = {
+           setGamePhase = setGamePhase,
+           resetGameAndGlobals = resetGameAndGlobals
+       },
+       modal = modal
+   })
+
+    -- Initialize the Debug Manager, passing it the systems it needs to interact with
+    DebugManager:init({
         gameState = gameState,
-        uiElementRects = uiElementRects,
-        draggedItemState = draggedItemState,
-        battleState = battleState,
-        panelRects = panelRects,
-        sprintOverviewState = sprintOverviewState,
-        sprintOverviewRects = sprintOverviewRects,
-        debugMenuState = debugMenuState,
-        debug = debug,
-        callbacks = {
-            setGamePhase = setGamePhase,
-            resetGameAndGlobals = resetGameAndGlobals
-        }
+        shop = Shop,
+        setGamePhase = setGamePhase -- Pass the function directly
     })
-    
-    setGamePhase("hiring_and_upgrades")
-    Placement:updateDeskAvailability(gameState.desks)
-    love.math.setRandomSeed(os.time() + love.timer.getTime())
+   
+   setGamePhase("hiring_and_upgrades")
+   Placement:updateDeskAvailability(gameState.desks)
+   love.math.setRandomSeed(os.time() + love.timer.getTime())
+
+   SoundManager:init()
+   SoundManager:playMusic('main')
 end
 
 function definePanelRects()
     local screenW, screenH = love.graphics.getWidth(), love.graphics.getHeight()
     local padding = 10
 
-    panelRects.shop = {width=math.floor(screenW*0.22), x=screenW-math.floor(screenW*0.22)-padding, y=padding, height=screenH-2*padding}
+    -- Define static-edge panels first
+    panelRects.shop = {width=math.floor(screenW*0.16), x=screenW-math.floor(screenW*0.16)-padding, y=padding, height=screenH-2*padding}
     local shopLeftEdge = panelRects.shop.x - padding
 
-    panelRects.remoteWorkers = {x=padding, y=padding, width=shopLeftEdge - 2*padding, height=math.floor(screenH*0.15)}
-    uiElementRects.remotePanelDropTarget = {x=panelRects.remoteWorkers.x, y=panelRects.remoteWorkers.y, w=panelRects.remoteWorkers.width, h=panelRects.remoteWorkers.height}
-    panelRects.purchasedUpgradesDisplay = {x=padding, height=math.floor(screenH*0.10), y=screenH-math.floor(screenH*0.10)-padding, width=shopLeftEdge - 2*padding}
-    panelRects.gameInfo = {x=padding, y=panelRects.remoteWorkers.y+panelRects.remoteWorkers.height+padding, width=math.floor(screenW*0.20), height=panelRects.purchasedUpgradesDisplay.y-panelRects.remoteWorkers.y-panelRects.remoteWorkers.height-2*padding}
-    panelRects.workloadBar = {x=panelRects.gameInfo.x+panelRects.gameInfo.width+padding, y=panelRects.remoteWorkers.y+panelRects.remoteWorkers.height+padding, width=math.floor(screenW*0.04), height=panelRects.purchasedUpgradesDisplay.y-panelRects.remoteWorkers.y-panelRects.remoteWorkers.height-2*padding}
-    panelRects.mainInteraction = {x=panelRects.workloadBar.x+panelRects.workloadBar.width+padding, y=panelRects.remoteWorkers.y+panelRects.remoteWorkers.height+padding, width=shopLeftEdge-panelRects.workloadBar.x-panelRects.workloadBar.width-2*padding, height=panelRects.purchasedUpgradesDisplay.y-panelRects.remoteWorkers.y-panelRects.remoteWorkers.height-2*padding}
-
-    for _, p in pairs(panelRects) do
-        if p.width <= 0 then p.width = 1 end
-        if p.height <= 0 then p.height = 1 end
+    -- Set the remote worker panel height based on DYNAMIC card height + padding
+    -- Use fallback height if CardSizing isn't available yet
+    local cardHeight = 140 -- fallback
+    local success, result = pcall(function() return CardSizing and CardSizing.getCardHeight and CardSizing.getCardHeight() end)
+    if success and result and type(result) == "number" then
+        cardHeight = result
     end
+    local remoteWorkerHeight = (cardHeight or 140) + (padding * 2)
+    panelRects.remoteWorkers = {x=padding, y=padding, width=shopLeftEdge - 2*padding, height=remoteWorkerHeight}
+    uiElementRects.remotePanelDropTarget = {x=panelRects.remoteWorkers.x, y=panelRects.remoteWorkers.y, w=panelRects.remoteWorkers.width, h=panelRects.remoteWorkers.height}
+    
+    -- REMOVED: purchasedUpgradesDisplay panel - upgrades will be shown in office floor
+
+    -- Define the middle row panels, which now start directly after remote workers
+    local middleRowY = panelRects.remoteWorkers.y + panelRects.remoteWorkers.height + padding
+    local middleRowHeight = screenH - middleRowY - padding
+
+    panelRects.gameInfo = {x=padding, y=middleRowY, width=math.floor(screenW*0.12), height=middleRowHeight}
+    local workloadBarWidth = math.floor(screenW * 0.04)
+    local officeFloorX = panelRects.gameInfo.x + panelRects.gameInfo.width + padding
+    local officeFloorWidth = shopLeftEdge - officeFloorX - workloadBarWidth - padding
+    panelRects.mainInteraction = {x=officeFloorX, y=middleRowY, width=officeFloorWidth, height=middleRowHeight}
+    panelRects.workloadBar = {x=panelRects.mainInteraction.x + panelRects.mainInteraction.width + padding, y=middleRowY, width=workloadBarWidth, height=middleRowHeight}
+
+    -- Final check to prevent zero or negative dimensions
+    for _, p in pairs(panelRects) do
+        if not p.width or p.width <= 0 then p.width = 1 end
+        if not p.height or p.height <= 0 then p.height = 1 end
+    end
+end
+
+-- Updated drawing function to move "Office Floor" header to bottom
+function Drawing.drawMainInteractionPanel(rect, gameState, uiElementRects, draggedItem, battleState, Placement, DrawingState) 
+    -- 1. Draw the panel frame WITHOUT title at top
+    Drawing.drawPanel(rect.x, rect.y, rect.width, rect.height, {0.88, 0.90, 0.92, 1}, {0.75,0.78,0.80,1})
+    
+    -- 2. Draw the "Office Floor" title at the BOTTOM of the panel
+    love.graphics.setFont(Drawing.UI.fontLarge)
+    love.graphics.setColor(Drawing.UI.colors.text)
+    local titleY = rect.y + rect.height - Drawing.UI.fontLarge:getHeight() - 10
+    love.graphics.printf("Office Floor", rect.x, titleY, rect.width, "center")
+
+    -- The individual DeskSlot and EmployeeCard components now handle all other drawing,
+    -- including overlays and hover effects. This function is now only a container.
 end
 
 function love.update(dt)
-    InputHandler.update(dt) -- This line runs the key-hold detection logic
-    if gameState.gamePhase == "battle_active" then
-        updateBattle(dt)
+    local DebugManager = require("debug_manager")
+    DebugManager:update(dt) -- Call the manager's update function
+
+    updateTimers(dt) 
+    InputHandler.update(dt)
+    modal:update(dt)
+
+    for _, component in ipairs(uiComponents) do
+        if component.update then
+            component:update(dt)
+        end
     end
+    
+    if sprintOverviewState.isVisible then
+        for _, component in ipairs(sprintOverviewComponents) do
+            if component.update then
+                component:update(dt)
+            end
+        end
+    end
+
+    local context = {
+        panelRects = panelRects,
+        uiElementRects = uiElementRects,
+        draggedItemState = draggedItemState,
+        sprintOverviewState = sprintOverviewState,
+        battlePhaseManager = battlePhaseManager, -- ADD THIS
+        buildUIComponents = buildUIComponents,
+        setGamePhase = setGamePhase,
+        getEmployeeFromGameState = getEmployeeFromGameState,
+        Placement = Placement,
+        Shop = Shop,
+        modal = modal,
+    }
+    stateManager:update(dt, gameState, battleState, context)
 end
 
 function love.keypressed(key)
+    local DebugManager = require("debug_manager")
+    if DebugManager:handleKeyPress(key) then
+        return -- Input was handled by the debug menu
+    end
     InputHandler.onKeyPress(key)
 end
 
 function love.mousewheelmoved(x, y)
-    InputHandler.onMouseWheelMoved(x, y)
+    local DebugManager = require("debug_manager")
+    if DebugManager:isVisible() and DebugManager:handleMouseWheel(y) then
+        return -- Input was handled by the debug menu
+    end
 end
 
 function love.mousepressed(x, y, button, istouch, presses)
+    local DebugManager = require("debug_manager")
+    if DebugManager:isVisible() and DebugManager:handleMousePress(x, y, button) then
+        return -- Input was handled by the debug menu
+    end
+    
+    if sprintOverviewState.isVisible then
+        for _, component in ipairs(sprintOverviewComponents) do
+            if component.handleMousePress and component:handleMousePress(x, y, button) then
+                return
+            end
+        end
+        return
+    end
+
+    if modal:handleMouseClick(x, y) then return end
+
+    local context = {
+        uiComponents = uiComponents,
+        panelRects = panelRects,
+        uiElementRects = uiElementRects,
+        draggedItemState = draggedItemState,
+        Shop = Shop,
+        Placement = Placement,
+        modal = modal,
+    }
+    
+    if stateManager:handleInput(x, y, button, gameState, battleState, context) then
+        return
+    end
+    
     InputHandler.onMousePress(x, y, button)
 end
 
 function love.mousereleased(x, y, button, istouch)
-    InputHandler.onMouseRelease(x, y, button)
+    onMouseRelease(x, y, button)
 end
 
 function love.draw()
     love.graphics.setBackgroundColor(Drawing.UI.colors.background)
     love.graphics.clear()
 
+    local DebugManager = require("debug_manager")
+
     tooltipsToDraw = {}
-    Drawing.tooltipsToDraw = tooltipsToDraw -- Pass to Drawing module
+    Drawing.tooltipsToDraw = tooltipsToDraw 
+    
+    local overlaysToDraw = {}
     
     uiElementRects.shopLockButtons = {}
 
-    local draggedItem = draggedItemState.item 
-
-    Drawing.drawRemoteWorkersPanel(panelRects.remoteWorkers, gameState, uiElementRects, draggedItem, battleState)
-    Drawing.drawGameInfoPanel(panelRects.gameInfo, gameState, uiElementRects, sprintOverviewState.isVisible)
-    Drawing.drawWorkloadBar(panelRects.workloadBar, gameState, battleState)
-    Drawing.drawShopPanel(panelRects.shop, gameState, uiElementRects, draggedItem, Shop)
-    Drawing.drawMainInteractionPanel(panelRects.mainInteraction, gameState, uiElementRects, draggedItem, battleState, Placement, {overlaysToDraw = overlaysToDraw, tooltipsToDraw = tooltipsToDraw}) 
-    Drawing.drawPurchasedUpgradesDisplay(panelRects.purchasedUpgradesDisplay, gameState, uiElementRects)
+    local context = {
+        panelRects = panelRects,
+        uiElementRects = uiElementRects,
+        draggedItemState = draggedItemState,
+        sprintOverviewState = sprintOverviewState,
+        Placement = Placement,
+        Shop = Shop,
+        overlaysToDraw = overlaysToDraw,
+        modal = modal,
+    }
     
-    if draggedItem then
-        local itemDataToDraw = draggedItem.data
-        if itemDataToDraw then 
-            local mouseX, mouseY = love.mouse.getPosition()
-            -- MODIFICATION: Pass uiElementRects to the dragged item's card drawing function
-            Drawing.drawEmployeeCard(itemDataToDraw, mouseX - 40, mouseY - 50, 80, 100, "dragged", gameState, battleState, tooltipsToDraw, Drawing.foilShader, Drawing.holoShader, uiElementRects)
+    stateManager:draw(gameState, battleState, context)
+    
+    for _, component in ipairs(uiComponents) do
+        if component.draw then 
+            component:draw(context) 
+        end
+    end
+    
+    if #overlaysToDraw > 0 then
+        for _, overlay in ipairs(overlaysToDraw) do
+            for _, deskRect in ipairs(uiElementRects.desks) do
+                if deskRect.id == overlay.targetDeskId then
+                    love.graphics.setColor(overlay.color)
+                    love.graphics.rectangle("fill", deskRect.x, deskRect.y, deskRect.w, deskRect.h, 3)
+                    
+                    love.graphics.setFont(Drawing.UI.titleFont or Drawing.UI.fontLarge)
+                    love.graphics.setColor(1, 1, 1, 0.9)
+                    love.graphics.printf(overlay.text, deskRect.x, deskRect.y + (deskRect.h - (Drawing.UI.titleFont or Drawing.UI.fontLarge):getHeight()) / 2, deskRect.w, "center")
+                    break
+                end
+            end
+        end
+    end
+    
+    if DebugManager:isVisible() then
+        DebugManager:draw()
+    end
+    
+    if draggedItemState.item then
+        local mouseX, mouseY = love.mouse.getPosition()
+        if draggedItemState.item.type == "shop_decoration" then
+            love.graphics.setFont(Drawing.UI.titleFont or Drawing.UI.fontLarge)
+            love.graphics.setColor(1, 1, 1, 0.75)
+            love.graphics.print(draggedItemState.item.data.icon or "?", mouseX - 16, mouseY - 16)
+            love.graphics.setColor(1, 1, 1, 1)
+        else
+            local itemDataToDraw = draggedItemState.item.data
+            if itemDataToDraw then 
+                local cardWidth = CardSizing.getCardWidth()
+                local cardHeight = CardSizing.getCardHeight()
+                
+                local sourceComponent = nil
+                for _, component in ipairs(uiComponents) do
+                    if component.data and component.data.instanceId == itemDataToDraw.instanceId then
+                        sourceComponent = component
+                        break
+                    end
+                end
+                
+                local cardX, cardY
+                
+                if sourceComponent and sourceComponent.animationState.isDropping then
+                    local anim = sourceComponent.animationState
+                    local progress = 1 - (1 - anim.dropProgress)^2
+                    
+                    cardX = anim.dropStartX + (anim.dropTargetX - anim.dropStartX) * progress - cardWidth/2
+                    cardY = anim.dropStartY + (anim.dropTargetY - anim.dropStartY) * progress - cardHeight/2
+                    
+                elseif sourceComponent and sourceComponent.animationState.initialX and sourceComponent.animationState.initialY and not sourceComponent.animationState.isDropping then
+                    local anim = sourceComponent.animationState
+                    local animationDuration = 0.3
+                    local progress = math.min(1.0, (anim.currentTime or 0) / animationDuration)
+                    progress = 1 - (1 - progress)^3
+                    
+                    cardX = anim.initialX + (mouseX - anim.initialX) * progress - cardWidth/2
+                    cardY = anim.initialY + (mouseY - anim.initialY) * progress - cardHeight/2
+                    
+                    if progress >= 1.0 then
+                        cardX = mouseX - cardWidth/2
+                        cardY = mouseY - cardHeight/2
+                    end
+                else
+                    cardX = mouseX - cardWidth/2
+                    cardY = mouseY - cardHeight/2
+                end
+                
+                local offsetY = -8
+                local shadowAlpha = 0.7
+                local shadowOffset = 8
+                
+                cardY = cardY + offsetY
+                
+                love.graphics.setColor(0, 0, 0, shadowAlpha)
+                love.graphics.rectangle("fill", cardX + shadowOffset, cardY + shadowOffset - offsetY, cardWidth, cardHeight, 3)
+                
+                -- Create a temporary EmployeeCard instance to render the dragged item
+                local draggedCard = EmployeeCard:new({
+                    data = itemDataToDraw,
+                    rect = {x = cardX, y = cardY, w = cardWidth, h = cardHeight},
+                    context = "dragged",
+                    gameState = gameState,
+                    battleState = battleState,
+                    draggedItemState = {item = nil}, -- Prevent recursion
+                    uiElementRects = uiElementRects
+                })
+                
+                love.graphics.push()
+                love.graphics.setColor(1, 1, 1, 0.9)
+                draggedCard:draw(context) -- Use the component's own draw method
+                love.graphics.pop()
+                love.graphics.setColor(1, 1, 1, 1)
+            end
         end
     end
     
@@ -319,331 +965,23 @@ function love.draw()
     end
 
     Drawing.drawSprintOverviewPanel(sprintOverviewRects, sprintOverviewState.isVisible, gameState)
-
-    Drawing.drawModal()
-
-    if debugMenuState.isVisible then
-        Drawing.drawDebugMenu(debug, Drawing.foilShader, Drawing.holoShader)
-    end
-end
-
-function updateBattle(dt)
-    if battleState.phase == 'idle' or battleState.phase == 'fast_recalculate_and_setup' then
-        for _, emp in ipairs(battleState.activeEmployees) do
-            emp.isFirstMover = nil
-            emp.isAutomated = nil
-        end
-    end
-
-    battleState.timer = battleState.timer - dt
-
-    if battleState.phase == 'idle' then
-        if battleState.nextEmployeeIndex > #battleState.activeEmployees then
-            battleState.phase = 'pre_apply_contribution'
-        else
-            local currentEmployee = battleState.activeEmployees[battleState.nextEmployeeIndex]
-            if currentEmployee then
-                if gameState.temporaryEffectFlags.automatedEmployeeId == currentEmployee.instanceId then
-                    currentEmployee.isAutomated = true
-                end
-
-                EffectsDispatcher.dispatchEvent("onTurnStart", gameState, { currentEmployee = currentEmployee })
-            end
-            battleState.phase = 'starting_turn'
-        end
-
-    elseif battleState.phase == 'starting_turn' then
-        local currentEmployee = battleState.activeEmployees[battleState.nextEmployeeIndex]
-        battleState.currentWorkerId = currentEmployee.instanceId
-        battleState.lastContribution = Battle:calculateEmployeeContribution(currentEmployee, gameState)
-        battleState.phase = 'showing_productivity'; battleState.timer = 0.5 
-
-    elseif battleState.phase == 'showing_productivity' then
-        if battleState.timer <= 0 then battleState.phase = 'showing_focus'; battleState.timer = 0.6; battleState.isShaking = true end
-    elseif battleState.phase == 'showing_focus' then
-        if battleState.timer <= 0 then battleState.isShaking = false; battleState.phase = 'showing_total'; battleState.timer = 0.8; battleState.isShaking = true end
-
-    elseif battleState.phase == 'showing_total' then
-        if battleState.timer <= 0 then
-            battleState.isShaking = false
-            battleState.roundTotalContribution = battleState.roundTotalContribution + battleState.lastContribution.totalContribution
-            battleState.lastRoundContributions[battleState.currentWorkerId] = battleState.lastContribution
-            battleState.phase = 'turn_over'; battleState.timer = 0.3
-        end
-
-    elseif battleState.phase == 'turn_over' then
-        if battleState.timer <= 0 then
-            battleState.currentWorkerId = nil; battleState.lastContribution = nil
-            battleState.nextEmployeeIndex = battleState.nextEmployeeIndex + 1
-            battleState.phase = 'idle'
-        end
-
-    elseif battleState.phase == 'fast_recalculate_and_setup' then
-        battleState.roundTotalContribution = 0
-        battleState.changedEmployeesForAnimation = {}
-        local currentRoundContributions = {}
-        for _, emp in ipairs(battleState.activeEmployees) do
-            local newContrib = Battle:calculateEmployeeContribution(emp, gameState)
-            currentRoundContributions[emp.instanceId] = newContrib
-            local oldContrib = battleState.lastRoundContributions[emp.instanceId]
-            if not oldContrib or newContrib.totalContribution ~= oldContrib.totalContribution then
-                table.insert(battleState.changedEmployeesForAnimation, {emp = emp, new = newContrib, old = oldContrib})
-            end
-        end
-        battleState.lastRoundContributions = currentRoundContributions
-        
-        for _, contrib in pairs(currentRoundContributions) do
-            battleState.roundTotalContribution = battleState.roundTotalContribution + contrib.totalContribution
-        end
-        
-        battleState.nextChangedEmployeeIndex = 1
-        
-        if #battleState.changedEmployeesForAnimation == 0 then
-            battleState.timer = 0.4 
-            battleState.phase = 'wait_for_apply'
-        else
-            battleState.phase = 'animating_changes'
-            battleState.timer = 0
-        end
-
-    elseif battleState.phase == 'wait_for_apply' then
-        if battleState.timer <= 0 then
-            battleState.phase = 'pre_apply_contribution'
-        end
-
-    elseif battleState.phase == 'animating_changes' then
-        if battleState.timer <= 0 then
-            if battleState.currentWorkerId then
-                battleState.nextChangedEmployeeIndex = battleState.nextChangedEmployeeIndex + 1
-            end
-            if battleState.nextChangedEmployeeIndex > #battleState.changedEmployeesForAnimation then
-                battleState.currentWorkerId = nil; battleState.lastContribution = nil
-                battleState.phase = 'pre_apply_contribution'
-            else
-                local changeInfo = battleState.changedEmployeesForAnimation[battleState.nextChangedEmployeeIndex]
-                battleState.currentWorkerId = changeInfo.emp.instanceId
-                battleState.lastContribution = changeInfo.new
-                battleState.isShaking = true
-                battleState.timer = 0.5
-            end
-        end
-        
-    elseif battleState.phase == 'pre_apply_contribution' then
-        local endOfRoundEventArgs = { pyramidSchemeActive = false }
-        EffectsDispatcher.dispatchEvent("onEndOfRound", gameState, endOfRoundEventArgs)
-
-        if endOfRoundEventArgs.pyramidSchemeActive then
-            local contributions = {}
-            for instId, contribData in pairs(battleState.lastRoundContributions) do
-                contributions[instId] = contribData.totalContribution
-            end
-            
-            local transfers = Battle:calculatePyramidSchemeTransfers(gameState, contributions)
-            for instId, amount in pairs(transfers) do
-                if battleState.lastRoundContributions[instId] then
-                    battleState.lastRoundContributions[instId].totalContribution = battleState.lastRoundContributions[instId].totalContribution + amount
-                end
-            end
-        end
-        
-        battleState.roundTotalContribution = 0
-        for _, contribData in pairs(battleState.lastRoundContributions) do
-            battleState.roundTotalContribution = battleState.roundTotalContribution + contribData.totalContribution
-        end
-
-        battleState.phase = 'apply_round_contribution'
-
-    elseif battleState.phase == 'apply_round_contribution' then
-        battleState.chipAmountRemaining = battleState.roundTotalContribution
-        if battleState.chipAmountRemaining > 0 then
-            local speedMultiplier = math.min(2 ^ gameState.currentWeekCycles, 16)
-            battleState.chipSpeed = math.max(150, battleState.chipAmountRemaining * 2.5) * speedMultiplier
-            battleState.chipTimer = 0
-            battleState.phase = 'chipping_workload'
-        else
-            battleState.phase = 'ending_round'
-        end
-        battleState.roundTotalContribution = 0
-
-    elseif battleState.phase == 'chipping_workload' then
-        if battleState.chipAmountRemaining > 0 and gameState.currentWeekWorkload > 0 then
-            battleState.chipTimer = battleState.chipTimer + dt
-            local chipsToProcess = math.floor(battleState.chipTimer * battleState.chipSpeed)
-            if chipsToProcess > 0 then
-                local amountToChipThisFrame = math.min(battleState.chipAmountRemaining, chipsToProcess, gameState.currentWeekWorkload)
-                gameState.currentWeekWorkload = gameState.currentWeekWorkload - amountToChipThisFrame
-                battleState.chipAmountRemaining = battleState.chipAmountRemaining - amountToChipThisFrame
-                battleState.chipTimer = battleState.chipTimer - (chipsToProcess / battleState.chipSpeed)
-            end
-        else
-            battleState.isShaking = false; battleState.currentWorkerId = nil; battleState.lastContribution = nil
-            if gameState.currentWeekWorkload <= 0 then handleWinCondition(); return end
-            battleState.phase = 'ending_round'
-        end
-
-    elseif battleState.phase == 'ending_round' then
-        if gameState.initialWorkloadForBar > 0 then
-            local progress = math.max(0, gameState.currentWeekWorkload / gameState.initialWorkloadForBar)
-            table.insert(battleState.progressMarkers, progress)
-        end
-        
-        battleState.salariesToPayThisRound = Battle:calculateTotalSalariesForRound(gameState)
-        battleState.phase = 'paying_salaries'
-
-    elseif battleState.phase == 'paying_salaries' then
-        battleState.salaryChipAmountRemaining = battleState.salariesToPayThisRound
-        if battleState.salaryChipAmountRemaining > 0 then
-            local speedMultiplier = math.min(2 ^ gameState.currentWeekCycles, 16)
-            battleState.chipSpeed = math.max(150, battleState.salaryChipAmountRemaining * 3.0) * speedMultiplier
-            battleState.chipTimer = 0
-            battleState.phase = 'chipping_salaries'
-        else
-            local roundResult = Battle:endWorkCycleRound(gameState, 0)
-            if roundResult == "lost_budget" then setGamePhase("game_over"); return end
-            if roundResult == "lost_bailout" then 
-                 local currentSprintData = GameData.ALL_SPRINTS[gameState.currentSprintIndex]; if currentSprintData then local currentWorkItemData = currentSprintData.workItems[gameState.currentWorkItemIndex]; if currentWorkItemData then gameState.currentWeekWorkload = currentWorkItemData.workload; gameState.initialWorkloadForBar = currentWorkItemData.workload; end; end
-                 gameState.currentWeekCycles = 0; gameState.totalSalariesPaidThisWeek = 0; gameState.currentShopOffers = {employees={}, upgrade=nil, restockCountThisWeek=0}
-                 setGamePhase("hiring_and_upgrades"); return 
-            end
-            local speedMultiplier = math.min(2 ^ gameState.currentWeekCycles, 16)
-            battleState.timer = 1.0 / speedMultiplier
-            battleState.phase = 'pausing_between_rounds'
-        end
-
-    elseif battleState.phase == 'chipping_salaries' then
-        if battleState.salaryChipAmountRemaining > 0 then
-             battleState.chipTimer = battleState.chipTimer + dt
-             local chipsToProcess = math.floor(battleState.chipTimer * battleState.chipSpeed)
-             if chipsToProcess > 0 then
-                 local amountToChipThisFrame = math.min(battleState.salaryChipAmountRemaining, chipsToProcess)
-                 gameState.budget = gameState.budget - amountToChipThisFrame
-                 gameState.totalSalariesPaidThisWeek = gameState.totalSalariesPaidThisWeek + amountToChipThisFrame
-                 battleState.salaryChipAmountRemaining = battleState.salaryChipAmountRemaining - amountToChipThisFrame
-                 battleState.chipTimer = battleState.chipTimer - (chipsToProcess / battleState.chipSpeed)
-             end
-        else
-            local roundResult = Battle:endWorkCycleRound(gameState, battleState.salariesToPayThisRound)
-            if roundResult == "lost_budget" then setGamePhase("game_over"); return end
-            if roundResult == "lost_bailout" then 
-                 local currentSprintData = GameData.ALL_SPRINTS[gameState.currentSprintIndex]; if currentSprintData then local currentWorkItemData = currentSprintData.workItems[gameState.currentWorkItemIndex]; if currentWorkItemData then gameState.currentWeekWorkload = currentWorkItemData.workload; gameState.initialWorkloadForBar = currentWorkItemData.workload; end; end
-                 gameState.currentWeekCycles = 0; gameState.totalSalariesPaidThisWeek = 0; gameState.currentShopOffers = {employees={}, upgrade=nil, restockCountThisWeek=0}
-                 setGamePhase("hiring_and_upgrades"); return 
-            end
-            local speedMultiplier = math.min(2 ^ gameState.currentWeekCycles, 16)
-            battleState.timer = 1.0 / speedMultiplier
-            battleState.phase = 'pausing_between_rounds'
-        end
     
-    elseif battleState.phase == 'pausing_between_rounds' then
-        if battleState.timer <= 0 then
-            gameState.currentWeekCycles = gameState.currentWeekCycles + 1
-            battleState.nextEmployeeIndex = 1
-            battleState.phase = 'fast_recalculate_and_setup'
+    if sprintOverviewState.isVisible then
+        for _, component in ipairs(sprintOverviewComponents) do
+            if sprintOverviewRects.backButton then
+                component.rect = sprintOverviewRects.backButton
+            end
+            if component.draw then
+                component:draw()
+            end
         end
     end
-end
-
-
-function assimilateTeamIntoBorg(gameState)
-    if #gameState.hiredEmployees == 0 then
-        Drawing.showModal("Assimilation Failed", "There is no one to assimilate.")
-        return
-    end
-
-    local totalProd, totalFocus = 0, 0
-    for _, emp in ipairs(gameState.hiredEmployees) do
-        totalProd = totalProd + emp.baseProductivity
-        totalFocus = totalFocus + emp.baseFocus
-    end
-
-    gameState.hiredEmployees = {}
-    gameState.deskAssignments = {}
-
-    local borgDrone = Employee:new('borg_drone', 'standard', "Borg Drone")
-    borgDrone.baseProductivity = totalProd
-    borgDrone.baseFocus = totalFocus
     
-    table.insert(gameState.hiredEmployees, borgDrone)
-    Placement:handleEmployeeDropOnDesk(gameState, borgDrone, "desk-4", nil)
-
-    Drawing.showModal("Resistance is Futile", "Your team has been assimilated into a single Borg Drone. You are now the Hivemind.")
+    modal:draw()
 end
-_G.assimilateTeamIntoBorg = assimilateTeamIntoBorg -- Make global for Shop module
-
-function performMultiverseMerger(gameState)
-    local confirmSwap = function()
-        local numEmployees = #gameState.hiredEmployees
-        if numEmployees == 0 then
-            Drawing.showModal("Merger Failed", "There is no team to merge with the multiverse.")
-            return
-        end
-        
-        gameState.hiredEmployees = {}
-        gameState.deskAssignments = {}
-        
-        local newTeam = {}
-        for i = 1, numEmployees do
-            table.insert(newTeam, Shop:_generateRandomEmployeeOffer())
-        end
-        
-        gameState.hiredEmployees = newTeam
-
-        local officeWorkers = {}
-        for _, emp in ipairs(gameState.hiredEmployees) do
-            if emp.variant ~= 'remote' then
-                table.insert(officeWorkers, emp)
-            end
-        end
-
-        for _, desk in ipairs(gameState.desks) do
-            if #officeWorkers == 0 then break end
-            if desk.status == 'owned' then
-                local worker = table.remove(officeWorkers, 1)
-                Placement:handleEmployeeDropOnDesk(gameState, worker, desk.id, nil)
-            end
-        end
-
-        gameState.temporaryEffectFlags.multiverseMergerAvailable = false
-        Drawing.showModal("Worlds Collide!", "Your team has been swapped with one from an alternate reality!")
-    end
-
-    Drawing.showModal("Confirm Merger", "Are you sure you want to swap your entire team with a random one from another dimension? This cannot be undone.", {
-        {text = "Yes, Do It!", onClick = confirmSwap, style="danger"},
-        {text = "No, Too Risky", onClick = function() Drawing.hideModal() end, style="primary"}
-    })
-end
-
-function enactCorporatePersonhood(gameState)
-    -- Evict anyone from the center desk to make room
-    if gameState.deskAssignments['desk-4'] then
-        local evictedEmployee = getEmployeeFromGameState(gameState, gameState.deskAssignments['desk-4'])
-        if evictedEmployee then
-            evictedEmployee.variant = 'remote' -- Move them to remote as a fallback
-            evictedEmployee.deskId = nil
-            Drawing.showModal("Eviction Notice", evictedEmployee.name .. " was moved to remote work to make way for The Corporation.")
-        end
-        gameState.deskAssignments['desk-4'] = nil
-    end
-
-    -- Create the corporation as a new, permanent employee
-    local corporation = Employee:new('corporate_personhood_employee', 'standard', "The Corporation")
-    if corporation then
-        -- Calculate its initial stats
-        local ownedDesks = Placement:getOwnedDeskCount(gameState)
-        corporation.baseProductivity = (ownedDesks * 20) + (#gameState.purchasedPermanentUpgrades * 10)
-        corporation.baseFocus = 1.0 + (ownedDesks * 0.1)
-
-        table.insert(gameState.hiredEmployees, corporation)
-        Placement:handleEmployeeDropOnDesk(gameState, corporation, "desk-4", nil)
-        Drawing.showModal("Manifestation!", "The Office itself has become a sentient entity, taking its rightful place at the center of power.")
-    else
-        print("ERROR: Corporate Personhood is owned, but could not create 'corporate_personhood_employee'. Check its definition in data.lua.")
-    end
-end
-_G.enactCorporatePersonhood = enactCorporatePersonhood -- Make global for Shop module
-
 
 function handleWinCondition()
+    SoundManager:playEffect('win')
     local currentSprint = GameData.ALL_SPRINTS[gameState.currentSprintIndex]
     if not currentSprint then return end
     local currentWorkItem = currentSprint.workItems[gameState.currentWorkItemIndex]
@@ -684,7 +1022,7 @@ function handleWinCondition()
         end
         
         local eventArgs = { vampireDrain = 0, budgetBonus = 0, isBossItem = currentWorkItem.id:find("boss") }
-        EffectsDispatcher.dispatchEvent("onWorkItemComplete", gameState, eventArgs)
+        EffectsDispatcher.dispatchEvent("onWorkItemComplete", gameState, eventArgs, { modal = modal })
         
         totalBudgetBonus = totalBudgetBonus + eventArgs.budgetBonus
         vampireBudgetDrain = eventArgs.vampireDrain
@@ -701,7 +1039,7 @@ function handleWinCondition()
         workItemReward = 0
         vampireBudgetDrain = 0
         local eventArgs = { vampireDrain = 0, budgetBonus = 0, isBossItem = currentWorkItem.id:find("boss") }
-        EffectsDispatcher.dispatchEvent("onWorkItemComplete", gameState, eventArgs) 
+        EffectsDispatcher.dispatchEvent("onWorkItemComplete", gameState, eventArgs, { modal = modal }) 
         print("Venture Capital active: Forfeiting all budget rewards.")
     end
     
@@ -725,16 +1063,16 @@ function handleWinCondition()
     
     local resultMessage = table.concat(resultLines, "\n")
     
-    GameState:setGamePhase(gameState, 'battle_over')
+    setGamePhase('battle_over')
     
     local nextActionCallback = function()
-        Drawing.hideModal()
+        modal:hide()
         gameState.currentWorkItemIndex = gameState.currentWorkItemIndex + 1
         if gameState.currentWorkItemIndex > 3 then
             gameState.currentWorkItemIndex = 1
             gameState.currentSprintIndex = gameState.currentSprintIndex + 1
             
-            EffectsDispatcher.dispatchEvent("onSprintStart", gameState)
+            EffectsDispatcher.dispatchEvent("onSprintStart", gameState, { modal = modal })
             
             gameState.temporaryEffectFlags.motivationalSpeakerUsedThisSprint = nil
             gameState.temporaryEffectFlags.reOrgUsedThisSprint = nil
@@ -747,8 +1085,8 @@ function handleWinCondition()
             end
 
             if gameState.currentSprintIndex > #GameData.ALL_SPRINTS then
-                local finalWinCallback = function() Drawing.hideModal(); resetGameAndGlobals() end
-                Drawing.showModal("Project Complete!", "You have cleared all 8 Sprints! Congratulations!", { {text = "Play Again?", onClick = finalWinCallback, style = "primary"} })
+                local finalWinCallback = function() modal:hide(); resetGameAndGlobals() end
+                modal:show("Project Complete!", "You have cleared all 8 Sprints! Congratulations!", { {text = "Play Again?", onClick = finalWinCallback, style = "primary"} })
                 return
             else
                 local permUpgrades = {}; for _, upgId in ipairs(gameState.purchasedPermanentUpgrades) do local isTemp = false; for _, upgData in ipairs(GameData.ALL_UPGRADES) do if upgId == upgData.id and upgData.effect.duration_weeks then isTemp = true; break end; end; if not isTemp then table.insert(permUpgrades, upgId) end; end
@@ -760,7 +1098,7 @@ function handleWinCondition()
     end
 
     local modalTitle = "WORK ITEM COMPLETE!\n" .. currentWorkItem.name
-    Drawing.showModal(modalTitle, resultMessage, { {text = "Continue", onClick = nextActionCallback, style = "primary"} }, 400)
+    modal:show(modalTitle, resultMessage, { {text = "Continue", onClick = nextActionCallback, style = "primary"} }, 400)
 end
 
 function setGamePhase(newPhase)
@@ -768,94 +1106,61 @@ function setGamePhase(newPhase)
     GameState:setGamePhase(gameState, newPhase)
     print("Game phase transitioned from " .. oldPhase .. " to " .. newPhase)
 
-    if newPhase == "hiring_and_upgrades" then 
-        if gameState.currentShopOffers and gameState.currentShopOffers.restockCountThisWeek == 0 then
-            Shop:populateOffers(gameState.currentShopOffers, gameState.purchasedPermanentUpgrades, false)
-        end
-        draggedItemState.item = nil 
-    
-    elseif newPhase == "battle_active" then
-        battleState = {
-            activeEmployees = {}, nextEmployeeIndex = 1, currentWorkerId = nil,
-            lastContribution = nil, phase = 'idle', timer = 0, isShaking = false,
-            chipAmountRemaining = 0, chipSpeed = 100, chipTimer = 0,
-            roundTotalContribution = 0, lastRoundContributions = {},
-            changedEmployeesForAnimation = {}, nextChangedEmployeeIndex = 1,
-            progressMarkers = {}
-        }
-        _G.battleState = battleState
-
-        gameState.currentWeekCycles = 0
-        gameState.totalSalariesPaidThisWeek = 0
-        
-        local placed, remote = {}, {}
-        local topRowDeskIds = {"desk-0", "desk-1", "desk-2"}
-
-        for _, emp in ipairs(gameState.hiredEmployees) do
-            local isDisabled = false
-            if emp.isTraining then isDisabled = true end
-            if emp.special and emp.special.does_not_work then isDisabled = true end
-            if emp.special and emp.special.type == 'ron_swanson_behavior' and gameState.budget > emp.special.upper_budget_threshold then
-                isDisabled = true; print(emp.name .. " refuses to work; the government has too much money.")
-            end
-            if gameState.temporaryEffectFlags.isRemoteWorkDisabled and emp.variant == 'remote' then isDisabled = true end
-            if gameState.temporaryEffectFlags.isTopRowDisabled and emp.deskId then
-                for _, topDeskId in ipairs(topRowDeskIds) do if emp.deskId == topDeskId then isDisabled = true; break end end
-            end
-            if not isDisabled then
-                if emp.variant == 'remote' then table.insert(remote, emp) 
-                elseif emp.deskId then table.insert(placed, emp)
-                end
-            end
-        end
-        table.sort(placed, function(a, b) return (tonumber(string.match(a.deskId, "desk%-(%d+)")) or 99) < (tonumber(string.match(b.deskId, "desk%-(%d+)")) or 99) end)
-        
-        battleState.activeEmployees = {}; for _, emp in ipairs(placed) do table.insert(battleState.activeEmployees, emp) end; for _, emp in ipairs(remote) do table.insert(battleState.activeEmployees, emp) end
-        
-        if Shop:isUpgradePurchased(gameState.purchasedPermanentUpgrades, 'focus_funnel', gameState) and #battleState.activeEmployees > 0 then
-            local target = battleState.activeEmployees[love.math.random(#battleState.activeEmployees)]
-            gameState.temporaryEffectFlags.focusFunnelTargetId = target.instanceId
-            print(target.name .. " is the Focus Funnel target for this item.")
-        end
-
-        local lumberghs = {}; for _, emp in ipairs(gameState.hiredEmployees) do if emp.special and emp.special.type == 'forces_double_work' then table.insert(lumberghs, emp); end; end
-        if #lumberghs > 0 then
-            for _, lumbergh in ipairs(lumberghs) do
-                local victims = {}
-                if lumbergh.deskId then
-                    local directions = {"up", "down", "left", "right"}; for _, dir in ipairs(directions) do local neighborDeskId = Employee:getNeighboringDeskId(lumbergh.deskId, dir, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, gameState.desks); if neighborDeskId and gameState.deskAssignments[neighborDeskId] then local neighbor = getEmployeeFromGameState(gameState, gameState.deskAssignments[neighborDeskId]); if neighbor then table.insert(victims, neighbor) end; end; end
-                    for _, victim in ipairs(victims) do for i = 1, (lumbergh.level or 1) do table.insert(battleState.activeEmployees, victim); end; end
-                elseif lumbergh.variant == 'remote' then
-                    local potentialVictims = {}; for _, e in ipairs(remote) do if e.instanceId ~= lumbergh.instanceId then table.insert(potentialVictims, e) end end
-                    for i = 1, 2 do if #potentialVictims > 0 then local victim = table.remove(potentialVictims, love.math.random(#potentialVictims)); for j = 1, (lumbergh.level or 1) do table.insert(battleState.activeEmployees, victim); end; end; end
-                end
-            end
-        end
-        local agileCoach = nil; for _, emp in ipairs(gameState.hiredEmployees) do if emp.special and emp.special.type == 'randomize_work_order' then agileCoach = emp; break; end; end
-        if agileCoach and #battleState.activeEmployees > 0 then
-            for i = #battleState.activeEmployees, 2, -1 do local j = love.math.random(i); battleState.activeEmployees[i], battleState.activeEmployees[j] = battleState.activeEmployees[j], battleState.activeEmployees[i]; end
-            if battleState.activeEmployees[1] then battleState.activeEmployees[1].agileFirstTurnBoost = agileCoach.special.first_worker_mult; print("Agile Coach randomized work order. First worker is " .. battleState.activeEmployees[1].name); end
-        end
-        
-        if #battleState.activeEmployees == 0 then
-            Drawing.showModal("Stuck!", "No employees available to work. Any staff in training will be ready next cycle.")
-            safeTimerAfter(1.0, function()
-                local result = Battle:endWorkCycleRound(gameState, 0)
-                if result == "lost_budget" then setGamePhase("game_over") elseif result == "lost_bailout" then setGamePhase("hiring_and_upgrades") end
-            end)
-        end
+    if newPhase == "battle_active" and oldPhase ~= "battle_active" then
+        SoundManager:playMusic('battle')
+        battlePhaseManager:changePhase('idle', gameState, battleState) 
+    elseif (oldPhase == "battle_active" or oldPhase == "battle_over") and newPhase == "hiring_and_upgrades" then
+        SoundManager:playMusic('main')
     end
+
+    -- Reset battle state when leaving battle
+    if (oldPhase == "battle_active" or oldPhase == "battle_over") and 
+       (newPhase ~= "battle_active" and newPhase ~= "battle_over") then
+        Battle:resetBattleState(battleState, gameState)
+    end
+
+    -- Create context for state manager
+    local context = {
+        panelRects = panelRects,
+        uiElementRects = uiElementRects,
+        draggedItemState = draggedItemState,
+        sprintOverviewState = sprintOverviewState,
+        buildUIComponents = buildUIComponents,
+        setGamePhase = setGamePhase,
+        getEmployeeFromGameState = getEmployeeFromGameState,
+        Placement = Placement,
+        Shop = Shop,
+        updateBattle = updateBattle,
+        modal = modal
+    }
+    
+    -- Use state manager to change state
+    stateManager:changeState(newPhase, gameState, battleState, context)
+    
+    draggedItemState.item = nil 
+    
+    -- Always rebuild the UI to match the new game state
+    buildUIComponents()
+end
+
+function getEmployeeFromGameState(gs, instanceId)
+    if not gs or not gs.hiredEmployees or not instanceId then return nil end
+    for _, emp in ipairs(gs.hiredEmployees) do
+        if emp.instanceId == instanceId then return emp end
+    end
+    return nil
 end
 
 function resetGameAndGlobals()
     print("Resetting game and globals...")
     gameState = GameState:new()
-    _G.gameState = gameState
     draggedItemState.item = nil
+    
+    -- Reset the state manager
+    stateManager = StateManager:new()
+    
     setGamePhase("hiring_and_upgrades") 
     print("Game reset complete.")
 end
 
-_G.setGamePhase = setGamePhase
-_G.Placement = Placement -- Make Placement global for Drawing module to access
-_G.Shop = Shop -- Make Shop global for Drawing module to access
+_G.buildUIComponents = buildUIComponents

@@ -7,10 +7,17 @@ local Placement = require("placement")
 
 local Battle = {}
 
--- Called when "Start Work Item" is pressed.
--- Initializes workload, resets counters for the new item.
-function Battle:startChallenge(gameState)
-    require("effects_dispatcher").dispatchEvent("onWorkItemStart", gameState)
+-- This helper function is now local to this module
+local function getEmployeeFromGameState(gs, instanceId)
+    if not gs or not gs.hiredEmployees or not instanceId then return nil end
+    for _, emp in ipairs(gs.hiredEmployees) do
+        if emp.instanceId == instanceId then return emp end
+    end
+    return nil
+end
+
+function Battle:startChallenge(gameState, showMessage)
+    require("effects_dispatcher").dispatchEvent("onWorkItemStart", gameState, { modal = modal })
 
     gameState.temporaryEffectFlags.isTopRowDisabled = nil
     gameState.temporaryEffectFlags.isRemoteWorkDisabled = nil
@@ -18,37 +25,6 @@ function Battle:startChallenge(gameState)
     gameState.temporaryEffectFlags.itGuyUsedThisItem = nil 
     gameState.temporaryEffectFlags.globalFocusMultiplier = nil 
     gameState.temporaryEffectFlags.globalSalaryMultiplier = nil
-    
-    if gameState.temporaryEffectFlags.motivationalBoostNextItem then
-        gameState.temporaryEffectFlags.globalFocusMultiplier = 2.0 
-        gameState.temporaryEffectFlags.motivationalBoostNextItem = nil 
-    end
-
-    if gameState.temporaryEffectFlags.photocopierTargetForNextItem then
-        local target = getEmployeeFromGameState(gameState, gameState.temporaryEffectFlags.photocopierTargetForNextItem)
-        local emptyDeskId = nil
-        for _, desk in ipairs(gameState.desks) do
-            if desk.status == 'owned' and not gameState.deskAssignments[desk.id] then
-                emptyDeskId = desk.id
-                break
-            end
-        end
-
-        if target and emptyDeskId then
-            local clone = Employee:new(target.id, target.variant, "Clone of " .. target.fullName)
-            clone.isTemporaryClone = true
-            clone.weeklySalary = 0
-            clone.level = target.level
-            clone.baseProductivity = target.baseProductivity
-            clone.baseFocus = target.baseFocus
-            table.insert(gameState.hiredEmployees, clone)
-            Placement:handleEmployeeDropOnDesk(gameState, clone, emptyDeskId, nil)
-            _G.showMessage("Photocopied!", "A temporary clone of " .. target.name .. " has appeared for this work item!")
-        else
-            _G.showMessage("Photocopy Failed", "Could not create a clone. Ensure there is an empty desk available.")
-        end
-        gameState.temporaryEffectFlags.photocopierTargetForNextItem = nil 
-    end
 
     for _, emp in ipairs(gameState.hiredEmployees) do
         emp.workCyclesThisItem = 0
@@ -70,26 +46,6 @@ function Battle:startChallenge(gameState)
         gameState.temporaryEffectFlags.gladosModifierForNextItem = nil 
     end
 
-    if gameState.currentWorkItemIndex == 1 and not gameState.temporaryEffectFlags.museUsedThisSprint then
-        local muse = nil
-        for _, emp in ipairs(gameState.hiredEmployees) do
-            if emp.special and emp.special.type == 'inspire_teammate' then
-                muse = emp
-                break
-            end
-        end
-        if muse then
-            local potentialTargets = {}
-            for _, emp in ipairs(gameState.hiredEmployees) do if emp.id ~= muse.id then table.insert(potentialTargets, emp) end end
-            if #potentialTargets > 0 then
-                local target = potentialTargets[love.math.random(#potentialTargets)]
-                target.isInspired = true
-                gameState.temporaryEffectFlags.museUsedThisSprint = true
-                print(muse.name .. " has inspired " .. target.name .. "!")
-            end
-        end
-    end
-
     local currentSprintData = GameData.ALL_SPRINTS[gameState.currentSprintIndex]
     if not currentSprintData then
         print("Error or All Sprints Cleared: CurrentSprintIndex is " .. tostring(gameState.currentSprintIndex))
@@ -102,26 +58,6 @@ function Battle:startChallenge(gameState)
     end
 
     gameState.currentWeekWorkload = currentWorkItemData.workload
-    
-    if gameState.purchasedPermanentUpgrades then
-        for _, upgradeId in ipairs(gameState.purchasedPermanentUpgrades) do
-            if upgradeId == "consultant_visit" and gameState.temporaryEffectFlags.consultantVisitUsedThisWeek ~= true then
-                local consultantUpgrade = nil
-                for _, upg in ipairs(GameData.ALL_UPGRADES) do if upg.id == "consultant_visit" then consultantUpgrade = upg; break; end end
-                if consultantUpgrade and consultantUpgrade.effect and consultantUpgrade.effect.type == "one_time_workload_reduction_percent" then
-                    local reduction = math.floor(gameState.currentWeekWorkload * consultantUpgrade.effect.value)
-                    gameState.currentWeekWorkload = gameState.currentWeekWorkload - reduction
-                    print("Consultant Visit! Workload reduced by " .. reduction)
-                    gameState.temporaryEffectFlags.consultantVisitUsedThisWeek = true
-                end
-            end
-            if upgradeId == "team_building_event" and gameState.temporaryEffectFlags.teamBuildingFocusBoostNextWeek then
-                gameState.temporaryEffectFlags.teamBuildingActiveThisWeek = true
-                gameState.temporaryEffectFlags.teamBuildingFocusBoostNextWeek = nil 
-                 print("Team Spirit High! Focus boosted this week.")
-            end
-        end
-    end
 
     if currentWorkItemData.modifier then
         local mod = currentWorkItemData.modifier
@@ -141,121 +77,125 @@ end
 
 -- Calculates the contribution for a single employee.
 function Battle:calculateEmployeeContribution(employeeInstance, gameState)
-    local EffectsDispatcher = require("effects_dispatcher")
+   local EffectsDispatcher = require("effects_dispatcher")
+   
+   local eventArgs = {
+       wasInstaWin = false,
+       shouldSkipWorkload = false,
+       overrideContribution = nil,
+       employee = employeeInstance,
+       productivityMultiplier = 1,
+       contributionMultiplier = 1,
+       focusMultiplier = 1,
+   }
+   EffectsDispatcher.dispatchEvent("onBeforeContribution", gameState, eventArgs, { modal = modal })
+
+   if eventArgs.wasInstaWin then
+       gameState.currentWeekWorkload = 0
+       return { productivity = 9999, focus = 9999, totalContribution = 99999 }
+   end
+   
+   if eventArgs.overrideContribution then
+       return eventArgs.overrideContribution
+   end
+
+   if eventArgs.shouldSkipWorkload then
+       return { productivity = eventArgs.productivity, focus = eventArgs.focus, totalContribution = 0 }
+   end
+
+   employeeInstance.workCyclesThisItem = (employeeInstance.workCyclesThisItem or 0) + 1
+
+   local stats = Employee:calculateStatsWithPosition(employeeInstance, gameState.hiredEmployees, gameState.deskAssignments, gameState.purchasedPermanentUpgrades, gameState.desks, gameState)
+   local individualProductivity = stats.currentProductivity
+   local individualFocus = stats.currentFocus
+   
+   -- Store original values for display
+   local displayProductivity = individualProductivity
+   local displayFocus = individualFocus
+   
+   individualProductivity = individualProductivity * eventArgs.productivityMultiplier
+   individualFocus = individualFocus * eventArgs.focusMultiplier
+
+   if gameState.temporaryEffectFlags.officeDogActiveThisTurn and gameState.temporaryEffectFlags.officeDogTarget == employeeInstance.instanceId then
+       individualFocus = individualFocus * 2
+       print(employeeInstance.name .. " gets Office Dog focus boost! New Focus: " .. individualFocus)
+       gameState.temporaryEffectFlags.officeDogActiveThisTurn = false 
+       gameState.temporaryEffectFlags.officeDogTarget = nil
+   end
+   
+   local employeeContribution = math.floor(individualProductivity * individualFocus)
+   
+   employeeContribution = math.floor(employeeContribution * eventArgs.contributionMultiplier)
+
+   employeeInstance.contributionThisItem = (employeeInstance.contributionThisItem or 0) + employeeContribution
+   
+   -- Store multiplier info for battle display
+   local multiplierText = ""
+   if eventArgs.productivityMultiplier > 1 or eventArgs.focusMultiplier > 1 or eventArgs.contributionMultiplier > 1 then
+       local multipliers = {}
+       if eventArgs.productivityMultiplier > 1 then
+           table.insert(multipliers, string.format("P×%.1f", eventArgs.productivityMultiplier))
+       end
+       if eventArgs.focusMultiplier > 1 then
+           table.insert(multipliers, string.format("F×%.1f", eventArgs.focusMultiplier))
+       end
+       if eventArgs.contributionMultiplier > 1 then
+           table.insert(multipliers, string.format("C×%.1f", eventArgs.contributionMultiplier))
+       end
+       multiplierText = " (" .. table.concat(multipliers, ", ") .. ")"
+   end
+   
+   local afterContributionEventArgs = {
+       contribution = employeeContribution,
+       employee = employeeInstance
+   }
+   EffectsDispatcher.dispatchEvent("onAfterContribution", gameState, afterContributionEventArgs, { modal = modal })
+
+   return {
+       productivity = displayProductivity,
+       focus = displayFocus,
+       totalContribution = employeeContribution,
+       multiplierText = multiplierText
+   }
+end
+
+function Battle:resetBattleState(battleState, gameState)
+    -- Reset all battle state properties
+    battleState.activeEmployees = {}
+    battleState.nextEmployeeIndex = 1
+    battleState.currentWorkerId = nil
+    battleState.lastContribution = nil
+    battleState.phase = 'idle'
+    battleState.timer = 0
+    battleState.isShaking = false
+    battleState.chipAmountRemaining = 0
+    battleState.chipSpeed = 100
+    battleState.chipTimer = 0
+    battleState.roundTotalContribution = 0
+    battleState.lastRoundContributions = {}
+    battleState.changedEmployeesForAnimation = {}
+    battleState.nextChangedEmployeeIndex = 1
+    battleState.progressMarkers = {}
+    battleState.salariesToPayThisRound = 0
+    battleState.salaryChipAmountRemaining = 0
     
-    local eventArgs = {
-        wasInstaWin = false,
-        shouldSkipWorkload = false,
-        overrideContribution = nil,
-        employee = employeeInstance,
-        productivityMultiplier = 1,
-        contributionMultiplier = 1,
-    }
-    EffectsDispatcher.dispatchEvent("onBeforeContribution", gameState, eventArgs)
-
-    if eventArgs.wasInstaWin then
-        gameState.currentWeekWorkload = 0
-        return { productivity = 9999, focus = 9999, totalContribution = 99999 }
+    -- Clear all employee battle-specific flags
+    for _, emp in ipairs(gameState.hiredEmployees) do
+        emp.isRebooted = nil
+        emp.snackBoostActive = nil
+        emp.snackBoostMultiplier = nil
+        emp.snackBoostLevel = nil
+        emp.narratorBoostActive = nil
+        emp.agileFirstTurnBoost = nil
+        emp.isInspired = nil
+        emp.isFirstMover = nil
+        emp.isAutomated = nil
+        emp.assemblyLinePosition = nil
+        emp.workCyclesThisItem = 0
+        emp.contributionThisItem = 0
     end
     
-    if eventArgs.overrideContribution then
-        return eventArgs.overrideContribution
-    end
-
-    if eventArgs.shouldSkipWorkload then
-        -- This return is different because productivity/focus are already calculated inside the listener
-        return { productivity = eventArgs.productivity, focus = eventArgs.focus, totalContribution = 0 }
-    end
-
-    employeeInstance.workCyclesThisItem = (employeeInstance.workCyclesThisItem or 0) + 1
-
-    local stats = Employee:calculateStatsWithPosition(employeeInstance, gameState.hiredEmployees, gameState.deskAssignments, gameState.purchasedPermanentUpgrades, gameState.desks, gameState)
-    local individualProductivity = stats.currentProductivity
-    local individualFocus = stats.currentFocus
-    
-    individualProductivity = individualProductivity * eventArgs.productivityMultiplier
-
-    if employeeInstance.isFirstMover then
-        individualProductivity = individualProductivity * 2
-        individualFocus = individualFocus * 2
-        table.insert(stats.calculationLog.productivity, "*2 from First Mover")
-        table.insert(stats.calculationLog.focus, "*2 from First Mover")
-    end
-    if employeeInstance.isAutomated then
-        table.insert(stats.calculationLog.productivity, "Contribution will be doubled by Automation v1")
-    end
-
-    if employeeInstance.snackBoostActive then
-        local focusMultiplier = 1.5
-        if employeeInstance.special and employeeInstance.special.scales_with_level then focusMultiplier = 1 + ((focusMultiplier - 1) * (employeeInstance.level or 1)) end
-        individualFocus = individualFocus * focusMultiplier
-        employeeInstance.snackBoostActive = nil
-        table.insert(stats.calculationLog.focus, string.format("*%.1fx from Snack!", focusMultiplier))
-    end
-
-    if employeeInstance.narratorBoostActive then
-        local focusBonus = 0.1
-        local narrator = nil
-        for _, emp in ipairs(gameState.hiredEmployees) do if emp.special and emp.special.type == 'narrator_boost' then narrator = emp; break; end end
-        if narrator and narrator.special.scales_with_level then focusBonus = focusBonus * (narrator.level or 1) end
-        individualFocus = individualFocus * (1 + focusBonus)
-        employeeInstance.narratorBoostActive = nil
-        table.insert(stats.calculationLog.focus, string.format("+%.0f%% from Narrator", focusBonus * 100))
-    end
-
-    if gameState.temporaryEffectFlags.officeDogActiveThisTurn and gameState.temporaryEffectFlags.officeDogTarget == employeeInstance.instanceId then
-        individualFocus = individualFocus * 2
-        print(employeeInstance.name .. " gets Office Dog focus boost! New Focus: " .. individualFocus)
-        gameState.temporaryEffectFlags.officeDogActiveThisTurn = false 
-        gameState.temporaryEffectFlags.officeDogTarget = nil
-    end
-    
-    local employeeContribution = math.floor(individualProductivity * individualFocus)
-    
-    employeeContribution = math.floor(employeeContribution * eventArgs.contributionMultiplier)
-
-    if employeeInstance.agileFirstTurnBoost then
-        local boost = employeeInstance.agileFirstTurnBoost
-        local agileCoach
-        for _, e in ipairs(gameState.hiredEmployees) do if e.special and e.special.type == 'randomize_work_order' then agileCoach = e; break; end end
-        if agileCoach and agileCoach.special.scales_with_level then boost = 1 + ((boost - 1) * (agileCoach.level or 1)) end
-        employeeContribution = math.floor(employeeContribution * boost)
-        table.insert(stats.calculationLog.productivity, string.format("*%.1fx from Agile Rush", boost))
-        employeeInstance.agileFirstTurnBoost = nil
-    end
-    
-    if employeeInstance.isRebooted then
-        local rebootMultiplier = 3
-        employeeContribution = employeeContribution * rebootMultiplier
-        employeeInstance.isRebooted = nil 
-    end
-
-    if employeeInstance.isInspired then
-        local museMultiplier = 3
-        local muse
-        for _, e in ipairs(gameState.hiredEmployees) do if e.special and e.special.type == 'inspire_teammate' then muse = e; break; end end
-        if muse and muse.special.scales_with_level then museMultiplier = 1 + ((museMultiplier - 1) * (muse.level or 1)) end
-        employeeContribution = employeeContribution * museMultiplier
-        employeeInstance.isInspired = nil
-        print(employeeInstance.name .. " feels inspired! Contribution multiplied by " .. museMultiplier)
-    end
-
-    if employeeInstance.isAutomated then
-        employeeContribution = employeeContribution * 2
-    end
-
-    employeeInstance.contributionThisItem = (employeeInstance.contributionThisItem or 0) + employeeContribution
-    
-    local afterContributionEventArgs = {
-        contribution = employeeContribution
-    }
-    EffectsDispatcher.dispatchEvent("onAfterContribution", gameState, afterContributionEventArgs)
-
-    return {
-        productivity = individualProductivity,
-        focus = individualFocus,
-        totalContribution = employeeContribution
-    }
+    print("Battle state fully reset")
 end
 
 function Battle:calculateTotalSalariesForRound(gameState)
@@ -263,55 +203,20 @@ function Battle:calculateTotalSalariesForRound(gameState)
         cumulativePercentReduction = 1.0,
         totalFlatReduction = 0,
         salaryCap = nil,
-        skipPayday = false
+        skipPayday = false,
+        excludeEmployee = {}
     }
-    require("effects_dispatcher").dispatchEvent("onCalculateSalaries", gameState, eventArgs)
+    require("effects_dispatcher").dispatchEvent("onCalculateSalaries", gameState, eventArgs, { modal = modal })
 
     if eventArgs.skipPayday then
         print("Payday skipped due to listener effect (e.g., Four-Day Work Week)!")
         return 0
     end
 
-    local unionRepIsPresent = false; local accountantIsPresent = false; local csmIsPresent = false
-    local csmSalaryMultiplier = 1.0
-    for _, emp in ipairs(gameState.hiredEmployees) do
-        if emp.special then
-            if emp.special.prevents_salary_reduction then unionRepIsPresent = true end
-            if emp.special.rounds_salaries then accountantIsPresent = true end
-            if emp.special.type == 'secret_effects' then
-                csmIsPresent = true; csmSalaryMultiplier = emp.special.salary_increase
-            end
-        end
-    end
-
     local totalSalariesThisRound = 0
     
-    if not unionRepIsPresent then
-        for _, emp in ipairs(gameState.hiredEmployees) do
-            if emp.special and emp.special.type == 'salary_reduction_percent_team' then
-                local reduction = emp.special.value
-                if emp.special.scales_with_level then reduction = 1 - ((1 - reduction) ^ (emp.level or 1)) end
-                eventArgs.cumulativePercentReduction = eventArgs.cumulativePercentReduction * (1 - reduction)
-            end
-        end
-        if gameState.purchasedPermanentUpgrades then
-            for _, upgradeId in ipairs(gameState.purchasedPermanentUpgrades) do
-                if not (gameState.temporaryEffectFlags.disabledUpgrades and gameState.temporaryEffectFlags.disabledUpgrades[upgradeId]) then
-                    for _, upg in ipairs(GameData.ALL_UPGRADES) do
-                        if upg.id == upgradeId and upg.effect and upg.effect.type == 'reduce_all_salaries_percent' then
-                            eventArgs.cumulativePercentReduction = eventArgs.cumulativePercentReduction * (1 - upg.effect.value)
-                        end
-                        if upg.id == upgradeId and upg.effect and upg.effect.type == 'reduce_all_salaries_flat' then
-                            eventArgs.totalFlatReduction = eventArgs.totalFlatReduction + upg.effect.value
-                        end
-                    end
-                end
-            end
-        end
-    end
-
     for _, emp in ipairs(gameState.hiredEmployees) do
-        if not (emp.special and emp.special.type == 'vampire_budget_drain') then
+        if not eventArgs.excludeEmployee[emp.instanceId] then
             local finalSalary = emp.weeklySalary
             finalSalary = finalSalary - eventArgs.totalFlatReduction
             finalSalary = finalSalary * eventArgs.cumulativePercentReduction
@@ -324,9 +229,10 @@ function Battle:calculateTotalSalariesForRound(gameState)
         end
     end
     
-    if csmIsPresent then totalSalariesThisRound = math.floor(totalSalariesThisRound * csmSalaryMultiplier); print("Salaries secretly increased by CSM...") end
-    if gameState.temporaryEffectFlags.globalSalaryMultiplier then totalSalariesThisRound = math.floor(totalSalariesThisRound * gameState.temporaryEffectFlags.globalSalaryMultiplier); print("Salaries increased by GLaDOS test...") end
-    if accountantIsPresent then totalSalariesThisRound = math.floor(totalSalariesThisRound / 100 + 0.5) * 100; print("Accountant rounded total salaries to: $" .. totalSalariesThisRound) end
+    if gameState.temporaryEffectFlags.globalSalaryMultiplier then 
+        totalSalariesThisRound = math.floor(totalSalariesThisRound * gameState.temporaryEffectFlags.globalSalaryMultiplier)
+        print("Salaries increased by GLaDOS test...")
+    end
     
     return totalSalariesThisRound
 end
@@ -396,18 +302,18 @@ function Battle:calculatePyramidSchemeTransfers(gameState, roundContributions)
 end
 
 -- Processes logic at the end of a full work round.
-function Battle:endWorkCycleRound(gameState, totalSalariesThisRound)
-    require("effects_dispatcher").dispatchEvent("onEndOfRound", gameState, { totalSalaries = totalSalariesThisRound })
+function Battle:endWorkCycleRound(gameState, totalSalariesThisRound, showMessage)
+    require("effects_dispatcher").dispatchEvent("onEndOfRound", gameState, { totalSalaries = totalSalariesThisRound }, { modal = modal })
 
     print("End of Work Cycle #" .. gameState.currentWeekCycles)
     print("Salaries paid this round: $" .. totalSalariesThisRound .. ". Budget remaining: $" .. gameState.budget)
     
     if gameState.budget < 0 then
         local eventArgs = { gameOverPrevented = false, message = "" }
-        require("effects_dispatcher").dispatchEvent("onBudgetDepleted", gameState, eventArgs)
+        require("effects_dispatcher").dispatchEvent("onBudgetDepleted", gameState, eventArgs, { modal = modal })
 
         if eventArgs.gameOverPrevented then
-            _G.showMessage("Saved!", eventArgs.message)
+            showMessage("Saved!", eventArgs.message)
             gameState.budget = GameData.BAILOUT_BUDGET_AMOUNT
             return "lost_bailout"
         end
@@ -420,10 +326,10 @@ function Battle:endWorkCycleRound(gameState, totalSalariesThisRound)
             end
             
             if bailoutIsFree then 
-                _G.showMessage("Legal Loophole!", "Your legal team found a loophole. The bailout is free! The current work item will restart.")
+                showMessage("Legal Loophole!", "Your legal team found a loophole. The bailout is free! The current work item will restart.")
             else 
                 gameState.bailOutsRemaining = gameState.bailOutsRemaining - 1
-                _G.showMessage("Emergency Bailout!", "Budget crisis averted! Bailouts remaining: " .. gameState.bailOutsRemaining .. "\n\nThe current work item will restart with fresh funding.")
+                showMessage("Emergency Bailout!", "Budget crisis averted! Bailouts remaining: " .. gameState.bailOutsRemaining .. "\n\nThe current work item will restart with fresh funding.")
             end
             
             gameState.budget = GameData.BAILOUT_BUDGET_AMOUNT

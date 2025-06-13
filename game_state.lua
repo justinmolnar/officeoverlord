@@ -17,6 +17,10 @@ function GameState:new()
         hiredEmployees = {}, -- Table of employee instances {baseId, instanceId, level, isRemote, edition, baseProductivity, baseFocus, weeklySalary, deskId, uiRect}
         deskAssignments = {}, -- { deskId = employeeInstanceId }
 
+        -- NEW: Desk Decorations
+        deskDecorations = {}, -- { deskId = decorationId } - tracks which decoration is on which desk
+        ownedDecorations = {}, -- Array of decoration instances that player owns but hasn't placed yet (for future inventory system)
+
         -- Game Progression
         currentSprintIndex = 1,     -- 1-based index for the current sprint (1-8)
         currentWorkItemIndex = 1,   -- 1-based index for the work item within a sprint (1-3)
@@ -26,9 +30,10 @@ function GameState:new()
         currentShopOffers = {
             employees = {}, -- Table of employee data for current shop offers (copies with instanceId)
             upgrade = nil,  -- Current single upgrade offer data (a copy with instanceId if needed)
+            decorations = {}, -- NEW: Table of decoration data for current shop offers
             restockCountThisWeek = 0
         },
-        purchasedPermanentUpgrades = {}, -- Table to store IDs of purchased permanent upgrades
+        purchasedPermanentUpgrades = { 'base_game_effects' }, -- Add the base effects upgrade
 
         -- Transient State for Current Operations
         currentWeekWorkload = 0, -- Stores the workload for the active challenge
@@ -36,6 +41,7 @@ function GameState:new()
         totalSalariesPaidThisWeek = 0,
         currentWeekCycles = 0, 
         selectedEmployeeForPlacementInstanceId = nil,
+        selectedDecorationForPlacementInstanceId = nil, -- NEW: For decoration placement
         temporaryEffectFlags = { -- For one-time effects like Office Dog, one-week boosts, and work item modifiers
             disabledUpgrades = {}
         }, 
@@ -74,12 +80,27 @@ function GameState:setGamePhase(gs, newPhase)
     print("Transitioning to phase: " .. newPhase)
     gs.gamePhase = newPhase
 
+    -- Clear special mode flags when changing phases
     gs.temporaryEffectFlags.reOrgSwapModeActive = nil
     gs.temporaryEffectFlags.reOrgFirstSelectionInstanceId = nil
     gs.temporaryEffectFlags.photocopierCopyModeActive = nil
 
+    -- Clear work item specific flags when leaving battle
+    if newPhase == "hiring_and_upgrades" then
+        gs.temporaryEffectFlags.isTopRowDisabled = nil
+        gs.temporaryEffectFlags.isRemoteWorkDisabled = nil
+        gs.temporaryEffectFlags.isShopDisabled = nil
+        gs.temporaryEffectFlags.itGuyUsedThisItem = nil
+        gs.temporaryEffectFlags.globalFocusMultiplier = nil
+        gs.temporaryEffectFlags.globalSalaryMultiplier = nil
+        gs.temporaryEffectFlags.automatedEmployeeId = nil
+        gs.temporaryEffectFlags.gladosModifierForNextItem = nil
+        gs.temporaryEffectFlags.shopDisabledNextWorkItem = nil
+    end
+
     if newPhase ~= "shop_placement" then
         gs.selectedEmployeeForPlacementInstanceId = nil
+        gs.selectedDecorationForPlacementInstanceId = nil -- NEW: Clear decoration selection
     end
 
     if newPhase == "battle_active" then
@@ -90,7 +111,7 @@ function GameState:setGamePhase(gs, newPhase)
             photocopierUsedThisSprint = gs.temporaryEffectFlags.photocopierUsedThisSprint,
             fourthWallUsedThisSprint = gs.temporaryEffectFlags.fourthWallUsedThisSprint,
             motivationalSpeakerUsedThisSprint = gs.temporaryEffectFlags.motivationalSpeakerUsedThisSprint,
-            -- New flags for this step
+            multiverseMergerAvailable = gs.temporaryEffectFlags.multiverseMergerAvailable,
             specialistId = nil,
             focusFunnelTotalBonus = nil,
             focusFunnelTargetId = nil,

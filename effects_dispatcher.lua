@@ -1,46 +1,61 @@
 -- effects_dispatcher.lua
 -- Dispatches game events to any entity (employee, upgrade, etc.) that is listening for them.
 
+local GameData = require("data") -- Moved require to the top of the file
+
 local EffectsDispatcher = {}
 
 ---Dispatches a named event to all listening entities.
 ---@param eventName string The name of the event to fire (e.g., "onWorkItemComplete").
 ---@param gameState table The entire current game state.
 ---@param eventArgs table|nil An optional table of arguments specific to this event.
-function EffectsDispatcher.dispatchEvent(eventName, gameState, eventArgs)
-    -- Ensure eventArgs is a table to avoid errors.
+function EffectsDispatcher.dispatchEvent(eventName, gameState, services, eventArgs)
     eventArgs = eventArgs or {}
+    services = services or {} -- Safety check for the new services table
 
-    -- Dispatch to all hired employees
     if gameState.hiredEmployees then
         for _, emp in ipairs(gameState.hiredEmployees) do
-            -- Check if the employee has a 'listeners' table and a function for the specific event
             if emp.listeners and emp.listeners[eventName] then
-                -- Call the listener function
-                emp.listeners[eventName](emp, gameState, eventArgs)
+                emp.listeners[eventName](emp, gameState, services, eventArgs)
             end
         end
     end
 
-    -- Dispatch to all purchased upgrades
     if gameState.purchasedPermanentUpgrades then
         for _, upgradeId in ipairs(gameState.purchasedPermanentUpgrades) do
-            -- Find the full upgrade data object
             local upgradeData
-            for _, upg in ipairs(require("data").ALL_UPGRADES) do
+            for _, upg in ipairs(GameData.ALL_UPGRADES) do
                 if upg.id == upgradeId then
                     upgradeData = upg
                     break
                 end
             end
 
-            -- Check if the upgrade has a listener for the event
             if upgradeData and upgradeData.listeners and upgradeData.listeners[eventName] then
-                -- Call the listener function
-                upgradeData.listeners[eventName](upgradeData, gameState, eventArgs)
+                upgradeData.listeners[eventName](upgradeData, gameState, services, eventArgs)
             end
         end
     end
+
+    if gameState.deskDecorations then
+        for deskId, decorationId in pairs(gameState.deskDecorations) do
+            if decorationId then
+                local decorationData
+                for _, deco in ipairs(GameData.ALL_DESK_DECORATIONS) do
+                    if deco.id == decorationId then
+                        decorationData = deco
+                        break
+                    end
+                end
+
+                if decorationData and decorationData.listeners and decorationData.listeners[eventName] then
+                    decorationData.listeners[eventName](decorationData, gameState, services, eventArgs, deskId)
+                end
+            end
+        end
+    end
+
+    -- The dispatcher is no longer responsible for showing the modal. This has been deleted.
 end
 
 return EffectsDispatcher
