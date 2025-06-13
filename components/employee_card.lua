@@ -74,6 +74,13 @@ function EmployeeCard:update(dt)
             anim.dropStartY = nil
             anim.dropTargetX = nil
             anim.dropTargetY = nil
+            
+            -- Call the completion callback if it exists
+            if anim.onComplete then
+                local callback = anim.onComplete
+                anim.onComplete = nil -- Clear it to prevent multiple calls
+                callback()
+            end
         end
     end
 end
@@ -83,7 +90,7 @@ function EmployeeCard:startPickupAnimation()
     self.animationState.targetPickupProgress = 1.0
 end
 
-function EmployeeCard:startDropAnimation(targetX, targetY)
+function EmployeeCard:startDropAnimation(targetX, targetY, onComplete)
     -- Store the current mouse position as the start point for drop animation
     self.animationState.dropStartX = love.mouse.getX()
     self.animationState.dropStartY = love.mouse.getY()
@@ -94,6 +101,7 @@ function EmployeeCard:startDropAnimation(targetX, targetY)
     self.animationState.isPickedUp = false
     self.animationState.targetPickupProgress = 0
     self.animationState.dropStartTime = love.timer.getTime()
+    self.animationState.onComplete = onComplete -- Store the callback
 end
 
 function EmployeeCard:cancelPickupAnimation()

@@ -78,13 +78,24 @@ local debug = {
     }
 }
 
+-- Timer system
+local pendingTimers = {}
+
 local function safeTimerAfter(delay, callback)
-    local timerToUse = love.timer or timer
-    if timerToUse and type(timerToUse.after) == "function" then
-        timerToUse.after(delay, callback)
-    else
-        print("FATAL ERROR: Timer module is not available. Check conf.lua. Executing callback immediately.")
-        callback()
+    table.insert(pendingTimers, {
+        timeRemaining = delay,
+        callback = callback
+    })
+end
+
+local function updateTimers(dt)
+    for i = #pendingTimers, 1, -1 do
+        local timer = pendingTimers[i]
+        timer.timeRemaining = timer.timeRemaining - dt
+        if timer.timeRemaining <= 0 then
+            timer.callback()
+            table.remove(pendingTimers, i)
+        end
     end
 end
 
@@ -326,11 +337,24 @@ function love.resize(w, h)
     buildUIComponents()
 end
 
+
+
 function onMouseRelease(x, y, button)
     if button == 1 and draggedItemState.item then
         local successfullyProcessedDrop = false
         local draggedItem = draggedItemState.item
         local dropTargetX, dropTargetY = x, y
+
+        -- Find the source component for animation BEFORE processing the drop
+        local sourceComponent = nil
+        if draggedItem and draggedItem.data then
+            for _, component in ipairs(uiComponents) do
+                if component.data and component.data.instanceId == draggedItem.data.instanceId then
+                    sourceComponent = component
+                    break
+                end
+            end
+        end
 
         -- Loop backwards through components so we check top-most items first (e.g., employee card before the desk slot under it)
         for i = #uiComponents, 1, -1 do
@@ -367,29 +391,82 @@ function onMouseRelease(x, y, button)
                         Shop:markOfferSold(gameState.currentShopOffers, draggedItem.originalShopInstanceId, nil) 
                         SoundManager:playEffect('hire')
                         successfullyProcessedDrop = true
-                        -- Set drop target to remote panel center
-                        dropTargetX = uiElementRects.remotePanelDropTarget.x + uiElementRects.remotePanelDropTarget.w/2
-                        dropTargetY = uiElementRects.remotePanelDropTarget.y + uiElementRects.remotePanelDropTarget.h/2
+                        
+                        -- Calculate where this employee will end up by simulating the layout
+                        local cardWidth = CardSizing.getCardWidth()
+                        local rect = uiElementRects.remotePanelDropTarget
+                        
+                        -- Count existing remote workers (excluding the one being dragged if it's a move)
+                        local remoteCount = 0
+                        for _, emp in ipairs(gameState.hiredEmployees) do
+                            if emp.variant == 'remote' and emp.instanceId ~= draggedItem.data.instanceId then
+                                remoteCount = remoteCount + 1
+                            end
+                        end
+                        
+                        -- The new employee will be at the end of the list
+                        local availableWidth = rect.w - 20
+                        local normalGap = 5
+                        local totalCards = remoteCount + 1 -- +1 for the new employee
+                        local normalStepSize = cardWidth + normalGap
+                        local totalNormalWidth = (totalCards * cardWidth) + ((totalCards - 1) * normalGap)
+                        
+                        local stepSize = normalStepSize
+                        if totalNormalWidth > availableWidth and totalCards > 1 then
+                            local spaceForAllButLast = availableWidth - cardWidth
+                            stepSize = spaceForAllButLast / (totalCards - 1)
+                        end
+                        
+                        -- Calculate final position (new employee goes at the end)
+                        dropTargetX = rect.x + 10 + (totalCards - 1) * stepSize + cardWidth/2
+                        dropTargetY = rect.y + rect.h/2
                     end
                 elseif draggedItem.type == "placed_employee" then
                     successfullyProcessedDrop = Placement:handleEmployeeDropOnRemote(gameState, draggedItem.data, draggedItem.originalDeskId)
                     if successfullyProcessedDrop then
                         SoundManager:playEffect('place')
-                        -- Set drop target to remote panel center
-                        dropTargetX = uiElementRects.remotePanelDropTarget.x + uiElementRects.remotePanelDropTarget.w/2
-                        dropTargetY = uiElementRects.remotePanelDropTarget.y + uiElementRects.remotePanelDropTarget.h/2
+                        
+                        -- Calculate where this employee will end up by simulating the layout
+                        local cardWidth = CardSizing.getCardWidth()
+                        local rect = uiElementRects.remotePanelDropTarget
+                        
+                        -- Count existing remote workers
+                        local remoteCount = 0
+                        for _, emp in ipairs(gameState.hiredEmployees) do
+                            if emp.variant == 'remote' then
+                                remoteCount = remoteCount + 1
+                            end
+                        end
+                        
+                        -- Find the index of this employee in the remote worker list
+                        local targetIndex = 1
+                        local currentIndex = 1
+                        for _, emp in ipairs(gameState.hiredEmployees) do
+                            if emp.variant == 'remote' then
+                                if emp.instanceId == draggedItem.data.instanceId then
+                                    targetIndex = currentIndex
+                                    break
+                                end
+                                currentIndex = currentIndex + 1
+                            end
+                        end
+                        
+                        -- Calculate layout
+                        local availableWidth = rect.w - 20
+                        local normalGap = 5
+                        local normalStepSize = cardWidth + normalGap
+                        local totalNormalWidth = (remoteCount * cardWidth) + ((remoteCount - 1) * normalGap)
+                        
+                        local stepSize = normalStepSize
+                        if totalNormalWidth > availableWidth and remoteCount > 1 then
+                            local spaceForAllButLast = availableWidth - cardWidth
+                            stepSize = spaceForAllButLast / (remoteCount - 1)
+                        end
+                        
+                        -- Calculate final position
+                        dropTargetX = rect.x + 10 + (targetIndex - 1) * stepSize + cardWidth/2
+                        dropTargetY = rect.y + rect.h/2
                     end
-                end
-            end
-        end
-
-        -- Find the source component for animation
-        local sourceComponent = nil
-        if draggedItem and draggedItem.data then
-            for _, component in ipairs(uiComponents) do
-                if component.data and component.data.instanceId == draggedItem.data.instanceId then
-                    sourceComponent = component
-                    break
                 end
             end
         end
@@ -398,21 +475,15 @@ function onMouseRelease(x, y, button)
         if successfullyProcessedDrop then
             -- Start drop animation for successful drops
             if sourceComponent and sourceComponent.startDropAnimation then
-                sourceComponent:startDropAnimation(dropTargetX, dropTargetY)
-                
-                -- DON'T clear the drag state yet - let the animation finish
-                -- The drag state will be cleared by the timer below
-                
-                -- Clear the drag state after animation completes
-                local function finishDrop()
+                -- Pass a callback that gets called when animation completes
+                sourceComponent:startDropAnimation(dropTargetX, dropTargetY, function()
                     draggedItemState.item = nil
                     buildUIComponents()
-                end
-                safeTimerAfter(1.0, finishDrop) -- Give more time for animation
+                end)
             else
-                -- No animation, finish immediately
-                buildUIComponents()
+                -- No animation available, finish immediately
                 draggedItemState.item = nil
+                buildUIComponents()
             end
             
         else
@@ -438,6 +509,8 @@ function onMouseRelease(x, y, button)
         end
     end
 end
+
+
 
 local function drawPositionalOverlays()
     if #overlaysToDraw > 0 then
@@ -647,8 +720,8 @@ function Drawing.drawMainInteractionPanel(rect, gameState, uiElementRects, dragg
     -- including overlays and hover effects. This function is now only a container.
 end
 
--- Updated love.update function in main.lua
 function love.update(dt)
+    updateTimers(dt) 
     InputHandler.update(dt)
     modal:update(dt) -- Update the modal component
 
