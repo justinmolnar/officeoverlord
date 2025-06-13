@@ -119,8 +119,8 @@ function BattleState:exit(gameState, battleState, context)
 end
 
 function BattleState:update(dt, gameState, battleState, context)
-    if context.updateBattle then
-        context.updateBattle(dt)
+    if context.battlePhaseManager then
+        context.battlePhaseManager:update(dt, gameState, battleState)
     end
 end
 

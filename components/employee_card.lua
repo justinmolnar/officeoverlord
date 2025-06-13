@@ -9,8 +9,8 @@ local Employee = require("employee")
 local EmployeeCard = {}
 EmployeeCard.__index = EmployeeCard
 
-local function _drawCardBattleAnimation(cardData, width, height, battleState)
-    if battleState.currentWorkerId == cardData.instanceId and battleState.lastContribution then
+local function _drawCardBattleAnimation(cardData, width, height, battleState, self)
+    if battleState.currentWorkerId == cardData.instanceId and battleState.lastContribution and self.battlePhaseManager then
         local shakeX, shakeY = 0, 0
         if battleState.isShaking then
             shakeX = (love.math.random() - 0.5) * 4
@@ -30,10 +30,13 @@ local function _drawCardBattleAnimation(cardData, width, height, battleState)
         local textToShow = ""
         local multiplierText = contrib.multiplierText or ""
         
-        if battleState.phase == 'showing_productivity' then textToShow = tostring(contrib.productivity) .. multiplierText
-        elseif battleState.phase == 'showing_focus' then textToShow = "x " .. string.format("%.2f", contrib.focus) .. multiplierText
-        elseif battleState.phase == 'showing_total' then textToShow = "= " .. tostring(contrib.totalContribution)
-        elseif battleState.phase == 'animating_changes' then 
+        -- Use the injected manager to get the current phase name
+        local currentPhaseName = self.battlePhaseManager:getCurrentPhaseName()
+
+        if currentPhaseName == 'showing_productivity' then textToShow = tostring(contrib.productivity) .. multiplierText
+        elseif currentPhaseName == 'showing_focus' then textToShow = "x " .. string.format("%.2f", contrib.focus) .. multiplierText
+        elseif currentPhaseName == 'showing_total' then textToShow = "= " .. tostring(contrib.totalContribution)
+        elseif currentPhaseName == 'animating_changes' then 
              local changedInfo = battleState.changedEmployeesForAnimation[battleState.nextChangedEmployeeIndex]
              if changedInfo then 
                  local newMultiplierText = changedInfo.new.multiplierText or ""
@@ -295,8 +298,6 @@ function EmployeeCard:_generateDragOverlays(context)
     end
 end
 
---- The rest of the file remains the same...
---- ... new, update, draw, handleMousePress, handleMouseDrop etc. ...
 function EmployeeCard:new(params)
     local instance = setmetatable({}, EmployeeCard)
     instance.data = params.data
@@ -309,6 +310,7 @@ function EmployeeCard:new(params)
     instance.draggedItemState = params.draggedItemState
     instance.uiElementRects = params.uiElementRects
     instance.modal = params.modal
+    instance.battlePhaseManager = params.battlePhaseManager -- ADD THIS LINE
     
     -- Animation state
     instance.animationState = {
@@ -459,7 +461,7 @@ function EmployeeCard:draw(context)
     _drawCardIndicatorsAndRings(cardData, rect.w, rect.h, isSelected, isCombineTarget)
     _drawCardTextContent(cardData, rect.w, rect.h, self.context, self.gameState)
     _drawCardContextualOverlays(cardData, rect.w, rect.h, self.context)
-    _drawCardBattleAnimation(cardData, rect.w, rect.h, self.battleState)
+    _drawCardBattleAnimation(cardData, rect.w, rect.h, self.battleState, self)
 
     love.graphics.pop()
     

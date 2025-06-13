@@ -14,6 +14,7 @@ local EffectsDispatcher = require("effects_dispatcher")
 local InputHandler = require("input_handler")
 local SoundManager = require("sound_manager")
 local CardSizing = require("card_sizing")
+local battlePhaseManager
 
 
 -- Component Imports
@@ -163,7 +164,7 @@ function buildUIComponents()
        if gameState.currentShopOffers and gameState.currentShopOffers.employees then
            for i, empData in ipairs(gameState.currentShopOffers.employees) do
                if empData then
-                   table.insert(uiComponents, EmployeeCard:new({ data = empData, rect = {x=shopRect.x+shopCardPadding, y=currentY, w=cardWidth, h=cardHeight}, context = "shop_offer", gameState=gameState, battleState=battleState, draggedItemState=draggedItemState, uiElementRects=uiElementRects }))
+                   table.insert(uiComponents, EmployeeCard:new({ data = empData, rect = {x=shopRect.x+shopCardPadding, y=currentY, w=cardWidth, h=cardHeight}, context = "shop_offer", gameState=gameState, battleState=battleState, draggedItemState=draggedItemState, uiElementRects=uiElementRects, battlePhaseManager = battlePhaseManager }))
                    currentY = currentY + cardHeight + 5
                end
            end
@@ -248,7 +249,7 @@ function buildUIComponents()
                    end
                end
                
-               table.insert(uiComponents, EmployeeCard:new({data = empData, rect = {x = deskRect.x+2, y=deskRect.y+2, w=deskRect.w-4, h=deskRect.h-4}, context = contextArgs.context, gameState=gameState, battleState=battleState, draggedItemState=draggedItemState, uiElementRects=uiElementRects, modal = modal}))
+               table.insert(uiComponents, EmployeeCard:new({data = empData, rect = {x = deskRect.x+2, y=deskRect.y+2, w=deskRect.w-4, h=deskRect.h-4}, context = contextArgs.context, gameState=gameState, battleState=battleState, draggedItemState=draggedItemState, uiElementRects=uiElementRects, battlePhaseManager = battlePhaseManager}))
            end
        end
 
@@ -292,7 +293,8 @@ function buildUIComponents()
                gameState=gameState, 
                battleState=battleState, 
                draggedItemState=draggedItemState, 
-               uiElementRects=uiElementRects
+               uiElementRects=uiElementRects,
+               battlePhaseManager = battlePhaseManager
            }))
            
            -- Store the position in uiElementRects.remote for consistency
@@ -527,6 +529,7 @@ function love.load()
 
    -- Require the new manager
    local DebugManager = require("debug_manager")
+   local BattlePhaseManager = require("battle_phase_manager")
 
    gameState = GameState:new()
    love.window.setTitle("Office Overlord - Command Center v4.1 Sprints")
@@ -593,6 +596,28 @@ function love.load()
 
    -- Initialize the state manager
    stateManager = StateManager:new()
+
+   -- Initialize the new battle phase manager
+   battlePhaseManager = BattlePhaseManager:new() 
+
+   battlePhaseManager:init({ modal = modal }, {
+       idle = require("phases.idle_phase"),
+       starting_turn = require("phases.starting_turn_phase"),
+       showing_productivity = require("phases.showing_productivity_phase"),
+       showing_focus = require("phases.showing_focus_phase"),
+       showing_total = require("phases.showing_total_phase"),
+       turn_over = require("phases.turn_over_phase"),
+       pre_apply_contribution = require("phases.pre_apply_contribution_phase"),
+       apply_round_contribution = require("phases.apply_round_contribution_phase"),
+       chipping_workload = require("phases.chipping_workload_phase"),
+       ending_round = require("phases.ending_round_phase"),
+       paying_salaries = require("phases.paying_salaries_phase"),
+       chipping_salaries = require("phases.chipping_salaries_phase"),
+       pausing_between_rounds = require("phases.pausing_between_rounds_phase"),
+       fast_recalculate_and_setup = require("phases.fast_recalculate_and_setup_phase"),
+       animating_changes = require("phases.animating_changes_phase"),
+       wait_for_apply = require("phases.wait_for_apply_phase")
+   })
 
    InputHandler.init({
        gameState = gameState,
@@ -706,7 +731,7 @@ function love.update(dt)
         uiElementRects = uiElementRects,
         draggedItemState = draggedItemState,
         sprintOverviewState = sprintOverviewState,
-        updateBattle = updateBattle,
+        battlePhaseManager = battlePhaseManager, -- ADD THIS
         buildUIComponents = buildUIComponents,
         setGamePhase = setGamePhase,
         getEmployeeFromGameState = getEmployeeFromGameState,
@@ -955,233 +980,6 @@ function love.draw()
     modal:draw()
 end
 
-function updateBattle(dt)
-    if battleState.phase == 'idle' or battleState.phase == 'fast_recalculate_and_setup' then
-        for _, emp in ipairs(battleState.activeEmployees) do
-            emp.isFirstMover = nil
-            emp.isAutomated = nil
-        end
-    end
-
-    battleState.timer = battleState.timer - dt
-
-    if battleState.phase == 'idle' then
-        if battleState.nextEmployeeIndex > #battleState.activeEmployees then
-            battleState.phase = 'pre_apply_contribution'
-        else
-            local currentEmployee = battleState.activeEmployees[battleState.nextEmployeeIndex]
-            if currentEmployee then
-                if gameState.temporaryEffectFlags.automatedEmployeeId == currentEmployee.instanceId then
-                    currentEmployee.isAutomated = true
-                end
-                
-                if battleState.nextEmployeeIndex == 1 then
-                    currentEmployee.isFirstMover = true
-                end
-
-                EffectsDispatcher.dispatchEvent("onTurnStart", gameState, { currentEmployee = currentEmployee }, { modal = modal })
-            end
-            battleState.phase = 'starting_turn'
-        end
-
-    elseif battleState.phase == 'starting_turn' then
-        local currentEmployee = battleState.activeEmployees[battleState.nextEmployeeIndex]
-        battleState.currentWorkerId = currentEmployee.instanceId
-        battleState.lastContribution = Battle:calculateEmployeeContribution(currentEmployee, gameState)
-        battleState.phase = 'showing_productivity'; battleState.timer = 0.5 
-
-    elseif battleState.phase == 'showing_productivity' then
-        if battleState.timer <= 0 then battleState.phase = 'showing_focus'; battleState.timer = 0.6; battleState.isShaking = true end
-    elseif battleState.phase == 'showing_focus' then
-        if battleState.timer <= 0 then battleState.isShaking = false; battleState.phase = 'showing_total'; battleState.timer = 0.8; battleState.isShaking = true end
-
-    elseif battleState.phase == 'showing_total' then
-        if battleState.timer <= 0 then
-            battleState.isShaking = false
-            battleState.roundTotalContribution = battleState.roundTotalContribution + battleState.lastContribution.totalContribution
-            battleState.lastRoundContributions[battleState.currentWorkerId] = battleState.lastContribution
-            battleState.phase = 'turn_over'; battleState.timer = 0.3
-        end
-
-    elseif battleState.phase == 'turn_over' then
-        if battleState.timer <= 0 then
-            battleState.currentWorkerId = nil; battleState.lastContribution = nil
-            battleState.nextEmployeeIndex = battleState.nextEmployeeIndex + 1
-            battleState.phase = 'idle'
-        end
-
-    elseif battleState.phase == 'fast_recalculate_and_setup' then
-        battleState.roundTotalContribution = 0
-        battleState.changedEmployeesForAnimation = {}
-        local currentRoundContributions = {}
-        for i, emp in ipairs(battleState.activeEmployees) do
-            if i == 1 then
-                emp.isFirstMover = true
-            end
-            local newContrib = Battle:calculateEmployeeContribution(emp, gameState)
-            currentRoundContributions[emp.instanceId] = newContrib
-            local oldContrib = battleState.lastRoundContributions[emp.instanceId]
-            if not oldContrib or newContrib.totalContribution ~= oldContrib.totalContribution then
-                table.insert(battleState.changedEmployeesForAnimation, {emp = emp, new = newContrib, old = oldContrib})
-            end
-        end
-        battleState.lastRoundContributions = currentRoundContributions
-        
-        for _, contrib in pairs(currentRoundContributions) do
-            battleState.roundTotalContribution = battleState.roundTotalContribution + contrib.totalContribution
-        end
-        
-        battleState.nextChangedEmployeeIndex = 1
-        
-        if #battleState.changedEmployeesForAnimation == 0 then
-            battleState.timer = 0.4 
-            battleState.phase = 'wait_for_apply'
-        else
-            battleState.phase = 'animating_changes'
-            battleState.timer = 0
-        end
-
-    elseif battleState.phase == 'wait_for_apply' then
-        if battleState.timer <= 0 then
-            battleState.phase = 'pre_apply_contribution'
-        end
-
-    elseif battleState.phase == 'animating_changes' then
-        if battleState.timer <= 0 then
-            if battleState.currentWorkerId then
-                battleState.nextChangedEmployeeIndex = battleState.nextChangedEmployeeIndex + 1
-            end
-            if battleState.nextChangedEmployeeIndex > #battleState.changedEmployeesForAnimation then
-                battleState.currentWorkerId = nil; battleState.lastContribution = nil
-                battleState.phase = 'pre_apply_contribution'
-            else
-                local changeInfo = battleState.changedEmployeesForAnimation[battleState.nextChangedEmployeeIndex]
-                battleState.currentWorkerId = changeInfo.emp.instanceId
-                battleState.lastContribution = changeInfo.new
-                battleState.isShaking = true
-                battleState.timer = 0.5
-            end
-        end
-        
-    elseif battleState.phase == 'pre_apply_contribution' then
-        local endOfRoundEventArgs = { pyramidSchemeActive = false }
-        EffectsDispatcher.dispatchEvent("onEndOfRound", gameState, endOfRoundEventArgs, { modal = modal })
-
-        if endOfRoundEventArgs.pyramidSchemeActive then
-            local contributions = {}
-            for instId, contribData in pairs(battleState.lastRoundContributions) do
-                contributions[instId] = contribData.totalContribution
-            end
-            
-            local transfers = Battle:calculatePyramidSchemeTransfers(gameState, contributions)
-            for instId, amount in pairs(transfers) do
-                if battleState.lastRoundContributions[instId] then
-                    battleState.lastRoundContributions[instId].totalContribution = battleState.lastRoundContributions[instId].totalContribution + amount
-                end
-            end
-        end
-        
-        battleState.roundTotalContribution = 0
-        for _, contribData in pairs(battleState.lastRoundContributions) do
-            battleState.roundTotalContribution = battleState.roundTotalContribution + contribData.totalContribution
-        end
-
-        battleState.phase = 'apply_round_contribution'
-
-    elseif battleState.phase == 'apply_round_contribution' then
-        battleState.chipAmountRemaining = battleState.roundTotalContribution
-        if battleState.chipAmountRemaining > 0 then
-            local speedMultiplier = math.min(2 ^ gameState.currentWeekCycles, 16)
-            battleState.chipSpeed = math.max(150, battleState.chipAmountRemaining * 2.5) * speedMultiplier
-            battleState.chipTimer = 0
-            battleState.phase = 'chipping_workload'
-        else
-            battleState.phase = 'ending_round'
-        end
-        battleState.roundTotalContribution = 0
-
-    elseif battleState.phase == 'chipping_workload' then
-        if battleState.chipAmountRemaining > 0 and gameState.currentWeekWorkload > 0 then
-            battleState.chipTimer = battleState.chipTimer + dt
-            local chipsToProcess = math.floor(battleState.chipTimer * battleState.chipSpeed)
-            if chipsToProcess > 0 then
-                local amountToChipThisFrame = math.min(battleState.chipAmountRemaining, chipsToProcess, gameState.currentWeekWorkload)
-                gameState.currentWeekWorkload = gameState.currentWeekWorkload - amountToChipThisFrame
-                battleState.chipAmountRemaining = battleState.chipAmountRemaining - amountToChipThisFrame
-                battleState.chipTimer = battleState.chipTimer - (chipsToProcess / battleState.chipSpeed)
-            end
-        else
-            battleState.isShaking = false; battleState.currentWorkerId = nil; battleState.lastContribution = nil
-            if gameState.currentWeekWorkload <= 0 then
-                handleWinCondition()
-                battleState.phase = 'won'
-                return
-            end
-            battleState.phase = 'ending_round'
-        end
-
-    elseif battleState.phase == 'ending_round' then
-        if gameState.initialWorkloadForBar > 0 then
-            local progress = math.max(0, gameState.currentWeekWorkload / gameState.initialWorkloadForBar)
-            table.insert(battleState.progressMarkers, progress)
-        end
-        
-        battleState.salariesToPayThisRound = Battle:calculateTotalSalariesForRound(gameState)
-        battleState.phase = 'paying_salaries'
-
-    elseif battleState.phase == 'paying_salaries' then
-        battleState.salaryChipAmountRemaining = battleState.salariesToPayThisRound
-        if battleState.salaryChipAmountRemaining > 0 then
-            local speedMultiplier = math.min(2 ^ gameState.currentWeekCycles, 16)
-            battleState.chipSpeed = math.max(150, battleState.salaryChipAmountRemaining * 3.0) * speedMultiplier
-            battleState.chipTimer = 0
-            battleState.phase = 'chipping_salaries'
-        else
-            local roundResult = Battle:endWorkCycleRound(gameState, 0, function(...) modal:show(...) end)
-            if roundResult == "lost_budget" then setGamePhase("game_over"); return end
-            if roundResult == "lost_bailout" then 
-                 local currentSprintData = GameData.ALL_SPRINTS[gameState.currentSprintIndex]; if currentSprintData then local currentWorkItemData = currentSprintData.workItems[gameState.currentWorkItemIndex]; if currentWorkItemData then gameState.currentWeekWorkload = currentWorkItemData.workload; gameState.initialWorkloadForBar = currentWorkItemData.workload; end; end
-                 gameState.currentWeekCycles = 0; gameState.totalSalariesPaidThisWeek = 0; gameState.currentShopOffers = {employees={}, upgrade=nil, restockCountThisWeek=0}
-                 setGamePhase("hiring_and_upgrades"); return 
-            end
-            local speedMultiplier = math.min(2 ^ gameState.currentWeekCycles, 16)
-            battleState.timer = 1.0 / speedMultiplier
-            battleState.phase = 'pausing_between_rounds'
-        end
-
-    elseif battleState.phase == 'chipping_salaries' then
-        if battleState.salaryChipAmountRemaining > 0 then
-             battleState.chipTimer = battleState.chipTimer + dt
-             local chipsToProcess = math.floor(battleState.chipTimer * battleState.chipSpeed)
-             if chipsToProcess > 0 then
-                 local amountToChipThisFrame = math.min(battleState.salaryChipAmountRemaining, chipsToProcess)
-                 gameState.budget = gameState.budget - amountToChipThisFrame
-                 gameState.totalSalariesPaidThisWeek = gameState.totalSalariesPaidThisWeek + amountToChipThisFrame
-                 battleState.salaryChipAmountRemaining = battleState.salaryChipAmountRemaining - amountToChipThisFrame
-                 battleState.chipTimer = battleState.chipTimer - (chipsToProcess / battleState.chipSpeed)
-             end
-        else
-            local roundResult = Battle:endWorkCycleRound(gameState, battleState.salariesToPayThisRound, function(...) modal:show(...) end)
-            if roundResult == "lost_budget" then setGamePhase("game_over"); return end
-            if roundResult == "lost_bailout" then 
-                 local currentSprintData = GameData.ALL_SPRINTS[gameState.currentSprintIndex]; if currentSprintData then local currentWorkItemData = currentSprintData.workItems[gameState.currentWorkItemIndex]; if currentWorkItemData then gameState.currentWeekWorkload = currentWorkItemData.workload; gameState.initialWorkloadForBar = currentWorkItemData.workload; end; end
-                 gameState.currentWeekCycles = 0; gameState.totalSalariesPaidThisWeek = 0; gameState.currentShopOffers = {employees={}, upgrade=nil, restockCountThisWeek=0}
-                 setGamePhase("hiring_and_upgrades"); return 
-            end
-            local speedMultiplier = math.min(2 ^ gameState.currentWeekCycles, 16)
-            battleState.timer = 1.0 / speedMultiplier
-            battleState.phase = 'pausing_between_rounds'
-        end
-    
-    elseif battleState.phase == 'pausing_between_rounds' then
-        if battleState.timer <= 0 then
-            gameState.currentWeekCycles = gameState.currentWeekCycles + 1
-            battleState.nextEmployeeIndex = 1
-            battleState.phase = 'fast_recalculate_and_setup'
-        end
-    end
-end
-
 function handleWinCondition()
     SoundManager:playEffect('win')
     local currentSprint = GameData.ALL_SPRINTS[gameState.currentSprintIndex]
@@ -1265,7 +1063,7 @@ function handleWinCondition()
     
     local resultMessage = table.concat(resultLines, "\n")
     
-    GameState:setGamePhase(gameState, 'battle_over')
+    setGamePhase('battle_over')
     
     local nextActionCallback = function()
         modal:hide()
@@ -1310,6 +1108,7 @@ function setGamePhase(newPhase)
 
     if newPhase == "battle_active" and oldPhase ~= "battle_active" then
         SoundManager:playMusic('battle')
+        battlePhaseManager:changePhase('idle', gameState, battleState) 
     elseif (oldPhase == "battle_active" or oldPhase == "battle_over") and newPhase == "hiring_and_upgrades" then
         SoundManager:playMusic('main')
     end

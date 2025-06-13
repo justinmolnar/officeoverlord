@@ -5,13 +5,16 @@ local HiringState = require("game_states.hiring_state")
 local BattleState = require("game_states.battle_state")
 local GameOverState = require("game_states.game_over_state")
 local GameWonState = require("game_states.game_won_state")
+local BattleOverState = require("game_states.battle_over_state")
+
 
 function StateManager:new()
+    local BattleOverState = require("game_states.battle_over_state")
     local instance = {
         states = {
             hiring_and_upgrades = HiringState:new(),
             battle_active = BattleState:new(),
-            battle_over = BattleState:new(), -- Use same state as battle_active
+            battle_over = BattleOverState:new(),
             game_over = GameOverState:new(),
             game_won = GameWonState:new()
         },
