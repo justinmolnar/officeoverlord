@@ -136,187 +136,188 @@ end
 
 --- Clears and rebuilds ALL active UI components based on the current gameState.
 function buildUIComponents()
-   uiComponents = {}
-   uiElementRects.desks = {}
-   uiElementRects.remote = {}
-   
-   -- Define shop rect and card dimensions
-   local shopRect = panelRects.shop
-   local cardWidth = CardSizing.getCardWidth()
-   local cardHeight = CardSizing.getCardHeight()
-   local shopCardPadding = CardSizing.getStandardCardDimensions().shopPadding
-   
-   if gameState.gamePhase == "hiring_and_upgrades" then
-       local infoPanelRect = panelRects.gameInfo
-       local btnWidth, btnHeight, btnX = infoPanelRect.width - 20, 35, infoPanelRect.x + 10
-       local mainActionBtnY = infoPanelRect.y + infoPanelRect.height - btnHeight - 10
-       local viewSprintBtnY = mainActionBtnY - btnHeight - 5
-       table.insert(uiComponents, Button:new({ rect = {x=btnX, y=viewSprintBtnY, w=btnWidth, h=btnHeight}, text = "View Sprint Details", style = "info", onClick = function() sprintOverviewState.isVisible = true end }))
-       table.insert(uiComponents, Button:new({ rect = {x=btnX, y=mainActionBtnY, w=btnWidth, h=btnHeight}, text = "Start Work Item", style = "secondary", onClick = function() setGamePhase("battle_active") end }))
+  uiComponents = {}
+  uiElementRects.desks = {}
+  uiElementRects.remote = {}
+  
+  -- Define shop rect and card dimensions
+  local shopRect = panelRects.shop
+  local cardWidth = CardSizing.getCardWidth()
+  local cardHeight = CardSizing.getCardHeight()
+  local shopCardPadding = CardSizing.getStandardCardDimensions().shopPadding
+  
+  if gameState.gamePhase == "hiring_and_upgrades" then
+      local infoPanelRect = panelRects.gameInfo
+      local btnWidth, btnHeight, btnX = infoPanelRect.width - 20, 35, infoPanelRect.x + 10
+      local mainActionBtnY = infoPanelRect.y + infoPanelRect.height - btnHeight - 10
+      local viewSprintBtnY = mainActionBtnY - btnHeight - 5
+      table.insert(uiComponents, Button:new({ rect = {x=btnX, y=viewSprintBtnY, w=btnWidth, h=btnHeight}, text = "View Sprint Details", style = "info", onClick = function() sprintOverviewState.isVisible = true end }))
+      table.insert(uiComponents, Button:new({ rect = {x=btnX, y=mainActionBtnY, w=btnWidth, h=btnHeight}, text = "Start Work Item", style = "secondary", onClick = function() setGamePhase("battle_active") end }))
 
-       local currentY = shopRect.y + Drawing.UI.fontLarge:getHeight() + 20
-       
-       -- Draw Employee subtitle and then create cards
-       love.graphics.setFont(Drawing.UI.font)
-       love.graphics.printf("Looking for Work", shopRect.x, currentY, shopRect.width, "center")
-       currentY = currentY + Drawing.UI.font:getHeight() + 8
+      local currentY = shopRect.y + Drawing.UI.fontLarge:getHeight() + 20
+      
+      -- Draw Employee subtitle and then create cards
+      love.graphics.setFont(Drawing.UI.font)
+      love.graphics.printf("Looking for Work", shopRect.x, currentY, shopRect.width, "center")
+      currentY = currentY + Drawing.UI.font:getHeight() + 8
 
-       if gameState.currentShopOffers and gameState.currentShopOffers.employees then
-           for i, empData in ipairs(gameState.currentShopOffers.employees) do
-               if empData then
-                   table.insert(uiComponents, EmployeeCard:new({ data = empData, rect = {x=shopRect.x+shopCardPadding, y=currentY, w=cardWidth, h=cardHeight}, context = "shop_offer", gameState=gameState, battleState=battleState, draggedItemState=draggedItemState, uiElementRects=uiElementRects, battlePhaseManager = battlePhaseManager }))
-                   currentY = currentY + cardHeight + 5
-               end
-           end
-       end
-       
-       -- Draw Decoration subtitle and then create cards
-       if gameState.currentShopOffers and gameState.currentShopOffers.decorations then
-           currentY = currentY + 15
-           love.graphics.setFont(Drawing.UI.font)
-           love.graphics.printf("Desk Decorations", shopRect.x, currentY, shopRect.width, "center")
-           currentY = currentY + Drawing.UI.font:getHeight() + 8
+      if gameState.currentShopOffers and gameState.currentShopOffers.employees then
+          for i, empData in ipairs(gameState.currentShopOffers.employees) do
+              if empData then
+                  table.insert(uiComponents, EmployeeCard:new({ data = empData, rect = {x=shopRect.x+shopCardPadding, y=currentY, w=cardWidth, h=cardHeight}, context = "shop_offer", gameState=gameState, battleState=battleState, draggedItemState=draggedItemState, uiElementRects=uiElementRects, battlePhaseManager = battlePhaseManager, modal = modal }))
+                  currentY = currentY + cardHeight + 5
+              end
+          end
+      end
+      
+      -- Draw Decoration subtitle and then create cards
+      if gameState.currentShopOffers and gameState.currentShopOffers.decorations then
+          currentY = currentY + 15
+          love.graphics.setFont(Drawing.UI.font)
+          love.graphics.printf("Desk Decorations", shopRect.x, currentY, shopRect.width, "center")
+          currentY = currentY + Drawing.UI.font:getHeight() + 8
 
-           for _, decoData in ipairs(gameState.currentShopOffers.decorations) do
-               if decoData then
-                   table.insert(uiComponents, DecorationCard:new({
-                       data = decoData,
-                       rect = {x = shopRect.x + shopCardPadding, y = currentY, w = cardWidth, h = 90},
-                       gameState = gameState,
-                       draggedItemState = draggedItemState
-                   }))
-                   currentY = currentY + 90 + 5
-               end
-           end
-       end
-       
-       -- Draw Upgrade subtitle and then create card
-       currentY = currentY + 15
-       love.graphics.setFont(Drawing.UI.font)
-       love.graphics.printf("Office Upgrades", shopRect.x, currentY, shopRect.width, "center")
-       currentY = currentY + Drawing.UI.font:getHeight() + 8
-       
-       if gameState.currentShopOffers and gameState.currentShopOffers.upgrade then
-           table.insert(uiComponents, UpgradeCard:new({ data = gameState.currentShopOffers.upgrade, rect = {x=shopRect.x+shopCardPadding, y=currentY, w=cardWidth, h=110}, gameState = gameState, uiElementRects = uiElementRects, modal = modal }))
-       end
-       
-       -- Create the Restock button
-       local restockBtnY = shopRect.y + shopRect.height - 35 - 10
-       local restockButton = Button:new({ rect = {x = shopRect.x + shopCardPadding, y = restockBtnY, w = cardWidth, h = 35}, text = "Restock", style = "warning", context = "shop_button", isEnabled = function() local cost = GameData.BASE_RESTOCK_COST * (2 ^ (gameState.currentShopOffers.restockCountThisWeek or 0)); return gameState.budget >= cost and not draggedItemState.item end, onClick = function() local success, msg = Shop:attemptRestock(gameState); if not success then modal:show("Restock Failed", msg) end end })
-       function restockButton:draw() local cost = GameData.BASE_RESTOCK_COST * (2 ^ (gameState.currentShopOffers.restockCountThisWeek or 0)); if Shop:isUpgradePurchased(gameState.purchasedPermanentUpgrades, 'headhunter') then cost = cost * 2 end; self.text = "Restock ($" .. cost .. ")"; Button.draw(self); end
-       restockButton.gameState = gameState
-       table.insert(uiComponents, restockButton)
-   end
+          for _, decoData in ipairs(gameState.currentShopOffers.decorations) do
+              if decoData then
+                  table.insert(uiComponents, DecorationCard:new({
+                      data = decoData,
+                      rect = {x = shopRect.x + shopCardPadding, y = currentY, w = cardWidth, h = 90},
+                      gameState = gameState,
+                      draggedItemState = draggedItemState
+                  }))
+                  currentY = currentY + 90 + 5
+              end
+          end
+      end
+      
+      -- Draw Upgrade subtitle and then create card
+      currentY = currentY + 15
+      love.graphics.setFont(Drawing.UI.font)
+      love.graphics.printf("Office Upgrades", shopRect.x, currentY, shopRect.width, "center")
+      currentY = currentY + Drawing.UI.font:getHeight() + 8
+      
+      if gameState.currentShopOffers and gameState.currentShopOffers.upgrade then
+          table.insert(uiComponents, UpgradeCard:new({ data = gameState.currentShopOffers.upgrade, rect = {x=shopRect.x+shopCardPadding, y=currentY, w=cardWidth, h=110}, gameState = gameState, uiElementRects = uiElementRects, modal = modal }))
+      end
+      
+      -- Create the Restock button
+      local restockBtnY = shopRect.y + shopRect.height - 35 - 10
+      local restockButton = Button:new({ rect = {x = shopRect.x + shopCardPadding, y = restockBtnY, w = cardWidth, h = 35}, text = "Restock", style = "warning", context = "shop_button", isEnabled = function() local cost = GameData.BASE_RESTOCK_COST * (2 ^ (gameState.currentShopOffers.restockCountThisWeek or 0)); return gameState.budget >= cost and not draggedItemState.item end, onClick = function() local success, msg = Shop:attemptRestock(gameState); if not success then modal:show("Restock Failed", msg) end end })
+      function restockButton:draw() local cost = GameData.BASE_RESTOCK_COST * (2 ^ (gameState.currentShopOffers.restockCountThisWeek or 0)); if Shop:isUpgradePurchased(gameState.purchasedPermanentUpgrades, 'headhunter') then cost = cost * 2 end; self.text = "Restock ($" .. cost .. ")"; Button.draw(self); end
+      restockButton.gameState = gameState
+      table.insert(uiComponents, restockButton)
+  end
 
-   if gameState.gamePhase == "game_over" or gameState.gamePhase == "game_won" then
-       local infoPanelRect = panelRects.gameInfo
-       local btnWidth, btnHeight, btnX = infoPanelRect.width - 20, 35, infoPanelRect.x + 10
-       local mainActionBtnY = infoPanelRect.y + infoPanelRect.height - btnHeight - 10
-       local buttonText = (gameState.gamePhase == "game_won" and "Play Again?" or "Restart Game")
-       local buttonStyle = (gameState.gamePhase == "game_won" and "primary" or "danger")
-       table.insert(uiComponents, Button:new({ rect = {x=btnX, y=mainActionBtnY, w=btnWidth, h=btnHeight}, text = buttonText, style = buttonStyle, onClick = function() resetGameAndGlobals() end }))
-   end
+  if gameState.gamePhase == "game_over" or gameState.gamePhase == "game_won" then
+      local infoPanelRect = panelRects.gameInfo
+      local btnWidth, btnHeight, btnX = infoPanelRect.width - 20, 35, infoPanelRect.x + 10
+      local mainActionBtnY = infoPanelRect.y + infoPanelRect.height - btnHeight - 10
+      local buttonText = (gameState.gamePhase == "game_won" and "Play Again?" or "Restart Game")
+      local buttonStyle = (gameState.gamePhase == "game_won" and "primary" or "danger")
+      table.insert(uiComponents, Button:new({ rect = {x=btnX, y=mainActionBtnY, w=btnWidth, h=btnHeight}, text = buttonText, style = buttonStyle, onClick = function() resetGameAndGlobals() end }))
+  end
 
-   local gridGeometry = Drawing._calculateDeskGridGeometry(panelRects.mainInteraction)
-   for i, deskData in ipairs(gameState.desks) do
-       local col = (i - 1) % GameData.GRID_WIDTH
-       local row = math.floor((i - 1) / GameData.GRID_WIDTH)
-       local deskRect = { x = gridGeometry.startX + col * (gridGeometry.width + gridGeometry.spacing), y = gridGeometry.startY + row * (gridGeometry.height + gridGeometry.spacing), w = gridGeometry.width, h = gridGeometry.height }
-       uiElementRects.desks[i] = {id = deskData.id, x = deskRect.x, y = deskRect.y, w = deskRect.w, h = deskRect.h}
-        table.insert(uiComponents, DeskSlot:new({rect = deskRect, data = deskData, gameState = gameState, modal = modal}))       
-       local empId = gameState.deskAssignments[deskData.id]
-       if empId then
-           local empData = Employee:getFromState(gameState, empId)
-           if empData then
-               local contextArgs = { employee = empData, context = "desk_placed" }
-               EffectsDispatcher.dispatchEvent("onEmployeeContextCheck", gameState, contextArgs, { modal = modal })
-               
-               local deskRow = math.floor((tonumber(string.match(deskData.id, "%d+")) or 0) / GameData.GRID_WIDTH)
-               local isDeskDisabled = (gameState.temporaryEffectFlags.isTopRowDisabled and deskRow == 0)
-               
-               if empData.isTraining or isDeskDisabled or (empData.special and empData.special.does_not_work) then 
-                   contextArgs.context = "worker_training"
-               elseif gameState.gamePhase == "battle_active" and battleState.activeEmployees then
-                   local workerIndexInBattle = -1
-                   for j, activeEmp in ipairs(battleState.activeEmployees) do 
-                       if activeEmp.instanceId == empData.instanceId then 
-                           workerIndexInBattle = j
-                           break 
-                       end 
-                   end
-                   if workerIndexInBattle ~= -1 and workerIndexInBattle < battleState.nextEmployeeIndex then 
-                       contextArgs.context = "worker_done" 
-                   end
-               end
-               
-               table.insert(uiComponents, EmployeeCard:new({data = empData, rect = {x = deskRect.x+2, y=deskRect.y+2, w=deskRect.w-4, h=deskRect.h-4}, context = contextArgs.context, gameState=gameState, battleState=battleState, draggedItemState=draggedItemState, uiElementRects=uiElementRects, battlePhaseManager = battlePhaseManager}))
-           end
-       end
+  local gridGeometry = Drawing._calculateDeskGridGeometry(panelRects.mainInteraction)
+  for i, deskData in ipairs(gameState.desks) do
+      local col = (i - 1) % GameData.GRID_WIDTH
+      local row = math.floor((i - 1) / GameData.GRID_WIDTH)
+      local deskRect = { x = gridGeometry.startX + col * (gridGeometry.width + gridGeometry.spacing), y = gridGeometry.startY + row * (gridGeometry.height + gridGeometry.spacing), w = gridGeometry.width, h = gridGeometry.height }
+      uiElementRects.desks[i] = {id = deskData.id, x = deskRect.x, y = deskRect.y, w = deskRect.w, h = deskRect.h}
+       table.insert(uiComponents, DeskSlot:new({rect = deskRect, data = deskData, gameState = gameState, modal = modal}))       
+      local empId = gameState.deskAssignments[deskData.id]
+      if empId then
+          local empData = Employee:getFromState(gameState, empId)
+          if empData then
+              local contextArgs = { employee = empData, context = "desk_placed" }
+              EffectsDispatcher.dispatchEvent("onEmployeeContextCheck", gameState, contextArgs, { modal = modal })
+              
+              local deskRow = math.floor((tonumber(string.match(deskData.id, "%d+")) or 0) / GameData.GRID_WIDTH)
+              local isDeskDisabled = (gameState.temporaryEffectFlags.isTopRowDisabled and deskRow == 0)
+              
+              if empData.isTraining or isDeskDisabled or (empData.special and empData.special.does_not_work) then 
+                  contextArgs.context = "worker_training"
+              elseif gameState.gamePhase == "battle_active" and battleState.activeEmployees then
+                  local workerIndexInBattle = -1
+                  for j, activeEmp in ipairs(battleState.activeEmployees) do 
+                      if activeEmp.instanceId == empData.instanceId then 
+                          workerIndexInBattle = j
+                          break 
+                      end 
+                  end
+                  if workerIndexInBattle ~= -1 and workerIndexInBattle < battleState.nextEmployeeIndex then 
+                      contextArgs.context = "worker_done" 
+                  end
+              end
+              
+              table.insert(uiComponents, EmployeeCard:new({data = empData, rect = {x = deskRect.x+2, y=deskRect.y+2, w=deskRect.w-4, h=deskRect.h-4}, context = contextArgs.context, gameState=gameState, battleState=battleState, draggedItemState=draggedItemState, uiElementRects=uiElementRects, battlePhaseManager = battlePhaseManager, modal = modal}))
+          end
+      end
 
-       local decoration = Placement:getDecorationOnDesk(gameState, deskData.id)
-       if decoration then
-           local iconFont = Drawing.UI.titleFont or love.graphics.getFont()
-           local iconSize = iconFont:getHeight()
-           local iconX = deskRect.x + deskRect.w - iconSize - 4
-           local iconY = deskRect.y + 4 + iconSize
-           local iconRect = { x = iconX, y = iconY, w = iconSize, h = iconSize }
-           table.insert(uiComponents, PlacedDecorationIcon:new({ data = decoration, rect = iconRect }))
-       end
-   end
+      local decoration = Placement:getDecorationOnDesk(gameState, deskData.id)
+      if decoration then
+          local iconFont = Drawing.UI.titleFont or love.graphics.getFont()
+          local iconSize = iconFont:getHeight()
+          local iconX = deskRect.x + deskRect.w - iconSize - 4
+          local iconY = deskRect.y + 4 + iconSize
+          local iconRect = { x = iconX, y = iconY, w = iconSize, h = iconSize }
+          table.insert(uiComponents, PlacedDecorationIcon:new({ data = decoration, rect = iconRect }))
+      end
+  end
 
-   -- Calculate remote worker positions BEFORE creating components
-   local remoteWorkerPositions = calculateRemoteWorkerPositions(gameState, draggedItemState)
+  -- Calculate remote worker positions BEFORE creating components
+  local remoteWorkerPositions = calculateRemoteWorkerPositions(gameState, draggedItemState)
 
-   -- Remote worker cards
-   for _, empData in ipairs(gameState.hiredEmployees) do
-       if empData.variant == 'remote' then
-           local contextArgs = { employee = empData, context = "remote_worker" }
-           EffectsDispatcher.dispatchEvent("onEmployeeContextCheck", gameState, contextArgs, { modal = modal })
-           
-           if empData.isTraining or gameState.temporaryEffectFlags.isRemoteWorkDisabled or (empData.special and empData.special.does_not_work) then
-               contextArgs.context = "worker_training"
-           elseif gameState.gamePhase == "battle_active" and battleState.activeEmployees then
-               local isWorkerActive = false
-               for _, activeEmp in ipairs(battleState.activeEmployees) do
-                   if activeEmp.instanceId == empData.instanceId then isWorkerActive = true; break; end
-               end
-               if not isWorkerActive then contextArgs.context = "worker_done" end
-           end
-           
-           -- Get the calculated position for this remote worker
-           local workerRect = remoteWorkerPositions[empData.instanceId] or {x = 0, y = 0, w = cardWidth, h = cardHeight}
-           
-           table.insert(uiComponents, EmployeeCard:new({
-               data = empData, 
-               rect = workerRect, 
-               context = contextArgs.context, 
-               gameState=gameState, 
-               battleState=battleState, 
-               draggedItemState=draggedItemState, 
-               uiElementRects=uiElementRects,
-               battlePhaseManager = battlePhaseManager
-           }))
-           
-           -- Store the position in uiElementRects.remote for consistency
-           uiElementRects.remote[empData.instanceId] = workerRect
-       end
-   end
+  -- Remote worker cards
+  for _, empData in ipairs(gameState.hiredEmployees) do
+      if empData.variant == 'remote' then
+          local contextArgs = { employee = empData, context = "remote_worker" }
+          EffectsDispatcher.dispatchEvent("onEmployeeContextCheck", gameState, contextArgs, { modal = modal })
+          
+          if empData.isTraining or gameState.temporaryEffectFlags.isRemoteWorkDisabled or (empData.special and empData.special.does_not_work) then
+              contextArgs.context = "worker_training"
+          elseif gameState.gamePhase == "battle_active" and battleState.activeEmployees then
+              local isWorkerActive = false
+              for _, activeEmp in ipairs(battleState.activeEmployees) do
+                  if activeEmp.instanceId == empData.instanceId then isWorkerActive = true; break; end
+              end
+              if not isWorkerActive then contextArgs.context = "worker_done" end
+          end
+          
+          -- Get the calculated position for this remote worker
+          local workerRect = remoteWorkerPositions[empData.instanceId] or {x = 0, y = 0, w = cardWidth, h = cardHeight}
+          
+          table.insert(uiComponents, EmployeeCard:new({
+              data = empData, 
+              rect = workerRect, 
+              context = contextArgs.context, 
+              gameState=gameState, 
+              battleState=battleState, 
+              draggedItemState=draggedItemState, 
+              uiElementRects=uiElementRects,
+              battlePhaseManager = battlePhaseManager,
+              modal = modal
+          }))
+          
+          -- Store the position in uiElementRects.remote for consistency
+          uiElementRects.remote[empData.instanceId] = workerRect
+      end
+  end
 
-   -- CREATE UPGRADE ICONS ACROSS THE TOP OF THE OFFICE FLOOR
-   local officeRect = panelRects.mainInteraction
-   local iconSize = 32
-   local iconPadding = 5
-   local currentX = officeRect.x + 10
-   local iconY = officeRect.y + 10
-   
-   for _, upgradeId in ipairs(gameState.purchasedPermanentUpgrades) do
-       local upgData = nil
-       for _, u in ipairs(GameData.ALL_UPGRADES) do if u.id == upgradeId then upgData = u; break; end end
-       if upgData and (currentX + iconSize <= officeRect.x + officeRect.width - 10) then
-           table.insert(uiComponents, PurchasedUpgradeIcon:new({ rect = { x = currentX, y = iconY, w = iconSize, h = iconSize }, upgData = upgData, gameState = gameState, battleState = battleState, modal = modal }))
-           currentX = currentX + iconSize + iconPadding
-       end
-   end
+  -- CREATE UPGRADE ICONS ACROSS THE TOP OF THE OFFICE FLOOR
+  local officeRect = panelRects.mainInteraction
+  local iconSize = 32
+  local iconPadding = 5
+  local currentX = officeRect.x + 10
+  local iconY = officeRect.y + 10
+  
+  for _, upgradeId in ipairs(gameState.purchasedPermanentUpgrades) do
+      local upgData = nil
+      for _, u in ipairs(GameData.ALL_UPGRADES) do if u.id == upgradeId then upgData = u; break; end end
+      if upgData and (currentX + iconSize <= officeRect.x + officeRect.width - 10) then
+          table.insert(uiComponents, PurchasedUpgradeIcon:new({ rect = { x = currentX, y = iconY, w = iconSize, h = iconSize }, upgData = upgData, gameState = gameState, battleState = battleState, modal = modal }))
+          currentX = currentX + iconSize + iconPadding
+      end
+  end
 end
 
 function love.resize(w, h)
