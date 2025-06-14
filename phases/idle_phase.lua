@@ -20,7 +20,7 @@ function IdlePhase:update(dt, gameState, battleState)
             -- Dispatch the turn start event for any listeners (like Narrator)
             require("effects_dispatcher").dispatchEvent("onTurnStart", gameState, { modal = self.manager.services.modal }, { currentEmployee = currentEmployee })
         end
-        self.manager:changePhase('starting_turn', gameState, battleState)
+        self.manager:changePhase('turn_speed_check', gameState, battleState)
     end
 end
 

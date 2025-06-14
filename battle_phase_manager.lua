@@ -44,7 +44,9 @@ end
 
 function BattlePhaseManager:update(dt, gameState, battleState)
     if self.currentState and self.currentState.update then
-        self.currentState:update(dt, gameState, battleState)
+        -- Apply speed multiplier to delta time
+        local adjustedDt = dt * (battleState.speedMultiplier or 1.0)
+        self.currentState:update(adjustedDt, gameState, battleState)
     end
 end
 

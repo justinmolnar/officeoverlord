@@ -696,7 +696,7 @@ return {
                             local gadget = require("data").ALL_GADGETS[love.math.random(#require("data").ALL_GADGETS)]
                             
                             if gadget and gadget.listeners and gadget.listeners.onUse then
-                                gadget.listeners.onUse(gadget, gameState)
+                                require("effects_dispatcher").dispatchEvent("onUse", gameState, services, { gadget = gadget })
                             else
                                 print("Warning: Gadget '" .. (gadget.name or "unknown") .. "' has no onUse listener.")
                             end
@@ -1186,12 +1186,12 @@ return {
                 {
                     phase = 'PreCalculation',
                     priority = 50,
-                    callback = function(self, gameState, eventArgs)
+                    callback = function(self, gameState, services, eventArgs)
                         local victims = {}
                         if self.deskId then
                             local directions = {"up", "down", "left", "right"}
                             for _, dir in ipairs(directions) do 
-                                local neighborDeskId = require("employee"):getNeighboringDeskId(self.deskId, dir, require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
+                                local neighborDeskId = require("placement"):getNeighboringDeskId(self.deskId, dir, require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks)
                                 if neighborDeskId and gameState.deskAssignments[neighborDeskId] then 
                                     local neighbor = require("employee"):getFromState(gameState, gameState.deskAssignments[neighborDeskId])
                                     if neighbor then 

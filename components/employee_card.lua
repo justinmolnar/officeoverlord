@@ -48,6 +48,33 @@ local function _drawCardBattleAnimation(cardData, width, height, battleState, se
         
         love.graphics.pop()
     end
+    
+    -- NEW: Draw fading contributions for previous employees
+    if battleState.fadingContributions then
+        for instanceId, fadeData in pairs(battleState.fadingContributions) do
+            if instanceId == cardData.instanceId and fadeData.alpha > 0 then
+                local shakeX, shakeY = 0, 0
+                if battleState.isShaking then
+                    shakeX = (love.math.random() - 0.5) * 2 -- Less shake for fading
+                    shakeY = (love.math.random() - 0.5) * 2
+                end
+                
+                love.graphics.push()
+                love.graphics.translate(shakeX, shakeY)
+                
+                love.graphics.setColor(0, 0, 0, 0.7 * fadeData.alpha)
+                love.graphics.rectangle("fill", 0, 0, width, height, 5, 5)
+                
+                local font = Drawing.UI.titleFont or Drawing.UI.fontLarge
+                love.graphics.setFont(font)
+                love.graphics.setColor(1, 1, 1, fadeData.alpha)
+                
+                love.graphics.printf(fadeData.text, 0, height/2 - font:getHeight()/2, width, "center")
+                
+                love.graphics.pop()
+            end
+        end
+    end
 end
 
 local function _drawCardTextContent(cardData, width, height, context, gameState)

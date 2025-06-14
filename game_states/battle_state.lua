@@ -36,6 +36,13 @@ function BattleState:enter(gameState, battleState, context)
     battleState.changedEmployeesForAnimation = {}
     battleState.nextChangedEmployeeIndex = 1
     battleState.progressMarkers = {}
+    
+    -- NEW: Turn tracking for speed progression
+    battleState.totalTurnsThisItem = 0
+    battleState.speedMultiplier = 1.0
+    
+    -- NEW: Fading contributions system
+    battleState.fadingContributions = {}
 
     gameState.currentWeekCycles = 0
     gameState.totalSalariesPaidThisWeek = 0
@@ -49,7 +56,7 @@ function BattleState:enter(gameState, battleState, context)
         if emp.special and emp.special.does_not_work then isDisabled = true end
         
         local availabilityArgs = { employee = emp, isDisabled = false, reason = "" }
-        require("effects_dispatcher").dispatchEvent("onEmployeeAvailabilityCheck", gameState, { modal = context.modal }, availabilityArgs)
+        require("effects_dispatcher").dispatchEvent("onEmployeeAvailabilityCheck", gameState, { modal = context.modal, battlePhaseManager = context.battlePhaseManager }, availabilityArgs)
         if availabilityArgs.isDisabled then
             isDisabled = true
             if availabilityArgs.reason ~= "" then
@@ -92,8 +99,8 @@ function BattleState:enter(gameState, battleState, context)
         remoteWorkers = remote,
         placedWorkers = placed
     }
-    require("effects_dispatcher").dispatchEvent("onBattleStart", gameState, { modal = context.modal }, battleStartArgs)
-    require("effects_dispatcher").dispatchEvent("onWorkOrderDetermined", gameState, { modal = context.modal }, battleStartArgs)
+    require("effects_dispatcher").dispatchEvent("onBattleStart", gameState, { modal = context.modal, battlePhaseManager = context.battlePhaseManager }, battleStartArgs)
+    require("effects_dispatcher").dispatchEvent("onWorkOrderDetermined", gameState, { modal = context.modal, battlePhaseManager = context.battlePhaseManager }, battleStartArgs)
     
     battleState.activeEmployees = battleStartArgs.activeEmployees
     
@@ -121,6 +128,17 @@ end
 function BattleState:update(dt, gameState, battleState, context)
     if context.battlePhaseManager then
         context.battlePhaseManager:update(dt, gameState, battleState)
+    end
+    
+    -- NEW: Update fading contributions
+    if battleState.fadingContributions then
+        local fadeSpeed = 0.8 -- Fade out over ~1.25 seconds
+        for instanceId, fadeData in pairs(battleState.fadingContributions) do
+            fadeData.alpha = fadeData.alpha - (fadeSpeed * dt * (battleState.speedMultiplier or 1.0))
+            if fadeData.alpha <= 0 then
+                battleState.fadingContributions[instanceId] = nil
+            end
+        end
     end
 end
 

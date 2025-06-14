@@ -603,6 +603,7 @@ function love.load()
 
    battlePhaseManager:init({ modal = modal }, {
        idle = require("phases.idle_phase"),
+       turn_speed_check = require("phases.turn_speed_check_phase"),
        starting_turn = require("phases.starting_turn_phase"),
        showing_productivity = require("phases.showing_productivity_phase"),
        showing_focus = require("phases.showing_focus_phase"),
@@ -1023,7 +1024,7 @@ function handleWinCondition()
         end
         
         local eventArgs = { vampireDrain = 0, budgetBonus = 0, isBossItem = currentWorkItem.id:find("boss") }
-        EffectsDispatcher.dispatchEvent("onWorkItemComplete", gameState, eventArgs, { modal = modal })
+        EffectsDispatcher.dispatchEvent("onWorkItemComplete", gameState, { modal = modal }, eventArgs)
         
         totalBudgetBonus = totalBudgetBonus + eventArgs.budgetBonus
         vampireBudgetDrain = eventArgs.vampireDrain
@@ -1040,7 +1041,7 @@ function handleWinCondition()
         workItemReward = 0
         vampireBudgetDrain = 0
         local eventArgs = { vampireDrain = 0, budgetBonus = 0, isBossItem = currentWorkItem.id:find("boss") }
-        EffectsDispatcher.dispatchEvent("onWorkItemComplete", gameState, eventArgs, { modal = modal }) 
+        EffectsDispatcher.dispatchEvent("onWorkItemComplete", gameState, { modal = modal }, eventArgs) 
         print("Venture Capital active: Forfeiting all budget rewards.")
     end
     
@@ -1073,7 +1074,7 @@ function handleWinCondition()
             gameState.currentWorkItemIndex = 1
             gameState.currentSprintIndex = gameState.currentSprintIndex + 1
             
-            EffectsDispatcher.dispatchEvent("onSprintStart", gameState, { modal = modal })
+            EffectsDispatcher.dispatchEvent("onSprintStart", gameState, { modal = modal }, {})
             
             gameState.temporaryEffectFlags.motivationalSpeakerUsedThisSprint = nil
             gameState.temporaryEffectFlags.reOrgUsedThisSprint = nil
@@ -1090,11 +1091,24 @@ function handleWinCondition()
                 modal:show("Project Complete!", "You have cleared all 8 Sprints! Congratulations!", { {text = "Play Again?", onClick = finalWinCallback, style = "primary"} })
                 return
             else
-                local permUpgrades = {}; for _, upgId in ipairs(gameState.purchasedPermanentUpgrades) do local isTemp = false; for _, upgData in ipairs(GameData.ALL_UPGRADES) do if upgId == upgData.id and upgData.effect.duration_weeks then isTemp = true; break end; end; if not isTemp then table.insert(permUpgrades, upgId) end; end
+                -- FIXED: Added nil check for upgData.effect
+                local permUpgrades = {}
+                for _, upgId in ipairs(gameState.purchasedPermanentUpgrades) do 
+                    local isTemp = false
+                    for _, upgData in ipairs(GameData.ALL_UPGRADES) do 
+                        if upgId == upgData.id and upgData.effect and upgData.effect.duration_weeks then 
+                            isTemp = true
+                            break 
+                        end 
+                    end
+                    if not isTemp then 
+                        table.insert(permUpgrades, upgId) 
+                    end 
+                end
                 gameState.purchasedPermanentUpgrades = permUpgrades
             end
         end
-        gameState.currentShopOffers = {employees={}, upgrade=nil, restockCountThisWeek=0}
+        gameState.currentShopOffers = {employees={}, upgrade=nil, decorations={}, restockCountThisWeek=0}
         setGamePhase("hiring_and_upgrades")
     end
 

@@ -143,12 +143,11 @@ function PurchasedUpgradeIcon:handleMousePress(x, y, button)
     if button == 1 and self:_isClickable() and Drawing.isMouseOver(x, y, self.rect.x, self.rect.y, self.rect.w, self.rect.h) then
         if self.upgData.listeners and self.upgData.listeners.onActivate then
             local eventArgs = {}
-            if self.upgData.listeners.onActivate(self.upgData, self.gameState, eventArgs) then
-                if eventArgs.showModal then
-                    self.modal:show(eventArgs.showModal.title, eventArgs.showModal.message)
-                end
-                return true
+            require("effects_dispatcher").dispatchEvent("onActivate", self.gameState, { modal = self.modal }, eventArgs)
+            if eventArgs.showModal then
+                self.modal:show(eventArgs.showModal.title, eventArgs.showModal.message)
             end
+            return true
         end
     end
     return false

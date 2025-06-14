@@ -506,7 +506,7 @@ function Shop:buyUpgrade(gameState, upgradeIdToBuy)
     table.insert(gameState.purchasedPermanentUpgrades, upgradeData.id)
     
     if upgradeData.listeners and upgradeData.listeners.onPurchase then
-        upgradeData.listeners.onPurchase(upgradeData, gameState)
+        require("effects_dispatcher").dispatchEvent("onPurchase", gameState, { modal = modal }, { upgrade = upgradeData })
     end
     
     _G.buildUIComponents()

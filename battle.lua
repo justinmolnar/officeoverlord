@@ -38,11 +38,7 @@ function Battle:startChallenge(gameState, showMessage)
 
     if gameState.temporaryEffectFlags.gladosModifierForNextItem then
         local mod = gameState.temporaryEffectFlags.gladosModifierForNextItem
-        if mod.listeners and mod.listeners.onApply then
-            mod.listeners.onApply(mod, gameState)
-        else
-            print("Warning: GLaDOS modifier has no onApply listener.")
-        end
+        require("effects_dispatcher").dispatchEvent("onApply", gameState, { modal = modal }, { modifier = mod })
         gameState.temporaryEffectFlags.gladosModifierForNextItem = nil 
     end
 
@@ -61,12 +57,8 @@ function Battle:startChallenge(gameState, showMessage)
 
     if currentWorkItemData.modifier then
         local mod = currentWorkItemData.modifier
-        if mod.listeners and mod.listeners.onApply then
-            mod.listeners.onApply(mod, gameState)
-            print("APPLIED SPRINT MODIFIER: " .. mod.type)
-        else
-            print("Warning: Sprint modifier has no onApply listener.")
-        end
+        require("effects_dispatcher").dispatchEvent("onApply", gameState, { modal = modal }, { modifier = mod })
+        print("APPLIED SPRINT MODIFIER: " .. mod.type)
     end
     
     gameState.initialWorkloadForBar = gameState.currentWeekWorkload
@@ -88,7 +80,7 @@ function Battle:calculateEmployeeContribution(employeeInstance, gameState)
        contributionMultiplier = 1,
        focusMultiplier = 1,
    }
-   EffectsDispatcher.dispatchEvent("onBeforeContribution", gameState, eventArgs, { modal = modal })
+   EffectsDispatcher.dispatchEvent("onBeforeContribution", gameState, { modal = modal }, eventArgs)
 
    if eventArgs.wasInstaWin then
        gameState.currentWeekWorkload = 0
@@ -149,7 +141,7 @@ function Battle:calculateEmployeeContribution(employeeInstance, gameState)
        contribution = employeeContribution,
        employee = employeeInstance
    }
-   EffectsDispatcher.dispatchEvent("onAfterContribution", gameState, afterContributionEventArgs, { modal = modal })
+   EffectsDispatcher.dispatchEvent("onAfterContribution", gameState, { modal = modal }, afterContributionEventArgs)
 
    return {
        productivity = displayProductivity,
@@ -178,6 +170,11 @@ function Battle:resetBattleState(battleState, gameState)
     battleState.progressMarkers = {}
     battleState.salariesToPayThisRound = 0
     battleState.salaryChipAmountRemaining = 0
+    
+    -- NEW: Reset fading system
+    battleState.totalTurnsThisItem = 0
+    battleState.speedMultiplier = 1.0
+    battleState.fadingContributions = {}
     
     -- Clear all employee battle-specific flags
     for _, emp in ipairs(gameState.hiredEmployees) do
