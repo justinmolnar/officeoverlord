@@ -69,6 +69,92 @@ function Placement:performReOrgSwap(gameState, emp1InstanceId, emp2InstanceId)
     return true, remoteEmp.name .. " and " .. officeEmp.name .. " have been reorganized."
 end
 
+local function _handleDropOnEmptyDesk(gameState, employeeData, targetDeskId)
+    employeeData.deskId = targetDeskId
+    gameState.deskAssignments[targetDeskId] = employeeData.instanceId
+    return true
+end
+
+local function _handleDropOnOccupiedDesk(self, gameState, employeeData, targetDeskId, originalDeskId, modal)
+    local occupantInstanceId = gameState.deskAssignments[targetDeskId]
+    local occupantEmployee = Employee:getFromState(gameState, occupantInstanceId)
+
+    if not occupantEmployee then return false end -- Should not happen, but a good safeguard
+
+    if Placement:isPotentialCombineTarget(gameState, occupantEmployee, employeeData) then
+        local success, msg = self:combineAndLevelUpEmployees(gameState, occupantEmployee.instanceId, employeeData.instanceId)
+        if not success then modal:show("Combine Failed", msg) end
+        return success
+    else
+        if not originalDeskId then
+            modal:show("Placement Failed", "Cannot swap with an employee from the shop. Place this employee on an empty desk first.")
+            return false
+        end
+        print("Swapping " .. employeeData.name .. " with " .. occupantEmployee.name)
+        -- Perform the swap of the two employees
+        gameState.deskAssignments[originalDeskId] = occupantEmployee.instanceId
+        occupantEmployee.deskId = originalDeskId
+        gameState.deskAssignments[targetDeskId] = employeeData.instanceId
+        employeeData.deskId = targetDeskId
+        return true
+    end
+end
+
+function Placement:handleEmployeeDropOnDesk(gameState, employeeData, targetDeskId, originalDeskId, modal)
+    local fromShop = (originalDeskId == nil)
+
+    -- The initial validation and event dispatches remain the same
+    local placementArgs = { 
+        employee = employeeData, 
+        targetDeskId = targetDeskId, 
+        fromShop = fromShop,
+        wasHandled = false,
+        success = false,
+        message = ""
+    }
+    require("effects_dispatcher").dispatchEvent("onPlacement", gameState, { modal = modal }, placementArgs)
+    
+    if placementArgs.wasHandled then
+        if not placementArgs.success and placementArgs.message ~= "" then
+            modal:show("Can't Merge", placementArgs.message)
+        end
+        return placementArgs.success
+    end
+    
+    local validationArgs = { employee = employeeData, targetDeskId = targetDeskId, isValid = true, message = "" }
+    require("effects_dispatcher").dispatchEvent("onValidatePlacement", gameState, { modal = modal }, validationArgs)
+
+    if not validationArgs.isValid then
+        modal:show("Placement Error", validationArgs.message or "This employee cannot be placed here.")
+        return false
+    end
+
+    if employeeData.variant == 'remote' then modal:show("Invalid Placement", employeeData.fullName .. " is a remote worker and cannot be placed on a desk."); return false end
+    local targetDesk = nil
+    for _,d in ipairs(gameState.desks) do if d.id == targetDeskId then targetDesk = d; break; end end
+    if not targetDesk or targetDesk.status ~= "owned" then modal:show("Placement Error", "Cannot place on a locked or unpurchased desk."); return false end
+    
+    -- This is the new, refactored logic
+    local currentOccupantInstanceId = gameState.deskAssignments[targetDeskId]
+    local wasSuccessfullyPlaced = false
+
+    if not currentOccupantInstanceId then
+        wasSuccessfullyPlaced = _handleDropOnEmptyDesk(gameState, employeeData, targetDeskId)
+    elseif currentOccupantInstanceId == employeeData.instanceId then
+        -- Simple case of returning to the same desk, which is implicitly a success.
+        wasSuccessfullyPlaced = true
+        print(employeeData.name .. " returned to " .. targetDeskId)
+    else
+        wasSuccessfullyPlaced = _handleDropOnOccupiedDesk(self, gameState, employeeData, targetDeskId, originalDeskId, modal)
+    end
+    
+    if wasSuccessfullyPlaced and fromShop then
+        require("effects_dispatcher").dispatchEvent("onHire", gameState, { modal = modal }, { employee = employeeData })
+    end
+
+    return wasSuccessfullyPlaced
+end
+
 function Placement:handleDecorationDropOnDesk(gameState, decorationData, targetDeskId, modal)
     local targetDesk
     for _, d in ipairs(gameState.desks) do
@@ -137,70 +223,6 @@ function Placement:isPotentialCombineTarget(gameState, targetEmployeeData, sourc
     end
 
     return false
-end
-
-function Placement:handleEmployeeDropOnDesk(gameState, employeeData, targetDeskId, originalDeskId, modal)
-    local wasSuccessfullyPlaced = false
-    local fromShop = (originalDeskId == nil)
-
-    -- NEW: Event to validate placement before attempting it.
-    local validationArgs = { employee = employeeData, targetDeskId = targetDeskId, isValid = true, message = "" }
-    require("effects_dispatcher").dispatchEvent("onValidatePlacement", gameState, { modal = modal }, validationArgs)
-
-    if not validationArgs.isValid then
-        modal:show("Placement Error", validationArgs.message or "This employee cannot be placed here.")
-        return false
-    end
-
-    local placementArgs = { 
-        employee = employeeData, 
-        targetDeskId = targetDeskId, 
-        fromShop = fromShop,
-        wasHandled = false,
-        success = false,
-        message = ""
-    }
-    require("effects_dispatcher").dispatchEvent("onPlacement", gameState, { modal = modal }, placementArgs)
-    
-    if placementArgs.wasHandled then
-        if not placementArgs.success and placementArgs.message ~= "" then
-            modal:show("Can't Merge", placementArgs.message)
-        end
-        return placementArgs.success
-    end
-
-    if employeeData.variant == 'remote' then modal:show("Invalid Placement", employeeData.fullName .. " is a remote worker and cannot be placed on a desk."); return false end
-    local targetDesk = nil
-    for _,d in ipairs(gameState.desks) do if d.id == targetDeskId then targetDesk = d; break; end end
-    if not targetDesk or targetDesk.status ~= "owned" then modal:show("Placement Error", "Cannot place on a locked or unpurchased desk."); return false end
-    local currentOccupantInstanceId = gameState.deskAssignments[targetDeskId]
-
-    if currentOccupantInstanceId then
-        if currentOccupantInstanceId == employeeData.instanceId then 
-            gameState.deskAssignments[targetDeskId] = employeeData.instanceId; employeeData.deskId = targetDeskId; print(employeeData.name .. " returned to " .. targetDeskId); wasSuccessfullyPlaced = true
-        else
-            local occupantEmployee = Employee:getFromState(gameState, currentOccupantInstanceId)
-            if occupantEmployee then
-                if Placement:isPotentialCombineTarget(gameState, occupantEmployee, employeeData) then
-                    local success, msg = self:combineAndLevelUpEmployees(gameState, occupantEmployee.instanceId, employeeData.instanceId)
-                    if not success then modal:show("Combine Failed", msg) end; return success 
-                else
-                    if not originalDeskId then modal:show("Placement Failed", "Cannot swap with an employee from the shop. Place this employee on an empty desk first."); return false end
-                    print("Swapping " .. employeeData.name .. " with " .. occupantEmployee.name)
-                    gameState.deskAssignments[originalDeskId] = occupantEmployee.instanceId; occupantEmployee.deskId = originalDeskId
-                    gameState.deskAssignments[targetDeskId] = employeeData.instanceId; employeeData.deskId = targetDeskId; wasSuccessfullyPlaced = true
-                end
-            end
-        end
-    else 
-        employeeData.deskId = targetDeskId; gameState.deskAssignments[targetDeskId] = employeeData.instanceId; wasSuccessfullyPlaced = true
-    end
-    
-    if wasSuccessfullyPlaced and fromShop then
-        require("effects_dispatcher").dispatchEvent("onHire", gameState, { modal = modal }, { employee = employeeData })
-    end
-
-    return wasSuccessfullyPlaced
 end
 
 function Placement:handleEmployeeDropOnRemote(gameState, employeeData, originalDeskId, modal)

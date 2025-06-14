@@ -113,91 +113,68 @@ function Shop:getModifiedUpgradeCost(upgradeData, hiredEmployees)
     return math.floor(eventArgs.cost)
 end
 
-function Shop:populateOffers(gameState, currentShopOffers, purchasedPermanentUpgrades, forceRestock)
-    local numEmployeeSlots = 2 -- CHANGED: Reduced from 3 to 2
-    local numDecorationSlots = 1 -- NEW: Added decoration slot
-
-    if forceRestock then
-        print("Shop:populateOffers - Force Restock Initiated.")
-        
-        -- Handle employee offers
-        local newEmployeeOffers = {}
-        if currentShopOffers.employees then
-            for i = 1, numEmployeeSlots do
-                local existingOffer = currentShopOffers.employees[i]
-                if existingOffer and (existingOffer.sold or existingOffer.isLocked) then 
-                    table.insert(newEmployeeOffers, existingOffer) 
-                else 
-                    table.insert(newEmployeeOffers, self:_generateRandomEmployeeOffer(gameState))
-                end
+function Shop:_populateEmployeeOffers(gameState, currentShopOffers, numEmployeeSlots, forceRestock)
+    local preservedOffers = {}
+    if not forceRestock and currentShopOffers.employees then
+        for _, offer in ipairs(currentShopOffers.employees) do
+            if offer and offer.isLocked then
+                table.insert(preservedOffers, offer)
             end
         end
-        currentShopOffers.employees = newEmployeeOffers
+    end
+    
+    currentShopOffers.employees = preservedOffers
+    while #currentShopOffers.employees < numEmployeeSlots do
+        table.insert(currentShopOffers.employees, self:_generateRandomEmployeeOffer(gameState))
+    end
+end
 
-        -- Handle decoration offers
-        local newDecorationOffers = {}
-        if currentShopOffers.decorations then
-            for i = 1, numDecorationSlots do
-                local existingOffer = currentShopOffers.decorations[i]
-                if existingOffer and (existingOffer.sold or existingOffer.isLocked) then
-                    table.insert(newDecorationOffers, existingOffer)
-                else
-                    table.insert(newDecorationOffers, self:_generateRandomDecorationOffer(gameState))
-                end
-            end
-        else
-            for i = 1, numDecorationSlots do
-                table.insert(newDecorationOffers, self:_generateRandomDecorationOffer(gameState))
-            end
-        end
-        currentShopOffers.decorations = newDecorationOffers
-
-        -- Handle upgrade offers
-        if not (currentShopOffers.upgrade and (currentShopOffers.upgrade.sold or currentShopOffers.upgrade.isLocked)) then
-            currentShopOffers.upgrade = self:_generateRandomUpgradeOffer(purchasedPermanentUpgrades)
-        end
-        
-    else
-        if currentShopOffers.restockCountThisWeek == 0 then
-            print("Shop:populateOffers - Generating new shop offers for the week.")
-            
-            -- Handle preserved employees
-            local preservedEmployees = {}
-            if currentShopOffers.employees then
-                for _, offer in ipairs(currentShopOffers.employees) do
-                    if offer and offer.isLocked then
-                        table.insert(preservedEmployees, offer)
-                    end
-                end
-            end
-            
-            currentShopOffers.employees = preservedEmployees
-            while #currentShopOffers.employees < numEmployeeSlots do
-                table.insert(currentShopOffers.employees, self:_generateRandomEmployeeOffer(gameState))
-            end
-
-            -- Handle preserved decorations
-            local preservedDecorations = {}
-            if currentShopOffers.decorations then
-                for _, offer in ipairs(currentShopOffers.decorations) do
-                    if offer and offer.isLocked then
-                        table.insert(preservedDecorations, offer)
-                    end
-                end
-            end
-            
-            currentShopOffers.decorations = preservedDecorations
-            while #currentShopOffers.decorations < numDecorationSlots do
-                table.insert(currentShopOffers.decorations, self:_generateRandomDecorationOffer(gameState))
-            end
-
-            -- Handle upgrade offers
-            if not (currentShopOffers.upgrade and currentShopOffers.upgrade.isLocked) then
-                currentShopOffers.upgrade = self:_generateRandomUpgradeOffer(purchasedPermanentUpgrades)
+function Shop:_populateDecorationOffers(gameState, currentShopOffers, numDecorationSlots, forceRestock)
+    local preservedOffers = {}
+    if not forceRestock and currentShopOffers.decorations then
+        for _, offer in ipairs(currentShopOffers.decorations) do
+            if offer and offer.isLocked then
+                table.insert(preservedOffers, offer)
             end
         end
     end
 
+    currentShopOffers.decorations = preservedOffers
+    while #currentShopOffers.decorations < numDecorationSlots do
+        table.insert(currentShopOffers.decorations, self:_generateRandomDecorationOffer(gameState))
+    end
+end
+
+function Shop:_populateUpgradeOffer(gameState, currentShopOffers, forceRestock)
+    if forceRestock then
+        if not (currentShopOffers.upgrade and (currentShopOffers.upgrade.sold or currentShopOffers.upgrade.isLocked)) then
+            currentShopOffers.upgrade = self:_generateRandomUpgradeOffer(gameState.purchasedPermanentUpgrades)
+        end
+    else
+        if not (currentShopOffers.upgrade and currentShopOffers.upgrade.isLocked) then
+            currentShopOffers.upgrade = self:_generateRandomUpgradeOffer(gameState.purchasedPermanentUpgrades)
+        end
+    end
+end
+
+function Shop:populateOffers(gameState, currentShopOffers, purchasedPermanentUpgrades, forceRestock)
+    local numEmployeeSlots = 2
+    local numDecorationSlots = 1
+
+    -- If this is the first population of the week, there's no need to force a restock.
+    -- The helpers will generate fresh items for any non-locked slots.
+    local isFirstPopulation = currentShopOffers.restockCountThisWeek == 0
+    if isFirstPopulation then
+        forceRestock = false
+    end
+
+    print("Shop:populateOffers - Populating offers. Force Restock: " .. tostring(forceRestock))
+
+    self:_populateEmployeeOffers(gameState, currentShopOffers, numEmployeeSlots, forceRestock)
+    self:_populateDecorationOffers(gameState, currentShopOffers, numDecorationSlots, forceRestock)
+    self:_populateUpgradeOffer(gameState, currentShopOffers, forceRestock)
+    
+    -- After populating, dispatch event for listeners like Headhunter to potentially modify the offers.
     local eventArgs = { offers = currentShopOffers.employees, guaranteeRareOrLegendary = false }
     require("effects_dispatcher").dispatchEvent("onPopulateShop", gameState, eventArgs, { modal = modal })
     
@@ -211,11 +188,21 @@ function Shop:populateOffers(gameState, currentShopOffers, purchasedPermanentUpg
         end
         
         if not hasRareOrLegendary and #eventArgs.offers > 0 then
+            -- Replace the first offer with a guaranteed rare+
             eventArgs.offers[1] = self:_generateRandomEmployeeOfMinRarity(gameState, 'Rare')
         end
     end
     
     currentShopOffers.employees = eventArgs.offers
+end
+
+function Shop:getFinalRestockCost(gameState)
+    local restockCost = GameData.BASE_RESTOCK_COST * (2 ^ (gameState.currentShopOffers.restockCountThisWeek or 0))
+    
+    local eventArgs = { finalCost = restockCost }
+    require("effects_dispatcher").dispatchEvent("onCalculateRestockCost", gameState, {}, { modal = modal })
+    
+    return eventArgs.finalCost
 end
 
 function Shop:_generateRandomDecorationOffer(gameState)

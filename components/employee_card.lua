@@ -9,6 +9,103 @@ local Employee = require("employee")
 local EmployeeCard = {}
 EmployeeCard.__index = EmployeeCard
 
+
+local function _handleDropFromShop(self, droppedItem)
+    if self.gameState.budget < droppedItem.cost then
+        self.modal:show("Can't Afford", "Not enough budget. Need $" .. droppedItem.cost)
+        return true -- Handled by showing modal
+    end
+
+    self.gameState.budget = self.gameState.budget - droppedItem.cost
+    local newEmp = Employee:new(droppedItem.data.id, droppedItem.data.variant, droppedItem.data.fullName)
+    table.insert(self.gameState.hiredEmployees, newEmp)
+    
+    local success, msg = Placement:combineAndLevelUpEmployees(self.gameState, self.data.instanceId, newEmp.instanceId)
+    
+    if success then
+        Shop:markOfferSold(self.gameState.currentShopOffers, droppedItem.originalShopInstanceId, nil)
+    else
+        -- If combine failed, refund the budget and remove the temporary employee
+        self.gameState.budget = self.gameState.budget + droppedItem.cost
+        for i, emp in ipairs(self.gameState.hiredEmployees) do
+            if emp.instanceId == newEmp.instanceId then
+                table.remove(self.gameState.hiredEmployees, i)
+                break
+            end
+        end
+        self.modal:show("Combine Failed", msg or "These employees cannot be combined.")
+    end
+    return true
+end
+
+local function _handlePressInSpecialMode(self, x, y, button)
+    local gameState = self.gameState
+    
+    if gameState.temporaryEffectFlags.reOrgSwapModeActive and (self.context == 'desk_placed' or self.context == 'remote_worker') then
+        local firstSelectionId = gameState.temporaryEffectFlags.reOrgFirstSelectionInstanceId
+        if not firstSelectionId then
+            gameState.temporaryEffectFlags.reOrgFirstSelectionInstanceId = self.data.instanceId
+            local empType = (self.data.variant == 'remote' and "office worker" or "remote worker")
+            self.modal:show("First Selection", self.data.name .. " selected. Now select a " .. empType .. " to swap with.")
+        else
+            local success, msg = Placement:performReOrgSwap(gameState, firstSelectionId, self.data.instanceId)
+            self.modal:show(success and "Re-Org Complete" or "Re-Org Failed", msg)
+            if success then 
+                gameState.temporaryEffectFlags.reOrgUsedThisSprint = true
+                _G.buildUIComponents()
+            end
+            gameState.temporaryEffectFlags.reOrgSwapModeActive = false
+            gameState.temporaryEffectFlags.reOrgFirstSelectionInstanceId = nil
+        end
+        return true -- Input was handled
+    
+    elseif gameState.temporaryEffectFlags.photocopierCopyModeActive and self.context == 'desk_placed' then
+        local emp = self.data
+        if emp.rarity ~= 'Legendary' then
+            gameState.temporaryEffectFlags.photocopierTargetForNextItem = emp.instanceId
+            gameState.temporaryEffectFlags.photocopierUsedThisSprint = true
+            self.modal:show("Target Acquired", emp.name .. " will be duplicated at the start of the next work item.")
+        else
+            self.modal:show("Copy Failed", "Cannot copy a Legendary employee.")
+        end
+        gameState.temporaryEffectFlags.photocopierCopyModeActive = false
+        return true -- Input was handled
+    end
+
+    return false -- No special mode was active or applicable
+end
+
+local function _handlePressInNormalMode(self)
+    -- Store initial position for smooth pickup animation
+    self.animationState.initialX = self.rect.x + self.rect.w/2
+    self.animationState.initialY = self.rect.y + self.rect.h/2
+    self.animationState.currentTime = 0
+    self:startPickupAnimation()
+
+    if self.context == 'shop_offer' then
+        local finalHiringCost = Shop:getFinalHiringCost(self.gameState, self.data, self.gameState.purchasedPermanentUpgrades)
+        self.draggedItemState.item = { 
+            type = "shop_employee", 
+            data = self.data, 
+            cost = finalHiringCost,
+            originalShopInstanceId = self.data.instanceId 
+        }
+        return true
+
+    elseif self.context == 'desk_placed' then
+        self.draggedItemState.item = { type = "placed_employee", data = self.data, originalDeskId = self.data.deskId }
+        self.data.deskId = nil
+        self.gameState.deskAssignments[self.draggedItemState.item.originalDeskId] = nil
+        return true
+
+    elseif self.context == 'remote_worker' then
+        self.draggedItemState.item = { type = "placed_employee", data = self.data, originalVariant = 'remote' }
+        return true
+    end
+
+    return false
+end
+
 local function _drawCardBattleAnimation(cardData, width, height, battleState, self)
     if battleState.currentWorkerId == cardData.instanceId and battleState.lastContribution and self.battlePhaseManager then
         local shakeX, shakeY = 0, 0
@@ -509,70 +606,17 @@ function EmployeeCard:handleMousePress(x, y, button)
         rect = self.uiElementRects.remote[self.data.instanceId]
     end
 
-    if rect and Drawing.isMouseOver(x, y, rect.x, rect.y, rect.w, rect.h) then
-        -- Handle special game modes first.
-        if self.gameState.temporaryEffectFlags.reOrgSwapModeActive and (self.context == 'desk_placed' or self.context == 'remote_worker') then
-            local firstSelectionId = self.gameState.temporaryEffectFlags.reOrgFirstSelectionInstanceId
-            if not firstSelectionId then
-                self.gameState.temporaryEffectFlags.reOrgFirstSelectionInstanceId = self.data.instanceId
-                local empType = (self.data.variant == 'remote' and "remote worker" or "office worker")
-                self.modal:show("First Selection", self.data.name .. " selected. Now select a " .. empType .. ".")
-            else
-                local success, msg = Placement:performReOrgSwap(self.gameState, firstSelectionId, self.data.instanceId)
-                self.modal:show(success and "Re-Org Complete" or "Re-Org Failed", msg)
-                if success then 
-                    self.gameState.temporaryEffectFlags.reOrgUsedThisSprint = true
-                    _G.buildUIComponents()
-                end
-                self.gameState.temporaryEffectFlags.reOrgSwapModeActive = false
-                self.gameState.temporaryEffectFlags.reOrgFirstSelectionInstanceId = nil
-            end
-            return true
-        
-        elseif self.gameState.temporaryEffectFlags.photocopierCopyModeActive and self.context == 'desk_placed' then
-            local emp = self.data
-            if emp.rarity ~= 'Legendary' then
-                self.gameState.temporaryEffectFlags.photocopierTargetForNextItem = emp.instanceId
-                self.gameState.temporaryEffectFlags.photocopierUsedThisSprint = true
-                self.modal:show("Target Acquired", emp.name .. " will be duplicated at the start of the next work item.")
-            else
-                self.modal:show("Copy Failed", "Cannot copy a Legendary employee.")
-            end
-            self.gameState.temporaryEffectFlags.photocopierCopyModeActive = false
-            return true
-        end
-
-        -- Store initial position for smooth pickup animation
-        self.animationState.initialX = rect.x + rect.w/2
-        self.animationState.initialY = rect.y + rect.h/2
-        self.animationState.currentTime = 0
-        
-        -- Start pickup animation when dragging begins
-        self:startPickupAnimation()
-
-        -- If not in a special mode, proceed with normal context actions.
-        if self.context == 'shop_offer' then
-            local finalHiringCost = Shop:getFinalHiringCost(self.gameState, self.data, self.gameState.purchasedPermanentUpgrades)
-            self.draggedItemState.item = { 
-                type = "shop_employee", 
-                data = self.data, 
-                cost = finalHiringCost,
-                originalShopInstanceId = self.data.instanceId 
-            }
-            return true
-
-        elseif self.context == 'desk_placed' then
-            self.draggedItemState.item = { type = "placed_employee", data = self.data, originalDeskId = self.data.deskId }
-            self.data.deskId = nil
-            self.gameState.deskAssignments[self.draggedItemState.item.originalDeskId] = nil
-            return true
-
-        elseif self.context == 'remote_worker' then
-            self.draggedItemState.item = { type = "placed_employee", data = self.data, originalVariant = 'remote' }
-            return true
-        end
+    if not rect or not Drawing.isMouseOver(x, y, rect.x, rect.y, rect.w, rect.h) then
+        return false
     end
-    return false
+    
+    -- First, check if a special mode handles the click
+    if _handlePressInSpecialMode(self, x, y, button) then
+        return true
+    end
+    
+    -- If not, perform the normal drag action
+    return _handlePressInNormalMode(self)
 end
 
 function EmployeeCard:handleMouseDrop(x, y, droppedItem)
@@ -592,33 +636,8 @@ function EmployeeCard:handleMouseDrop(x, y, droppedItem)
     -- Can't drop an employee on themselves
     if targetEmployee.instanceId == droppedEmployeeData.instanceId then return false end
 
-    -- The hard-coded logic for shop employees with special abilities is now removed.
-    -- We now just call the generic placement handlers, which will dispatch events.
     if droppedItem.type == "shop_employee" then
-        if self.gameState.budget < droppedItem.cost then
-            self.modal:show("Can't Afford", "Not enough budget. Need $" .. droppedItem.cost)
-            return true -- Handled (by showing a modal)
-        end
-        -- Let the generic placement logic handle this. It will fire an onPlacement event.
-        self.gameState.budget = self.gameState.budget - droppedItem.cost
-        local newEmp = Employee:new(droppedEmployeeData.id, droppedEmployeeData.variant, droppedEmployeeData.fullName)
-        table.insert(self.gameState.hiredEmployees, newEmp)
-        local success, msg = Placement:combineAndLevelUpEmployees(self.gameState, targetEmployee.instanceId, newEmp.instanceId)
-        if success then
-            Shop:markOfferSold(self.gameState.currentShopOffers, droppedItem.originalShopInstanceId, nil)
-        else
-            self.gameState.budget = self.gameState.budget + droppedItem.cost
-            -- remove the just-added employee
-            for i, emp in ipairs(self.gameState.hiredEmployees) do
-                if emp.instanceId == newEmp.instanceId then
-                    table.remove(self.gameState.hiredEmployees, i)
-                    break
-                end
-            end
-            self.modal:show("Combine Failed", msg)
-        end
-        return true
-
+        return _handleDropFromShop(self, droppedItem)
     elseif droppedItem.type == "placed_employee" then
         if targetEmployee.variant == 'remote' then
             return Placement:handleEmployeeDropOnRemoteEmployee(self.gameState, droppedEmployeeData, targetEmployee.instanceId, self.modal)
