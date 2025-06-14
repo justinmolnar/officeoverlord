@@ -700,9 +700,41 @@ end
 function Drawing.drawGameInfoPanel(rect, gameState, uiElementRects, sprintOverviewVisible, battleState)
     local currentY = _drawGameInfoPanelFrame(rect)
     currentY = _drawCoreStats(rect, currentY, gameState, battleState)
-    currentY = _drawPhaseSpecificInfo(rect, currentY, gameState, uiElementRects)
-    currentY = _drawSpecialIntel(rect, currentY + 20, gameState)
-    -- Buttons are now components and will be drawn in the main loop
+    
+    -- This was previously _drawPhaseSpecificInfo, but buttons are now components
+    -- and special intel is handled by the new event dispatch below.
+    local sprint = GameData.ALL_SPRINTS[gameState.currentSprintIndex]
+    local workItem = sprint and sprint.workItems[gameState.currentWorkItemIndex]
+
+    if gameState.gamePhase == "hiring_and_upgrades" then
+        if workItem then
+            love.graphics.print("Next Workload:", rect.x + 10, currentY)
+            love.graphics.printf(workItem.workload, rect.x, currentY, rect.width - 20, "right")
+            currentY = currentY + 20
+            love.graphics.print("Next Reward:", rect.x + 10, currentY)
+            love.graphics.printf("$" .. workItem.reward, rect.x, currentY, rect.width - 20, "right")
+            currentY = currentY + 20
+            if workItem.modifier then
+                love.graphics.setColor(0.8, 0.1, 0.1, 1)
+                love.graphics.print("Modifier:", rect.x + 10, currentY); currentY = currentY + 20
+                love.graphics.setColor(Drawing.UI.colors.text)
+                currentY = currentY + Drawing.drawTextWrapped(workItem.modifier.description, rect.x + 10, currentY, rect.width - 20, Drawing.UI.fontSmall, "left") + 5
+            end
+        end
+        love.graphics.print("Bailouts: " .. gameState.bailOutsRemaining, rect.x + 10, currentY); currentY = currentY + 20
+    else -- battle_active phase
+        if workItem then
+            love.graphics.print("Workload: " .. gameState.currentWeekWorkload .. "/" .. gameState.initialWorkloadForBar, rect.x + 10, currentY)
+            currentY = currentY + 20
+        end
+        love.graphics.print("Cycle: " .. gameState.currentWeekCycles + 1, rect.x + 10, currentY); currentY = currentY + 20
+    end
+
+    -- NEW: Dispatch an event to let listeners draw special intel
+    local intelArgs = { x = rect.x + 10, y = currentY + 15, width = rect.width - 20 }
+    require("effects_dispatcher").dispatchEvent("onDrawIntelPanel", gameState, {fontSmall = Drawing.UI.fontSmall, colors = Drawing.UI.colors}, intelArgs)
+    
+    -- The old _drawSpecialIntel function is no longer needed here.
 end
 
 -- local helper to calculate the progress percentage of the workload bar.

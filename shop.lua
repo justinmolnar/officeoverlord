@@ -296,18 +296,20 @@ function Shop:_generateRandomEmployeeOffer(gameState)
         return nil
     end
     
+    local possibleVariants = {"standard", "holo", "foil", "remote"}
+    local eventArgs = { possibleVariants = possibleVariants, baseCard = chosenBaseCardData }
+    require("effects_dispatcher").dispatchEvent("onGenerateEmployeeVariant", gameState, {}, eventArgs)
+    
     local variant = "standard"
     if chosenBaseCardData.forceVariant then
         variant = chosenBaseCardData.forceVariant
     else
         local rand = love.math.random() 
-        local hasSubsidizedHousing = self:isUpgradePurchased(gameState.purchasedPermanentUpgrades, 'subsidized_housing')
-
-        if rand < 0.075 then
+        if rand < 0.075 and table.indexOf(eventArgs.possibleVariants, "holo") then
             variant = "holo"
-        elseif rand < 0.15 then
+        elseif rand < 0.15 and table.indexOf(eventArgs.possibleVariants, "foil") then
             variant = "foil"
-        elseif rand < 0.30 and not hasSubsidizedHousing then
+        elseif rand < 0.30 and table.indexOf(eventArgs.possibleVariants, "remote") then
             variant = "remote"
         end
     end
@@ -522,20 +524,8 @@ function Shop:buyUpgrade(gameState, upgradeIdToBuy)
         return false, "Not enough budget. Need $" .. finalCost .. "."
     end
     
-    local isPermanentAndUnique = true
-    if upgradeData.effect then
-        local nonUniqueTypes = {
-            ['budget_add_flat'] = true,
-            ['one_time_team_focus_boost_multiplier'] = true,
-            ['one_time_workload_reduction_percent'] = true,
-            ['temporary_focus_boost_all'] = true,
-            ['code_debt'] = true,
-            ['multiverse_merger'] = true
-        }
-        if nonUniqueTypes[upgradeData.effect.type] then
-            isPermanentAndUnique = false
-        end
-    end
+    -- This logic is now data-driven, checking a property on the upgrade itself.
+    local isPermanentAndUnique = upgradeData.isUnique ~= false -- Defaults to true if nil
 
     if isPermanentAndUnique and self:isUpgradePurchased(gameState.purchasedPermanentUpgrades, upgradeData.id) then
          return false, "This type of permanent upgrade has already been acquired."

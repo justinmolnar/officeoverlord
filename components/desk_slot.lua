@@ -178,10 +178,6 @@ function DeskSlot:handleMouseDrop(x, y, droppedItem)
             self.modal:show("Can't Afford", "Not enough budget to hire. Need $" .. droppedItem.cost)
             SoundManager:playEffect('error')
             return false
-        elseif droppedEmployeeData.special and (droppedEmployeeData.special.type == 'haunt_target_on_hire' or droppedEmployeeData.special.type == 'slime_merge') then
-            self.modal:show("Invalid Placement", "This special unit must be placed on an existing employee, not an empty desk.")
-            SoundManager:playEffect('error')
-            return false
         elseif droppedEmployeeData.variant == 'remote' then
             self.modal:show("Invalid Placement", droppedEmployeeData.fullName .. " is a remote worker and cannot be placed on a desk.")
             SoundManager:playEffect('error')

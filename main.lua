@@ -980,53 +980,26 @@ function handleWinCondition()
     local currentWorkItem = currentSprint.workItems[gameState.currentWorkItemIndex]
     if not currentWorkItem then return end
 
-    -- NEW: Dispatch generic event for any on-win effects
+    -- Dispatch a generic event for any on-win effects first
     local workItemCompleteArgs = { isBossItem = currentWorkItem.id:find("boss") }
     EffectsDispatcher.dispatchEvent("onWorkItemComplete", gameState, { modal = modal }, workItemCompleteArgs)
+
+    -- NEW: Calculate rewards using the event system
+    local rewardArgs = { 
+        baseReward = currentWorkItem.reward, 
+        efficiencyBonus = 0,
+        otherBonus = 0,
+        vampireDrain = workItemCompleteArgs.vampireDrain or 0 -- Carry this over
+    }
+    EffectsDispatcher.dispatchEvent("onCalculateWinReward", gameState, { modal = modal }, rewardArgs)
+    
+    gameState.budget = gameState.budget + rewardArgs.baseReward + rewardArgs.efficiencyBonus + rewardArgs.otherBonus - rewardArgs.vampireDrain
 
     battleState.currentWorkerId = nil
     battleState.lastContribution = nil
     battleState.phase = 'idle'
     battleState.isShaking = false
 
-    local efficiencyBonus = math.max(0, 5000 - (gameState.currentWeekCycles * 1000))
-    local totalBudgetBonus = 0
-    local workItemReward = currentWorkItem.reward
-    local vampireBudgetDrain = 0
-
-    if not gameState.ventureCapitalActive then
-        if gameState.purchasedPermanentUpgrades then
-            for _, upgId in ipairs(gameState.purchasedPermanentUpgrades) do
-                if not (gameState.temporaryEffectFlags.disabledUpgrades and gameState.temporaryEffectFlags.disabledUpgrades[upgId]) then
-                    for _, upgData in ipairs(GameData.ALL_UPGRADES) do
-                        if upgId == upgData.id and upgData.effect and upgData.effect.type == 'budget_generation_per_win' then
-                            totalBudgetBonus = totalBudgetBonus + upgData.effect.value
-                        end
-                    end
-                end
-            end
-        end
-        
-        -- Use the values from the event args, which may have been modified by listeners
-        totalBudgetBonus = totalBudgetBonus + (workItemCompleteArgs.budgetBonus or 0)
-        vampireBudgetDrain = workItemCompleteArgs.vampireDrain or 0
-
-        gameState.budget = gameState.budget + workItemReward + efficiencyBonus + totalBudgetBonus
-
-        if vampireBudgetDrain > 0 then
-            gameState.budget = gameState.budget - vampireBudgetDrain
-            print("Vampire tribute applied: $" .. vampireBudgetDrain .. ". Budget is now $" .. gameState.budget)
-        end
-    else
-        efficiencyBonus = 0
-        totalBudgetBonus = 0
-        workItemReward = 0
-        vampireBudgetDrain = 0
-        -- Still dispatch the event even if no budget is rewarded
-        EffectsDispatcher.dispatchEvent("onWorkItemComplete", gameState, { modal = modal }, workItemCompleteArgs) 
-        print("Venture Capital active: Forfeiting all budget rewards.")
-    end
-    
     for _, emp in ipairs(gameState.hiredEmployees) do
         if emp.isTraining then emp.isTraining = false; print(emp.name .. " has finished training and is now available.") end
     end
@@ -1034,13 +1007,13 @@ function handleWinCondition()
     gameState.temporaryEffectFlags.focusFunnelTargetId = nil
     gameState.temporaryEffectFlags.focusFunnelTotalBonus = nil
 
-    local totalRevenue = workItemReward + efficiencyBonus + totalBudgetBonus
-    local totalProfit = totalRevenue - gameState.totalSalariesPaidThisWeek - vampireBudgetDrain
+    local totalRevenue = rewardArgs.baseReward + rewardArgs.efficiencyBonus + rewardArgs.otherBonus
+    local totalProfit = totalRevenue - gameState.totalSalariesPaidThisWeek - rewardArgs.vampireDrain
     
-    local resultLines = { "", "Base Reward:|+$" .. workItemReward }
-    if efficiencyBonus > 0 then table.insert(resultLines, "Efficiency Bonus:|+$" .. efficiencyBonus) end
-    if totalBudgetBonus > 0 then table.insert(resultLines, "Other Bonuses:|+$" .. totalBudgetBonus) end
-    if vampireBudgetDrain > 0 then table.insert(resultLines, "Vampire Tribute:|-$" .. vampireBudgetDrain) end
+    local resultLines = { "", "Base Reward:|+$" .. rewardArgs.baseReward }
+    if rewardArgs.efficiencyBonus > 0 then table.insert(resultLines, "Efficiency Bonus:|+$" .. rewardArgs.efficiencyBonus) end
+    if rewardArgs.otherBonus > 0 then table.insert(resultLines, "Other Bonuses:|+$" .. rewardArgs.otherBonus) end
+    if rewardArgs.vampireDrain > 0 then table.insert(resultLines, "Vampire Tribute:|-$" .. rewardArgs.vampireDrain) end
     table.insert(resultLines, "Salaries Paid:|-$" .. gameState.totalSalariesPaidThisWeek); table.insert(resultLines, ""); table.insert(resultLines, "")
     local profitColor = totalProfit >= 0 and "GREEN" or "RED"; local profitSign = totalProfit >= 0 and "$" or "-$"
     table.insert(resultLines, "PROFIT:" .. profitColor .. ":|" .. profitSign .. math.abs(totalProfit))
@@ -1049,6 +1022,7 @@ function handleWinCondition()
     
     setGamePhase('battle_over')
     
+    -- The modal and next action logic remains the same...
     local nextActionCallback = function()
         modal:hide()
         gameState.currentWorkItemIndex = gameState.currentWorkItemIndex + 1

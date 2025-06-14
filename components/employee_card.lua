@@ -592,37 +592,33 @@ function EmployeeCard:handleMouseDrop(x, y, droppedItem)
     -- Can't drop an employee on themselves
     if targetEmployee.instanceId == droppedEmployeeData.instanceId then return false end
 
+    -- The hard-coded logic for shop employees with special abilities is now removed.
+    -- We now just call the generic placement handlers, which will dispatch events.
     if droppedItem.type == "shop_employee" then
         if self.gameState.budget < droppedItem.cost then
             self.modal:show("Can't Afford", "Not enough budget. Need $" .. droppedItem.cost)
             return true -- Handled (by showing a modal)
-        elseif droppedEmployeeData.special and (droppedEmployeeData.special.type == 'haunt_target_on_hire' or droppedEmployeeData.special.type == 'slime_merge') then
-            self.gameState.budget = self.gameState.budget - droppedItem.cost
-            if droppedEmployeeData.special.type == 'haunt_target_on_hire' then
-                targetEmployee.baseProductivity = targetEmployee.baseProductivity + (droppedEmployeeData.special.prod_boost or 10)
-                targetEmployee.baseFocus = targetEmployee.baseFocus + (droppedEmployeeData.special.focus_add or 0.5)
-                targetEmployee.haunt_stacks = (targetEmployee.haunt_stacks or 0) + 1
-            elseif droppedEmployeeData.special.type == 'slime_merge' then
-                targetEmployee.baseProductivity = targetEmployee.baseProductivity * 2; targetEmployee.baseFocus = targetEmployee.baseFocus * 2; targetEmployee.rarity = "Legendary"
-                targetEmployee.slime_stacks = (targetEmployee.slime_stacks or 0) + 1
-            end
-            Shop:markOfferSold(self.gameState.currentShopOffers, droppedItem.originalShopInstanceId, nil)
-            return true -- Handled
-        elseif Placement:isPotentialCombineTarget(self.gameState, targetEmployee, droppedEmployeeData) then
-            self.gameState.budget = self.gameState.budget - droppedItem.cost
-            local tempNewEmployee = Employee:new(droppedEmployeeData.id, droppedEmployeeData.variant, droppedEmployeeData.fullName)
-            table.insert(self.gameState.hiredEmployees, tempNewEmployee)
-            local success, msg = Placement:combineAndLevelUpEmployees(self.gameState, targetEmployee.instanceId, tempNewEmployee.instanceId)
-            if success then Shop:markOfferSold(self.gameState.currentShopOffers, droppedItem.originalShopInstanceId, nil)
-            else self.gameState.budget = self.gameState.budget + droppedItem.cost; self.modal:show("Combine Failed", msg) end
-            return true -- Handled
-        else
-            self.modal:show(
-                "Cannot Combine",
-                "These employees cannot be combined."
-            )
-            return false -- Not handled, so the employee should snap back
         end
+        -- Let the generic placement logic handle this. It will fire an onPlacement event.
+        self.gameState.budget = self.gameState.budget - droppedItem.cost
+        local newEmp = Employee:new(droppedEmployeeData.id, droppedEmployeeData.variant, droppedEmployeeData.fullName)
+        table.insert(self.gameState.hiredEmployees, newEmp)
+        local success, msg = Placement:combineAndLevelUpEmployees(self.gameState, targetEmployee.instanceId, newEmp.instanceId)
+        if success then
+            Shop:markOfferSold(self.gameState.currentShopOffers, droppedItem.originalShopInstanceId, nil)
+        else
+            self.gameState.budget = self.gameState.budget + droppedItem.cost
+            -- remove the just-added employee
+            for i, emp in ipairs(self.gameState.hiredEmployees) do
+                if emp.instanceId == newEmp.instanceId then
+                    table.remove(self.gameState.hiredEmployees, i)
+                    break
+                end
+            end
+            self.modal:show("Combine Failed", msg)
+        end
+        return true
+
     elseif droppedItem.type == "placed_employee" then
         if targetEmployee.variant == 'remote' then
             return Placement:handleEmployeeDropOnRemoteEmployee(self.gameState, droppedEmployeeData, targetEmployee.instanceId, self.modal)

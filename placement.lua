@@ -143,6 +143,15 @@ function Placement:handleEmployeeDropOnDesk(gameState, employeeData, targetDeskI
     local wasSuccessfullyPlaced = false
     local fromShop = (originalDeskId == nil)
 
+    -- NEW: Event to validate placement before attempting it.
+    local validationArgs = { employee = employeeData, targetDeskId = targetDeskId, isValid = true, message = "" }
+    require("effects_dispatcher").dispatchEvent("onValidatePlacement", gameState, { modal = modal }, validationArgs)
+
+    if not validationArgs.isValid then
+        modal:show("Placement Error", validationArgs.message or "This employee cannot be placed here.")
+        return false
+    end
+
     local placementArgs = { 
         employee = employeeData, 
         targetDeskId = targetDeskId, 
@@ -158,15 +167,6 @@ function Placement:handleEmployeeDropOnDesk(gameState, employeeData, targetDeskI
             modal:show("Can't Merge", placementArgs.message)
         end
         return placementArgs.success
-    end
-
-    if employeeData.special and employeeData.special.placement_restriction then
-        if employeeData.special.placement_restriction == 'not_top_row' then
-            local deskIndex = tonumber(string.match(targetDeskId, "desk%-(%d+)"))
-            if deskIndex and math.floor(deskIndex / GameData.GRID_WIDTH) == 0 then
-                modal:show("Placement Error", employeeData.name .. " is sensitive to sunlight and cannot be placed in the top row."); return false
-            end
-        end
     end
 
     if employeeData.variant == 'remote' then modal:show("Invalid Placement", employeeData.fullName .. " is a remote worker and cannot be placed on a desk."); return false end

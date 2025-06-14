@@ -12,8 +12,6 @@ return {
                         local globalBonusProductivity = 0
                         local globalBonusFocusAdd = 0
                         local log = eventArgs.stats.log
-
-                        -- Apply Foil and Holo bonuses
                         if gameState.hiredEmployees then
                             for _, emp in ipairs(gameState.hiredEmployees) do
                                 if emp.variant == 'foil' then 
@@ -26,9 +24,18 @@ return {
                                 end
                             end
                         end
-
                         eventArgs.stats.productivity = eventArgs.stats.productivity + globalBonusProductivity
                         eventArgs.stats.focus = eventArgs.stats.focus + globalBonusFocusAdd
+                    end
+                }
+            },
+            onCalculateWinReward = {
+                {
+                    phase = 'BaseApplication',
+                    priority = 10, -- Low priority, runs first
+                    callback = function(self, gameState, services, eventArgs)
+                        -- Calculate base efficiency bonus
+                        eventArgs.efficiencyBonus = math.max(0, 5000 - (gameState.currentWeekCycles * 1000))
                     end
                 }
             }
@@ -287,10 +294,32 @@ return {
     { 
         id = 'advanced_crm', name = 'Advanced CRM System', rarity = 'Uncommon', cost = 1400, icon = '📊',
         description = 'Marketing employees gain an additional $250 per win.',
-        effect = { type = 'advanced_crm', budget_per_win_bonus = 250 }
+        effect = { type = 'advanced_crm', budget_per_win_bonus = 250 },
+        listeners = {
+            onWorkItemComplete = {
+                {
+                    phase = "PostCalculation",
+                    priority = 60, -- After the employee's base bonus is calculated
+                    callback = function(self, gameState, services, eventArgs)
+                        local hasMarketer = false
+                        for _, emp in ipairs(gameState.hiredEmployees) do
+                            if emp.id == 'marketer1' then
+                                hasMarketer = true
+                                break
+                            end
+                        end
+
+                        if hasMarketer and eventArgs.budgetBonus and not gameState.ventureCapitalActive then
+                            eventArgs.budgetBonus = eventArgs.budgetBonus + (self.effect.budget_per_win_bonus or 0)
+                        end
+                    end
+                }
+            }
+        }
     },
     { 
         id = 'team_building_event', name = 'Team Building Event', rarity = 'Uncommon', cost = 800, icon = '🏕️',
+        isUnique = false, -- Add this line
         description = 'Once per sprint, boosts team focus for the next work item.',
         effect = { type = 'one_time_team_focus_boost_multiplier', value = 1.3 },
         listeners = {
@@ -421,6 +450,7 @@ return {
     },
     { 
         id = 'code_debt', name = 'Code Debt', rarity = 'Uncommon', cost = 100, icon = '💻',
+        isUnique = false, -- Add this line
         description = 'Gain $10,000 immediately. For the rest of the run, all work items have 20% more workload.',
         effect = { type = 'code_debt', value = 10000 },
         listeners = {
@@ -494,6 +524,7 @@ return {
     },
     { 
         id = 'consultant_visit', name = 'Consultant Visit', rarity = 'Uncommon', cost = 1200, icon = '👔',
+        isUnique = false, -- Add this line
         description = 'Once per work item, reduces workload by 15% at the start.',
         effect = { type = 'one_time_workload_reduction_percent', value = 0.15 },
         listeners = {
@@ -697,23 +728,35 @@ id = 'delorean_espresso', name = 'Espresso Machine (DeLorean-Powered)', rarity =
        }
    },
    {
-       id = 'subsidized_housing', name = 'Subsidized Housing', rarity = 'Uncommon', cost = 1500, icon = '🏠',
-       description = 'All salaries are reduced by 25%, but you can no longer hire Remote workers.',
-       effect = { type = 'subsidized_housing' },
-       listeners = {
-           onCalculateSalaries = {
-               {
-                   phase = 'BaseApplication',
-                   priority = 50,
-                   callback = function(self, gameState, services, eventArgs)
-                       eventArgs.cumulativePercentReduction = eventArgs.cumulativePercentReduction * 0.75
-                   end
-               }
-           }
-       }
-   },
-
-
+        id = 'subsidized_housing', name = 'Subsidized Housing', rarity = 'Uncommon', cost = 1500, icon = '🏠',
+        description = 'All salaries are reduced by 25%, but you can no longer hire Remote workers.',
+        effect = { type = 'subsidized_housing' },
+        listeners = {
+            onCalculateSalaries = {
+                {
+                    phase = 'BaseApplication',
+                    priority = 50,
+                    callback = function(self, gameState, services, eventArgs)
+                        eventArgs.cumulativePercentReduction = eventArgs.cumulativePercentReduction * 0.75
+                    end
+                }
+            },
+            onGenerateEmployeeVariant = {
+                {
+                        phase = 'BaseApplication',
+                        priority = 50,
+                        callback = function(self, gameState, services, eventArgs)
+                            for i, v in ipairs(eventArgs.possibleVariants) do
+                                if v == "remote" then
+                                    table.remove(eventArgs.possibleVariants, i)
+                                    break
+                                end
+                            end
+                        end
+                }
+            }
+        }
+    },
    -- RARE UPGRADES --
    { 
         id = 'legal_retainer', name = 'Legal Retainer', rarity = 'Rare', cost = 2200, icon = '⚖️',
@@ -892,23 +935,36 @@ id = 'delorean_espresso', name = 'Espresso Machine (DeLorean-Powered)', rarity =
             }
         }
     },
-   { 
-       id = 'vc_funding', name = 'Venture Capital Funding', rarity = 'Rare', cost = 500, icon = '🤑',
-       description = 'Instantly gain $100,000. You can no longer gain budget from any other source for the rest of the run.',
-       effect = { type = 'vc_funding' },
-       listeners = {
-           onPurchase = {
-               {
-                   phase = 'BaseApplication',
-                   priority = 50,
-                   callback = function(self, gameState, services, eventArgs)
-                       gameState.budget = gameState.budget + 100000
-                       gameState.ventureCapitalActive = true
-                   end
-               }
-           }
-       }
-   },
+    { 
+        id = 'vc_funding', name = 'Venture Capital Funding', rarity = 'Rare', cost = 500, icon = '🤑',
+        description = 'Instantly gain $100,000. You can no longer gain budget from any other source for the rest of the run.',
+        effect = { type = 'vc_funding' },
+        listeners = {
+            onPurchase = {
+                {
+                    phase = 'BaseApplication',
+                    priority = 50,
+                    callback = function(self, gameState, services, eventArgs)
+                        gameState.budget = gameState.budget + 100000
+                        gameState.ventureCapitalActive = true
+                    end
+                }
+            },
+            onCalculateWinReward = {
+                {
+                    phase = 'PostCalculation', -- Run after all other bonuses are calculated
+                    priority = 99, -- High priority to ensure it runs last
+                    callback = function(self, gameState, services, eventArgs)
+                        -- If VC funding is active, all budget gains from completing work are nullified.
+                        eventArgs.baseReward = 0
+                        eventArgs.efficiencyBonus = 0
+                        eventArgs.otherBonus = 0
+                        print("Venture Capital active: Forfeiting all budget rewards.")
+                    end
+                }
+            }
+        }
+        },
    {
        id = 'nepotism_hire', name = 'Nepotism Hire', rarity = 'Rare', cost = 1000, icon = '🤦',
        description = 'The next \'Rare\' or \'Legendary\' employee to appear in the shop costs $0, but their salary is tripled.',

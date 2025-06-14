@@ -453,7 +453,25 @@ return {
         hiringBonus = 1800, weeklySalary = 350,
         baseProductivity = 8, baseFocus = 1.0,
         description = 'Arrives with knowledge of the future. The modifier for the final work item of the current sprint is revealed.',
-        special = { type = 'reveals_modifier' }
+        special = { type = 'reveals_modifier' },
+        listeners = {
+            onDrawIntelPanel = {
+                {
+                    phase = "BaseApplication",
+                    priority = 50,
+                    callback = function(self, gameState, services, eventArgs)
+                        local sprint = require("data").ALL_SPRINTS[gameState.currentSprintIndex]
+                        local bossWorkItem = sprint and sprint.workItems[3]
+                        if bossWorkItem and bossWorkItem.modifier then
+                            love.graphics.setColor(0.2, 0.6, 0.8, 1)
+                            eventArgs.y = eventArgs.y + Drawing.drawTextWrapped("Future Insight:", eventArgs.x, eventArgs.y, eventArgs.width, services.fontSmall)
+                            love.graphics.setColor(services.colors.text)
+                            eventArgs.y = eventArgs.y + Drawing.drawTextWrapped("This Sprint's Boss: "..bossWorkItem.modifier.description, eventArgs.x, eventArgs.y, eventArgs.width, services.fontSmall) + 5
+                        end
+                    end
+                }
+            }
+        }
     },
     {
         id = 'dog_walker1', name = 'Office Dog Walker', icon = 'assets/portraits/prt0014.png', rarity = 'Rare',
@@ -606,7 +624,27 @@ return {
         hiringBonus = 2200, weeklySalary = 450,
         baseProductivity = 10, baseFocus = 1.2,
         description = 'Allows you to see the "Boss Modifier" of the NEXT sprint\'s boss.',
-        special = { type = 'reveals_next_sprint_modifier' }
+        special = { type = 'reveals_next_sprint_modifier' },
+        listeners = {
+            onDrawIntelPanel = {
+                {
+                    phase = "BaseApplication",
+                    priority = 50,
+                    callback = function(self, gameState, services, eventArgs)
+                        if gameState.currentSprintIndex < #require("data").ALL_SPRINTS then
+                            local nextSprint = require("data").ALL_SPRINTS[gameState.currentSprintIndex + 1]
+                            local nextBoss = nextSprint and nextSprint.workItems[3]
+                            if nextBoss and nextBoss.modifier then
+                                love.graphics.setColor(0.8, 0.2, 0.6, 1)
+                                eventArgs.y = eventArgs.y + Drawing.drawTextWrapped("Admiral's Intel:", eventArgs.x, eventArgs.y, eventArgs.width, services.fontSmall)
+                                love.graphics.setColor(services.colors.text)
+                                eventArgs.y = eventArgs.y + Drawing.drawTextWrapped("Next Sprint's Boss: "..nextBoss.modifier.description, eventArgs.x, eventArgs.y, eventArgs.width, services.fontSmall) + 5
+                            end
+                        end
+                    end
+                }
+            }
+        }
     },
     {
         id = 'quartermaster_q1', name = 'The Quartermaster "Q"', icon = 'assets/portraits/prt0019.png', rarity = 'Rare',
@@ -723,7 +761,7 @@ return {
                 {
                     phase = 'BaseApplication',
                     priority = 50,
-                    callback = function(self, gameState, eventArgs)
+                    callback = function(self, gameState, services, eventArgs)
                         eventArgs.excludeEmployee = eventArgs.excludeEmployee or {}
                         eventArgs.excludeEmployee[self.instanceId] = true
                     end
@@ -733,10 +771,25 @@ return {
                 {
                     phase = 'PostCalculation',
                     priority = 50,
-                    callback = function(self, gameState, eventArgs)
+                    callback = function(self, gameState, services, eventArgs)
                         if self.special and self.special.type == 'vampire_budget_drain' then
                             local drain = math.floor(gameState.budget * self.special.drain_percent)
                             eventArgs.vampireDrain = (eventArgs.vampireDrain or 0) + drain
+                        end
+                    end
+                }
+            },
+            onValidatePlacement = {
+                {
+                    phase = 'BaseApplication',
+                    priority = 50,
+                    callback = function(self, gameState, services, eventArgs)
+                        if eventArgs.employee.id == self.id then
+                            local deskIndex = tonumber(string.match(eventArgs.targetDeskId, "desk%-(%d+)"))
+                            if deskIndex and math.floor(deskIndex / require("data").GRID_WIDTH) == 0 then
+                                eventArgs.isValid = false
+                                eventArgs.message = self.name .. " is sensitive to sunlight and cannot be placed in the top row."
+                            end
                         end
                     end
                 }
@@ -1523,20 +1576,11 @@ return {
                 {
                     phase = 'PostCalculation',
                     priority = 50,
-                    callback = function(self, gameState, eventArgs)
-                        if not (eventArgs and eventArgs.budgetBonus) then return end
+                    callback = function(self, gameState, services, eventArgs)
+                        if not (eventArgs and eventArgs.budgetBonus) then eventArgs.budgetBonus = 0 end
 
-                        local bonus = self.special.value
+                        local bonus = self.special.value or 0
                         if self.special.scales_with_level then bonus = bonus * (self.level or 1) end
-                        
-                        if self.id == 'marketer1' and require("shop"):isUpgradePurchased(gameState.purchasedPermanentUpgrades, 'advanced_crm') then
-                            for _, upgData in ipairs(require("data").ALL_UPGRADES) do
-                                if upgData.id == 'advanced_crm' then 
-                                    bonus = bonus + (upgData.effect.budget_per_win_bonus or 0)
-                                    break 
-                                end
-                            end
-                        end
                         
                         eventArgs.budgetBonus = eventArgs.budgetBonus + bonus
                     end
