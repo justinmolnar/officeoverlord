@@ -6,20 +6,22 @@ local TurnOverPhase = setmetatable({}, BasePhase)
 TurnOverPhase.__index = TurnOverPhase
 
 function TurnOverPhase:new(manager)
-    return setmetatable(BasePhase:new(manager), self)
+    local instance = setmetatable(BasePhase:new(manager), self)
+    instance.nextPhaseName = 'idle'
+    return instance
 end
 
-function TurnOverPhase:update(dt, gameState, battleState)
-    battleState.timer = battleState.timer - dt
-    if battleState.timer <= 0 then
-        -- Clean up state from the completed turn
-        battleState.currentWorkerId = nil
-        battleState.lastContribution = nil
-        battleState.nextEmployeeIndex = battleState.nextEmployeeIndex + 1
-        
-        -- Go back to the idle phase to decide what's next
-        self.manager:changePhase('idle', gameState, battleState)
-    end
+function TurnOverPhase:enter(gameState, battleState)
+    -- This timer value was previously set in the 'showing_total' phase.
+    -- It is now self-contained here.
+    battleState.timer = 0.3
+end
+
+function TurnOverPhase:onTimerComplete(gameState, battleState)
+    -- Clean up state from the completed turn
+    battleState.currentWorkerId = nil
+    battleState.lastContribution = nil
+    battleState.nextEmployeeIndex = battleState.nextEmployeeIndex + 1
 end
 
 return TurnOverPhase

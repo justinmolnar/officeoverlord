@@ -113,15 +113,11 @@ return {
                     phase = 'BaseApplication',
                     priority = 50,
                     callback = function(self, gameState, services, eventArgs)
+                        local Battle = require("battle")
                         local lowestProdEmp = nil
-                        local activeBattleEmployees = {}
-                        for _, emp in ipairs(gameState.hiredEmployees) do
-                            local isDisabled = false
-                            if emp.isTraining or (emp.special and emp.special.does_not_work) then isDisabled = true end
-                            if gameState.temporaryEffectFlags.isRemoteWorkDisabled and emp.variant == 'remote' then isDisabled = true end
-                            if gameState.temporaryEffectFlags.isTopRowDisabled and emp.deskId and (emp.deskId == 'desk-0' or emp.deskId == 'desk-1' or emp.deskId == 'desk-2') then isDisabled = true end
-                            if not isDisabled then table.insert(activeBattleEmployees, emp) end
-                        end
+                        
+                        -- Use the new centralized function to get the correct list of employees
+                        local activeBattleEmployees = Battle:getActiveEmployees(gameState)
 
                         for _, emp in ipairs(activeBattleEmployees) do
                             if not lowestProdEmp or emp.baseProductivity < lowestProdEmp.baseProductivity then
@@ -203,7 +199,7 @@ return {
                 }
             }
         }
-        },
+    },
     { 
         id = 'headhunter', name = 'Corporate Headhunter', rarity = 'Common', cost = 500, icon = '🕵️',
         description = 'The shop is now guaranteed to have at least one \'Rare\' or \'Legendary\' employee. Restock cost is doubled.',
@@ -823,7 +819,7 @@ id = 'delorean_espresso', name = 'Espresso Machine (DeLorean-Powered)', rarity =
             }
         }
     },
-   { 
+    { 
         id = 'pyramid_scheme', name = 'Pyramid Scheme License', rarity = 'Rare', cost = 2200, icon = '🔺',
         description = 'Middle row employees give 10% of their contribution to the top-center "Apex." Bottom row gives 10% to the middle row.',
         effect = { type = 'pyramid_scheme' },
@@ -834,6 +830,7 @@ id = 'delorean_espresso', name = 'Espresso Machine (DeLorean-Powered)', rarity =
                     priority = 50,
                     callback = function(self, gameState, services, eventArgs)
                         -- This is the logic from the old calculatePyramidSchemeTransfers function
+                        local Employee = require("employee")
                         local transfers = {}
                         local middleRowBonusPool = 0
                         local apexBonusPool = 0
@@ -854,7 +851,7 @@ id = 'delorean_espresso', name = 'Espresso Machine (DeLorean-Powered)', rarity =
                         end
 
                         for instanceId, contribData in pairs(eventArgs.lastRoundContributions) do
-                            local emp = getEmployeeFromGameState(gameState, instanceId)
+                            local emp = Employee:getFromState(gameState, instanceId)
                             if emp and emp.deskId then
                                 local deskIndex = tonumber(string.match(emp.deskId, "desk%-(%d+)"))
                                 if deskIndex then

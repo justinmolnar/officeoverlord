@@ -396,9 +396,9 @@ function onMouseRelease(x, y, button)
                         end
                         
                         -- The new employee will be at the end of the list
+                        local totalCards = remoteCount + 1 -- +1 for the new employee
                         local availableWidth = rect.w - 20
                         local normalGap = 5
-                        local totalCards = remoteCount + 1 -- +1 for the new employee
                         local normalStepSize = cardWidth + normalGap
                         local totalNormalWidth = (totalCards * cardWidth) + ((totalCards - 1) * normalGap)
                         
@@ -483,17 +483,8 @@ function onMouseRelease(x, y, button)
                 sourceComponent:cancelPickupAnimation()
             end
             
-            if draggedItem.type == "placed_employee" then
-                local originalEmp = Employee:getFromState(gameState, draggedItem.data.instanceId)            
-                if originalEmp then
-                    if draggedItem.originalDeskId then
-                        originalEmp.deskId = draggedItem.originalDeskId
-                        gameState.deskAssignments[draggedItem.originalDeskId] = originalEmp.instanceId
-                    elseif draggedItem.originalVariant == 'remote' then
-                        originalEmp.variant = 'remote'
-                    end
-                end
-            end
+            -- Use the new helper function to restore the employee's state
+            InputHandler.restoreDraggedEmployee(draggedItem, gameState)
             
             -- End the drag operation immediately for failed drops
             draggedItemState.item = nil

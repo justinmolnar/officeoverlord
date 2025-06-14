@@ -43,8 +43,8 @@ function Placement:getOwnedDeskCount(gameState)
 end
 
 function Placement:performReOrgSwap(gameState, emp1InstanceId, emp2InstanceId)
-    local emp1 = getEmployeeFromGameState(gameState, emp1InstanceId)
-    local emp2 = getEmployeeFromGameState(gameState, emp2InstanceId)
+    local emp1 = Employee:getFromState(gameState, emp1InstanceId)
+    local emp2 = Employee:getFromState(gameState, emp2InstanceId)
 
     if not emp1 or not emp2 then return false, "Could not find employees to swap." end
     if emp1.variant == emp2.variant then return false, "Must select one remote and one office worker." end
@@ -179,7 +179,7 @@ function Placement:handleEmployeeDropOnDesk(gameState, employeeData, targetDeskI
         if currentOccupantInstanceId == employeeData.instanceId then 
             gameState.deskAssignments[targetDeskId] = employeeData.instanceId; employeeData.deskId = targetDeskId; print(employeeData.name .. " returned to " .. targetDeskId); wasSuccessfullyPlaced = true
         else
-            local occupantEmployee = getEmployeeFromGameState(gameState, currentOccupantInstanceId)
+            local occupantEmployee = Employee:getFromState(gameState, currentOccupantInstanceId)
             if occupantEmployee then
                 if Placement:isPotentialCombineTarget(gameState, occupantEmployee, employeeData) then
                     local success, msg = self:combineAndLevelUpEmployees(gameState, occupantEmployee.instanceId, employeeData.instanceId)

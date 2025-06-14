@@ -21,7 +21,6 @@ function BattleState:enter(gameState, battleState, context)
         return
     end
 
-    battleState.activeEmployees = {}
     battleState.nextEmployeeIndex = 1
     battleState.currentWorkerId = nil
     battleState.lastContribution = nil
@@ -47,38 +46,16 @@ function BattleState:enter(gameState, battleState, context)
     gameState.currentWeekCycles = 0
     gameState.totalSalariesPaidThisWeek = 0
     
-    local placed, remote = {}, {}
-    local topRowDeskIds = {"desk-0", "desk-1", "desk-2"}
+    -- The complex filtering logic is now replaced with a single function call
+    battleState.activeEmployees = Battle:getActiveEmployees(gameState)
 
-    for _, emp in ipairs(gameState.hiredEmployees) do
-        local isDisabled = false
-        if emp.isTraining then isDisabled = true end
-        if emp.special and emp.special.does_not_work then isDisabled = true end
-        
-        local availabilityArgs = { employee = emp, isDisabled = false, reason = "" }
-        require("effects_dispatcher").dispatchEvent("onEmployeeAvailabilityCheck", gameState, { modal = context.modal, battlePhaseManager = context.battlePhaseManager }, availabilityArgs)
-        if availabilityArgs.isDisabled then
-            isDisabled = true
-            if availabilityArgs.reason ~= "" then
-                print(availabilityArgs.reason)
-            end
-        end
-        
-        if gameState.temporaryEffectFlags.isRemoteWorkDisabled and emp.variant == 'remote' then isDisabled = true end
-        if gameState.temporaryEffectFlags.isTopRowDisabled and emp.deskId then
-            for _, topDeskId in ipairs(topRowDeskIds) do 
-                if emp.deskId == topDeskId then 
-                    isDisabled = true 
-                    break 
-                end 
-            end
-        end
-        if not isDisabled then
-            if emp.variant == 'remote' then 
-                table.insert(remote, emp) 
-            elseif emp.deskId then 
-                table.insert(placed, emp)
-            end
+    -- The rest of the original logic remains to sort and dispatch events
+    local placed, remote = {}, {}
+    for _, emp in ipairs(battleState.activeEmployees) do
+        if emp.variant == 'remote' then
+            table.insert(remote, emp)
+        elseif emp.deskId then
+            table.insert(placed, emp)
         end
     end
     
@@ -87,12 +64,8 @@ function BattleState:enter(gameState, battleState, context)
     end)
     
     battleState.activeEmployees = {}
-    for _, emp in ipairs(placed) do 
-        table.insert(battleState.activeEmployees, emp) 
-    end
-    for _, emp in ipairs(remote) do 
-        table.insert(battleState.activeEmployees, emp) 
-    end
+    for _, emp in ipairs(placed) do table.insert(battleState.activeEmployees, emp) end
+    for _, emp in ipairs(remote) do table.insert(battleState.activeEmployees, emp) end
     
     local battleStartArgs = { 
         activeEmployees = battleState.activeEmployees, 

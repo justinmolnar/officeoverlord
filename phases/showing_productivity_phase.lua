@@ -6,15 +6,13 @@ local ShowingProductivityPhase = setmetatable({}, BasePhase)
 ShowingProductivityPhase.__index = ShowingProductivityPhase
 
 function ShowingProductivityPhase:new(manager)
-    return setmetatable(BasePhase:new(manager), self)
+    local instance = setmetatable(BasePhase:new(manager), self)
+    instance.nextPhaseName = 'showing_focus'
+    return instance
 end
 
-function ShowingProductivityPhase:update(dt, gameState, battleState)
-    battleState.timer = battleState.timer - dt
-    if battleState.timer <= 0 then
-        battleState.timer = 0.6 -- Set timer for the next phase
-        self.manager:changePhase('showing_focus', gameState, battleState)
-    end
+function ShowingProductivityPhase:enter(gameState, battleState)
+    battleState.timer = 0.6
 end
 
 return ShowingProductivityPhase

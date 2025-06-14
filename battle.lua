@@ -7,15 +7,6 @@ local Placement = require("placement")
 
 local Battle = {}
 
--- This helper function is now local to this module
-local function getEmployeeFromGameState(gs, instanceId)
-    if not gs or not gs.hiredEmployees or not instanceId then return nil end
-    for _, emp in ipairs(gs.hiredEmployees) do
-        if emp.instanceId == instanceId then return emp end
-    end
-    return nil
-end
-
 function Battle:startChallenge(gameState, showMessage)
     require("effects_dispatcher").dispatchEvent("onWorkItemStart", gameState, { modal = modal })
 
@@ -188,6 +179,38 @@ function Battle:resetBattleState(battleState, gameState)
     print("Battle state fully reset")
 end
 
+function Battle:getActiveEmployees(gameState)
+    local activeEmployees = {}
+    local topRowDeskIds = {"desk-0", "desk-1", "desk-2"}
+
+    for _, emp in ipairs(gameState.hiredEmployees) do
+        local isDisabled = false
+        if emp.isTraining or (emp.special and emp.special.does_not_work) then
+            isDisabled = true
+        end
+
+        -- This part is slightly simplified from the battle_state version to avoid complex dependencies.
+        -- It covers the core duplicated logic.
+        if not isDisabled and gameState.temporaryEffectFlags.isRemoteWorkDisabled and emp.variant == 'remote' then
+            isDisabled = true
+        end
+
+        if not isDisabled and gameState.temporaryEffectFlags.isTopRowDisabled and emp.deskId then
+            for _, topDeskId in ipairs(topRowDeskIds) do
+                if emp.deskId == topDeskId then
+                    isDisabled = true
+                    break
+                end
+            end
+        end
+
+        if not isDisabled then
+            table.insert(activeEmployees, emp)
+        end
+    end
+    return activeEmployees
+end
+
 function Battle:calculateTotalSalariesForRound(gameState)
     local eventArgs = {
         cumulativePercentReduction = 1.0,
@@ -272,6 +295,31 @@ function Battle:isUpgradePurchased(purchasedUpgrades, upgradeId, gameState)
         if id == upgradeId then return true end
     end
     return false
+end
+
+function Battle:processEndOfRoundResult(roundResult, gameState, battleState, callbacks)
+    if roundResult == "lost_budget" then 
+        callbacks.setGamePhase("game_over")
+        return 
+    end
+    if roundResult == "lost_bailout" then 
+        local currentSprintData = require("data").ALL_SPRINTS[gameState.currentSprintIndex]
+        if currentSprintData then 
+            local currentWorkItemData = currentSprintData.workItems[gameState.currentWorkItemIndex]
+            if currentWorkItemData then 
+                gameState.currentWeekWorkload = currentWorkItemData.workload
+                gameState.initialWorkloadForBar = currentWorkItemData.workload
+            end
+        end
+        gameState.currentWeekCycles = 0
+        gameState.totalSalariesPaidThisWeek = 0
+        gameState.currentShopOffers = {employees={}, upgrade=nil, restockCountThisWeek=0}
+        callbacks.setGamePhase("hiring_and_upgrades")
+        return 
+    end
+
+    -- If the game continues, proceed to the pausing phase before the next round
+    callbacks.changeBattlePhase('pausing_between_rounds', gameState, battleState)
 end
 
 return Battle

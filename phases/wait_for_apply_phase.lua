@@ -6,14 +6,13 @@ local WaitForApplyPhase = setmetatable({}, BasePhase)
 WaitForApplyPhase.__index = WaitForApplyPhase
 
 function WaitForApplyPhase:new(manager)
-    return setmetatable(BasePhase:new(manager), self)
+    local instance = setmetatable(BasePhase:new(manager), self)
+    instance.nextPhaseName = 'pre_apply_contribution'
+    return instance
 end
 
-function WaitForApplyPhase:update(dt, gameState, battleState)
-    battleState.timer = battleState.timer - dt
-    if battleState.timer <= 0 then
-        self.manager:changePhase('pre_apply_contribution', gameState, battleState)
-    end
+function WaitForApplyPhase:enter(gameState, battleState)
+    battleState.timer = 0.4
 end
 
 return WaitForApplyPhase

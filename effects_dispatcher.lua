@@ -68,6 +68,82 @@ local function collectListeners(eventName, gameState)
     return allListeners
 end
 
+-- This new local function goes near the top of effects_dispatcher.lua
+local function handleAllPositionalEffects(gameState, eventArgs)
+    local targetEmployee = eventArgs.employee
+    -- Only apply positional effects to employees on a desk
+    if not targetEmployee.deskId then return end
+
+    -- Lazily require these modules to avoid potential circular dependencies
+    local Placement = require("placement")
+    local GameData = require("data")
+
+    -- Loop through ALL hired employees to see if any are a source of a positional effect
+    for _, sourceEmployee in ipairs(gameState.hiredEmployees) do
+        -- A source must be on a desk, not be the target, and have positional effects defined
+        if sourceEmployee.deskId and sourceEmployee.instanceId ~= targetEmployee.instanceId and sourceEmployee.positionalEffects then
+            
+            for direction, effect in pairs(sourceEmployee.positionalEffects) do
+                -- This handles "all_adjacent" or specific directions like "up", "down"
+                local directionsToCheck = (direction == "all_adjacent" or direction == "sides") and {"up", "down", "left", "right"} or {direction}
+                if direction == "sides" then directionsToCheck = {"left", "right"} end
+
+                for _, dir in ipairs(directionsToCheck) do
+                    -- Check if the target employee is in the specified neighboring position
+                    if Placement:getNeighboringDeskId(sourceEmployee.deskId, dir, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, gameState.desks) == targetEmployee.deskId then
+                        
+                        -- Check for special conditions on the effect itself (e.g., The Synergist not affecting other Synergists)
+                        if not (effect.condition_not_id and targetEmployee.id == effect.condition_not_id) then
+                            -- Apply the generic effect based on what's in the positionalEffects table
+                            local level_mult = (effect.scales_with_level and (sourceEmployee.level or 1) or 1)
+                            
+                            local prod_add = (effect.productivity_add or 0) * level_mult
+                            local focus_add = (effect.focus_add or 0) * level_mult
+                            local prod_mult = 1 + (((effect.productivity_mult or 1) - 1) * level_mult)
+                            local focus_mult = 1 + (((effect.focus_mult or 1) - 1) * level_mult)
+                            
+                            -- Handle the Positional Inverter upgrade
+                            if eventArgs.isPositionalInversionActive then
+                                prod_add = -prod_add
+                                focus_add = -focus_add
+                                if prod_mult ~= 0 and prod_mult ~= 1 then prod_mult = 1 / prod_mult end
+                                if focus_mult ~= 0 and focus_mult ~= 1 then focus_mult = 1 / focus_mult end
+                            end
+
+                            -- Apply bonuses and log them
+                            if prod_add ~= 0 then
+                                eventArgs.stats.productivity = eventArgs.stats.productivity + prod_add
+                                table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s", prod_add > 0 and "+" or "", prod_add, sourceEmployee.name))
+                                if eventArgs.bonusesApplied and eventArgs.bonusesApplied.positional then
+                                    eventArgs.bonusesApplied.positional.prod = eventArgs.bonusesApplied.positional.prod + prod_add
+                                end
+                            end
+                            if focus_add ~= 0 then
+                                eventArgs.stats.focus = eventArgs.stats.focus + focus_add
+                                table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, sourceEmployee.name))
+                                if eventArgs.bonusesApplied and eventArgs.bonusesApplied.positional then
+                                    eventArgs.bonusesApplied.positional.focus = eventArgs.bonusesApplied.positional.focus + focus_add
+                                end
+                            end
+                            if prod_mult ~= 1 then
+                                eventArgs.stats.productivity = math.floor(eventArgs.stats.productivity * prod_mult)
+                                table.insert(eventArgs.stats.log.productivity, string.format("*%.2fx from %s", prod_mult, sourceEmployee.name))
+                            end
+                             if focus_mult ~= 1 then
+                                eventArgs.stats.focus = eventArgs.stats.focus * focus_mult
+                                table.insert(eventArgs.stats.log.focus, string.format("*%.2fx from %s", focus_mult, sourceEmployee.name))
+                            end
+                        end
+                        
+                        -- For "all_adjacent" or "sides", we apply the effect once and then stop checking other directions for this source
+                        if direction == "all_adjacent" or direction == "sides" then break end
+                    end
+                end
+            end
+        end
+    end
+end
+
 
 --- Dispatches a named event to all listening entities in a phased, prioritized order.
 --- @param eventName string The name of the event to fire.
@@ -77,6 +153,10 @@ end
 function EffectsDispatcher.dispatchEvent(eventName, gameState, services, eventArgs)
    eventArgs = eventArgs or {}
    services = services or {}
+
+    if eventName == "onCalculateStats" then
+        handleAllPositionalEffects(gameState, eventArgs)
+    end
 
    local allListeners = collectListeners(eventName, gameState)
    if #allListeners == 0 then return end

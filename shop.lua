@@ -6,6 +6,104 @@ local Employee = require("employee") -- For creating new employee instances usin
 local Names = require("names")
 local Shop = {}
 
+local function _shallowCopy(sourceTable)
+    if not sourceTable then return {} end
+    local newTable = {}
+    for k, v in pairs(sourceTable) do
+        if type(v) == "table" then
+            newTable[k] = {}
+            for nk, nv in pairs(v) do newTable[k][nk] = nv end
+        else
+            newTable[k] = v
+        end
+    end
+    return newTable
+end
+
+function Shop:forceAddItemOffer(itemType, itemId, currentShopOffers, variant)
+    local masterList
+    if itemType == 'employee' then
+        masterList = GameData.BASE_EMPLOYEE_CARDS
+    elseif itemType == 'upgrade' then
+        masterList = GameData.ALL_UPGRADES
+    elseif itemType == 'decoration' then
+        masterList = GameData.ALL_DESK_DECORATIONS
+    else
+        return
+    end
+
+    local itemData = nil
+    for _, item in ipairs(masterList) do
+        if item.id == itemId then
+            itemData = item
+            break
+        end
+    end
+
+    if not itemData then
+        print("DEBUG ERROR: Could not find " .. itemType .. " with id: " .. tostring(itemId))
+        return
+    end
+
+    if itemType == 'employee' then
+        local newOffer = self:_generateEmployeeOfferFromCard(itemData, variant)
+        if not currentShopOffers.employees then currentShopOffers.employees = {} end
+        -- FIX: Use direct assignment to replace the item in the first slot
+        currentShopOffers.employees[1] = newOffer
+        print("DEBUG: Forced " .. newOffer.name .. " (" .. (variant or "standard") .. ") into shop slot 1.")
+    elseif itemType == 'upgrade' then
+        local upgradeOffer = _shallowCopy(itemData)
+        upgradeOffer.sold = false
+        upgradeOffer.instanceId = "shop-upgrade-" .. upgradeOffer.id .. "-" ..love.timer.getTime()
+        currentShopOffers.upgrade = upgradeOffer
+        print("DEBUG: Forced upgrade '" .. upgradeOffer.name .. "' into shop.")
+    elseif itemType == 'decoration' then
+        local decorationOffer = self:_generateDecorationOfferFromData(itemData)
+        if not currentShopOffers.decorations then currentShopOffers.decorations = {} end
+        -- FIX: Use direct assignment to replace the item in the first slot
+        currentShopOffers.decorations[1] = decorationOffer
+        print("DEBUG: Forced decoration '" .. decorationOffer.name .. "' into shop slot 1.")
+    end
+end
+
+local function _findAndMarkSold(offerList, targetInstanceId, itemType)
+    if not offerList or not targetInstanceId then return false end
+
+    for i, offer in ipairs(offerList) do
+        if offer and offer.instanceId == targetInstanceId then
+            print("Shop:markOfferSold: Found " .. itemType .. " offer: " .. offer.name .. " (ID: " .. offer.instanceId .. ").")
+            offer.sold = true
+            return true
+        end
+    end
+    return false
+end
+
+
+
+local function _generateWeightedRandomItem(sourceList, weights, filterFunc)
+    local weightedPool = {}
+    if not sourceList then return nil end
+
+    for _, itemData in ipairs(sourceList) do
+        -- Apply the filter function if it exists and evaluates to true
+        if not filterFunc or filterFunc(itemData) then
+            local rarity = itemData.rarity or 'Common'
+            local weight = weights[rarity] or 1
+            for _ = 1, weight do
+                table.insert(weightedPool, itemData)
+            end
+        end
+    end
+
+    if #weightedPool == 0 then
+        return nil
+    end
+    
+    local randomIndex = love.math.random(#weightedPool)
+    return weightedPool[randomIndex]
+end
+
 function Shop:getModifiedUpgradeCost(upgradeData, hiredEmployees)
     local eventArgs = {
         cost = upgradeData.cost,
@@ -120,7 +218,6 @@ function Shop:populateOffers(gameState, currentShopOffers, purchasedPermanentUpg
     currentShopOffers.employees = eventArgs.offers
 end
 
--- NEW: Generate random decoration offer
 function Shop:_generateRandomDecorationOffer(gameState)
     if #GameData.ALL_DESK_DECORATIONS == 0 then
         print("Warning (Shop:_generateRandomDecorationOffer): No desk decorations defined.")
@@ -128,23 +225,13 @@ function Shop:_generateRandomDecorationOffer(gameState)
     end
 
     local weights = { Common = 10, Uncommon = 5, Rare = 2, Legendary = 1 }
-    local weightedPool = {}
     
-    for _, decorationData in ipairs(GameData.ALL_DESK_DECORATIONS) do
-        local rarity = decorationData.rarity or 'Common'
-        local weight = weights[rarity] or 1
-        for _ = 1, weight do
-            table.insert(weightedPool, decorationData)
-        end
-    end
+    local chosenDecorationData = _generateWeightedRandomItem(GameData.ALL_DESK_DECORATIONS, weights)
 
-    if #weightedPool == 0 then
-        print("Warning (Shop:_generateRandomDecorationOffer): Weighted pool is empty.")
+    if not chosenDecorationData then
+        print("Warning (Shop:_generateRandomDecorationOffer): No valid desk decorations to offer.")
         return nil
     end
-    
-    local randomIndex = love.math.random(#weightedPool)
-    local chosenDecorationData = weightedPool[randomIndex]
     
     local decorationOffer = self:_generateDecorationOfferFromData(chosenDecorationData)
     decorationOffer.displayCost = self:getFinalDecorationCost(gameState, decorationOffer)
@@ -154,17 +241,7 @@ end
 
 -- NEW: Generate decoration offer from base data
 function Shop:_generateDecorationOfferFromData(chosenDecorationData)
-    local decorationOffer = {}
-
-    -- Copy all properties from base decoration data
-    for k, v in pairs(chosenDecorationData) do 
-        if type(v) == "table" then
-            decorationOffer[k] = {}
-            for nk, nv in pairs(v) do decorationOffer[k][nk] = nv end
-        else
-            decorationOffer[k] = v 
-        end
-    end 
+    local decorationOffer = _shallowCopy(chosenDecorationData)
     
     -- Add shop-specific properties
     decorationOffer.instanceId = string.format("shop-decoration-%s-%d-%.4f", decorationOffer.id, love.math.random(100000,999999), love.timer.getTime())
@@ -206,24 +283,18 @@ function Shop:_generateRandomEmployeeOffer(gameState)
     end
 
     local weights = { Common = 10, Uncommon = 5, Rare = 2, Legendary = 1 }
-    local weightedPool = {}
-    for _, cardData in ipairs(GameData.BASE_EMPLOYEE_CARDS) do
-        if not cardData.isNotPurchasable then
-            local rarity = cardData.rarity or 'Common'
-            local weight = weights[rarity] or 1
-            for _ = 1, weight do
-                table.insert(weightedPool, cardData)
-            end
-        end
+    
+    -- Filter out employees who are not purchasable
+    local filterFunc = function(cardData)
+        return not cardData.isNotPurchasable
     end
+    
+    local chosenBaseCardData = _generateWeightedRandomItem(GameData.BASE_EMPLOYEE_CARDS, weights, filterFunc)
 
-    if #weightedPool == 0 then
+    if not chosenBaseCardData then
         print("Warning (Shop:_generateRandomEmployeeOffer): Weighted pool is empty. No valid employees to offer.")
         return nil
     end
-    
-    local randomIndex = love.math.random(#weightedPool)
-    local chosenBaseCardData = weightedPool[randomIndex]
     
     local variant = "standard"
     if chosenBaseCardData.forceVariant then
@@ -291,21 +362,19 @@ end
 
 function Shop:_generateRandomUpgradeOffer(purchasedPermanentUpgrades)
     local weights = { Common = 12, Uncommon = 6, Rare = 3, Legendary = 1 }
-    local weightedPool = {}
 
     local hasLegendaryOverhaul = self:isUpgradePurchased(purchasedPermanentUpgrades, 'borg_hivemind') or 
                                  self:isUpgradePurchased(purchasedPermanentUpgrades, 'corporate_personhood')
     local overhaulIds = { borg_hivemind = true, corporate_personhood = true, multiverse_merger = true }
 
-
-    for _, upgData in ipairs(GameData.ALL_UPGRADES) do
+    -- Complex filtering logic is now neatly contained in this filter function
+    local filterFunc = function(upgData)
         local isAlreadyPermanentAndUnique = false
         if purchasedPermanentUpgrades then
             for _, purchasedId in ipairs(purchasedPermanentUpgrades) do
                 if upgData.id == purchasedId then
                     local nonUniqueTypes = { ['budget_add_flat'] = true, ['one_time_team_focus_boost_multiplier'] = true, ['one_time_workload_reduction_percent'] = true, ['temporary_focus_boost_all'] = true, ['code_debt'] = true }
                     
-                    -- If the upgrade has no effect OR its effect type is not in the non-unique list, treat it as unique.
                     if not (upgData.effect and nonUniqueTypes[upgData.effect.type]) then
                         isAlreadyPermanentAndUnique = true 
                     end
@@ -315,19 +384,12 @@ function Shop:_generateRandomUpgradeOffer(purchasedPermanentUpgrades)
         end
 
         local isBlockedOverhaul = hasLegendaryOverhaul and overhaulIds[upgData.id]
-        if not isAlreadyPermanentAndUnique and not isBlockedOverhaul then
-            local rarity = upgData.rarity or 'Common'
-            local weight = weights[rarity] or 1
-            for _ = 1, weight do
-                table.insert(weightedPool, upgData)
-            end
-        end
+        return not isAlreadyPermanentAndUnique and not isBlockedOverhaul
     end
 
-    if #weightedPool > 0 then
-        local randomIndex = love.math.random(#weightedPool)
-        local chosenUpgradeData = weightedPool[randomIndex]
-        
+    local chosenUpgradeData = _generateWeightedRandomItem(GameData.ALL_UPGRADES, weights, filterFunc)
+
+    if chosenUpgradeData then
         local upgradeOffer = {}
         for k,v in pairs(chosenUpgradeData) do upgradeOffer[k] = v end
         upgradeOffer.sold = false
@@ -339,19 +401,11 @@ function Shop:_generateRandomUpgradeOffer(purchasedPermanentUpgrades)
     return nil
 end
 
+
+
 function Shop:markOfferSold(currentShopOffers, employeeShopInstanceIdToMark, upgradeDataToMark, decorationInstanceIdToMark)
     if employeeShopInstanceIdToMark and currentShopOffers.employees then
-        local found = false
-        for i, offer in ipairs(currentShopOffers.employees) do
-            if offer and offer.instanceId == employeeShopInstanceIdToMark then
-                print("Shop:markOfferSold: Found employee offer: " .. offer.name .. " (ID: " .. offer.instanceId .. "). Current sold: " .. tostring(offer.sold))
-                offer.sold = true 
-                print("Shop:markOfferSold: Marked as sold. New status: " .. tostring(currentShopOffers.employees[i].sold))
-                found = true
-                return
-            end
-        end
-        if not found then
+        if not _findAndMarkSold(currentShopOffers.employees, employeeShopInstanceIdToMark, "employee") then
             print("ERROR (Shop:markOfferSold): Employee shop offer NOT FOUND. InstanceID sought: " .. employeeShopInstanceIdToMark)
             print("Current shop offers for employees:")
             for i, off in ipairs(currentShopOffers.employees) do
@@ -359,6 +413,7 @@ function Shop:markOfferSold(currentShopOffers, employeeShopInstanceIdToMark, upg
                 else print("  - Slot " .. i .. ": nil") end
             end
         end
+        return -- Explicitly return after handling
     elseif upgradeDataToMark and currentShopOffers.upgrade then
         if currentShopOffers.upgrade.instanceId == upgradeDataToMark.instanceId or currentShopOffers.upgrade.id == upgradeDataToMark.id then
              print("Shop:markOfferSold: Found upgrade offer: " .. currentShopOffers.upgrade.name .. ". Current sold: " .. tostring(currentShopOffers.upgrade.sold))
@@ -368,19 +423,10 @@ function Shop:markOfferSold(currentShopOffers, employeeShopInstanceIdToMark, upg
             print("ERROR (Shop:markOfferSold): Upgrade shop offer ID did not match. Sought based on passed data, current shop upgrade ID: " .. (currentShopOffers.upgrade.instanceId or currentShopOffers.upgrade.id))
         end
     elseif decorationInstanceIdToMark and currentShopOffers.decorations then
-        -- NEW: Handle decoration sold marking
-        local found = false
-        for i, offer in ipairs(currentShopOffers.decorations) do
-            if offer and offer.instanceId == decorationInstanceIdToMark then
-                print("Shop:markOfferSold: Found decoration offer: " .. offer.name .. " (ID: " .. offer.instanceId .. ")")
-                offer.sold = true
-                found = true
-                return
-            end
-        end
-        if not found then
+        if not _findAndMarkSold(currentShopOffers.decorations, decorationInstanceIdToMark, "decoration") then
             print("ERROR (Shop:markOfferSold): Decoration shop offer NOT FOUND. InstanceID sought: " .. decorationInstanceIdToMark)
         end
+        return -- Explicitly return after handling
     else
         print("ERROR (Shop:markOfferSold): Called with invalid parameters or empty shop offers structure.")
     end
@@ -515,85 +561,8 @@ function Shop:isUpgradePurchased(purchasedUpgradesList, upgradeId)
     return false
 end
 
-function Shop:forceAddEmployeeOffer(currentShopOffers, employeeId, variant)
-    local baseCard = nil
-    for _, cardData in ipairs(GameData.BASE_EMPLOYEE_CARDS) do
-        if cardData.id == employeeId then
-            baseCard = cardData
-            break
-        end
-    end
-    
-    if not baseCard then
-        print("DEBUG ERROR: Could not find employee with id: " .. tostring(employeeId))
-        return
-    end
-
-    local newOffer = self:_generateEmployeeOfferFromCard(baseCard, variant)
-    
-    if not currentShopOffers.employees then currentShopOffers.employees = {} end
-
-    currentShopOffers.employees[1] = newOffer
-    print("DEBUG: Forced " .. newOffer.name .. " (" .. variant .. ") into shop slot 1.")
-end
-
-function Shop:forceAddUpgradeOffer(currentShopOffers, upgradeId)
-    local upgradeData = nil
-    for _, upg in ipairs(GameData.ALL_UPGRADES) do
-        if upg.id == upgradeId then
-            upgradeData = upg
-            break
-        end
-    end
-
-    if not upgradeData then
-        print("DEBUG ERROR: Could not find upgrade with id: " .. tostring(upgradeId))
-        return
-    end
-
-    local upgradeOffer = {}
-    for k,v in pairs(upgradeData) do upgradeOffer[k] = v end
-    upgradeOffer.sold = false
-    upgradeOffer.instanceId = "shop-upgrade-" .. upgradeOffer.id .. "-" ..love.timer.getTime()
-    
-    currentShopOffers.upgrade = upgradeOffer
-    print("DEBUG: Forced upgrade '" .. upgradeOffer.name .. "' into shop.")
-end
-
--- NEW: Force add decoration offer for debugging
-function Shop:forceAddDecorationOffer(currentShopOffers, decorationId)
-    local decorationData = nil
-    for _, decoration in ipairs(GameData.ALL_DESK_DECORATIONS) do
-        if decoration.id == decorationId then
-            decorationData = decoration
-            break
-        end
-    end
-
-    if not decorationData then
-        print("DEBUG ERROR: Could not find decoration with id: " .. tostring(decorationId))
-        return
-    end
-
-    local decorationOffer = self:_generateDecorationOfferFromData(decorationData)
-    
-    if not currentShopOffers.decorations then currentShopOffers.decorations = {} end
-
-    currentShopOffers.decorations[1] = decorationOffer
-    print("DEBUG: Forced decoration '" .. decorationOffer.name .. "' into shop slot 1.")
-end
-
 function Shop:_generateEmployeeOfferFromCard(chosenBaseCardData, variant)
-    local shopOffer = {}
-
-    for k,v in pairs(chosenBaseCardData) do 
-        if type(v) == "table" then
-            shopOffer[k] = {}
-            for nk, nv in pairs(v) do shopOffer[k][nk] = nv end
-        else
-            shopOffer[k] = v 
-        end
-    end 
+    local shopOffer = _shallowCopy(chosenBaseCardData)
     
     shopOffer.variant = variant or "standard"
 
@@ -608,6 +577,9 @@ function Shop:_generateEmployeeOfferFromCard(chosenBaseCardData, variant)
     if shopOffer.variant == 'remote' then
         shopOffer.hiringBonus = math.floor(chosenBaseCardData.hiringBonus * GameData.REMOTE_HIRING_BONUS_MODIFIER)
         shopOffer.weeklySalary = math.floor(chosenBaseCardData.weeklySalary * GameData.REMOTE_SALARY_MODIFIER)
+    else
+        shopOffer.hiringBonus = chosenBaseCardData.hiringBonus
+        shopOffer.weeklySalary = chosenBaseCardData.weeklySalary
     end
     
     print("Generated shop employee offer: " .. shopOffer.fullName .. " (" .. shopOffer.name .. "), Rarity: " .. shopOffer.rarity .. ", Variant: " .. shopOffer.variant)

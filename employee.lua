@@ -116,6 +116,14 @@ function Employee:calculateStatsWithPosition(employeeInstance, allHiredEmployees
     }
 end
 
+function Employee:getFromState(gameState, instanceId)
+    if not gameState or not gameState.hiredEmployees or not instanceId then return nil end
+    for _, emp in ipairs(gameState.hiredEmployees) do
+        if emp.instanceId == instanceId then return emp end
+    end
+    return nil
+end
+
 -- Helper to find a desk by ID from a desks array (like gameState.desks)
 function Employee:getDeskById(deskId, desksData)
     if not desksData then return nil end

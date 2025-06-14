@@ -7,6 +7,7 @@ local Placement = require("placement")
 local GameData = require("data")
 local Employee = require("employee")
 local EffectsDispatcher = require("effects_dispatcher")
+local Employee = require("employee")
 
 local InputHandler = {}
 
@@ -74,21 +75,27 @@ function InputHandler.onKeyPress(key)
         if InputHandler.sprintOverviewState.isVisible then
             InputHandler.sprintOverviewState.isVisible = false
         elseif InputHandler.draggedItemState.item then
-            if InputHandler.draggedItemState.item.type == "placed_employee" then 
-                local empData = InputHandler.draggedItemState.item.data
-                local originalEmp = Employee:getFromState(InputHandler.gameState, empData.instanceId)
-                if originalEmp then
-                    if InputHandler.draggedItemState.item.originalDeskId then
-                        originalEmp.deskId = InputHandler.draggedItemState.item.originalDeskId
-                        InputHandler.gameState.deskAssignments[InputHandler.draggedItemState.item.originalDeskId] = originalEmp.instanceId
-                    elseif InputHandler.draggedItemState.item.originalVariant == 'remote' then
-                        originalEmp.variant = 'remote'
-                    end
-                end
-            end
+            -- Use the new helper function to restore state
+            InputHandler.restoreDraggedEmployee(InputHandler.draggedItemState.item, InputHandler.gameState)
             InputHandler.draggedItemState.item = nil 
         elseif InputHandler.modal.isVisible then
              InputHandler.modal:hide()
+        end
+    end
+end
+
+function InputHandler.restoreDraggedEmployee(draggedItem, gameState)
+    if not draggedItem or draggedItem.type ~= "placed_employee" then return end
+
+    local Employee = require("employee")
+    local empData = draggedItem.data
+    local originalEmp = Employee:getFromState(gameState, empData.instanceId)
+    if originalEmp then
+        if draggedItem.originalDeskId then
+            originalEmp.deskId = draggedItem.originalDeskId
+            gameState.deskAssignments[draggedItem.originalDeskId] = originalEmp.instanceId
+        elseif draggedItem.originalVariant == 'remote' then
+            originalEmp.variant = 'remote'
         end
     end
 end

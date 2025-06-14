@@ -6,16 +6,19 @@ local PausingBetweenRoundsPhase = setmetatable({}, BasePhase)
 PausingBetweenRoundsPhase.__index = PausingBetweenRoundsPhase
 
 function PausingBetweenRoundsPhase:new(manager)
-    return setmetatable(BasePhase:new(manager), self)
+    local instance = setmetatable(BasePhase:new(manager), self)
+    instance.nextPhaseName = 'fast_recalculate_and_setup'
+    return instance
 end
 
-function PausingBetweenRoundsPhase:update(dt, gameState, battleState)
-    battleState.timer = battleState.timer - dt
-    if battleState.timer <= 0 then
-        gameState.currentWeekCycles = gameState.currentWeekCycles + 1
-        -- In the future, this might go to a "recalculate" phase, but for now, it goes back to idle.
-        self.manager:changePhase('fast_recalculate_and_setup', gameState, battleState)
-    end
+function PausingBetweenRoundsPhase:enter(gameState, battleState)
+    -- This timer logic was previously in chipping_salaries_phase.lua
+    local speedMultiplier = math.min(2 ^ gameState.currentWeekCycles, 16)
+    battleState.timer = 1.0 / speedMultiplier
+end
+
+function PausingBetweenRoundsPhase:onTimerComplete(gameState, battleState)
+    gameState.currentWeekCycles = gameState.currentWeekCycles + 1
 end
 
 return PausingBetweenRoundsPhase

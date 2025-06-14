@@ -499,14 +499,6 @@ function EmployeeCard:draw(context)
     end
 end
 
-function Employee:getFromState(gameState, instanceId)
-    if not gameState or not gameState.hiredEmployees or not instanceId then return nil end
-    for _, emp in ipairs(gameState.hiredEmployees) do
-        if emp.instanceId == instanceId then return emp end
-    end
-    return nil
-end
-
 function EmployeeCard:handleMousePress(x, y, button)
     if button ~= 1 or not self.data or self.data.sold or self.gameState.gamePhase == 'battle_active' then 
         return false 
