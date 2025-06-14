@@ -180,7 +180,7 @@ return {
         }
     },
     {
-        id = 'organizer1', name = 'The Organizer', icon = 'assets/portraits/prt0006.png', rarity = 'Rare',
+        id = 'organizer1', name = 'The Organizer', icon = 'assets/portraits/prt0076.png', rarity = 'Rare',
         hiringBonus = 2400, weeklySalary = 480,
         baseProductivity = 7, baseFocus = 1.2,
         description = 'All positional effects (positive and negative) of employees in the same row AND column are increased by 25% per level.',
@@ -192,6 +192,8 @@ return {
                     priority = 50,
                     callback = function(self, gameState, services, eventArgs)
                         if not self.deskId then return end
+                        local targetEmployee = eventArgs.employee
+                        if not targetEmployee.deskId then return end
                         
                         local organizerDeskIndex = tonumber(string.match(self.deskId, "desk%-(%d+)"))
                         if not organizerDeskIndex then return end
@@ -200,54 +202,29 @@ return {
                         local organizerRow = math.floor(organizerDeskIndex / GameData.GRID_WIDTH)
                         local organizerCol = organizerDeskIndex % GameData.GRID_WIDTH
                         
-                        local targetDeskIndex = tonumber(string.match(eventArgs.employee.deskId or "", "desk%-(%d+)"))
+                        local targetDeskIndex = tonumber(string.match(targetEmployee.deskId, "desk%-(%d+)"))
                         if not targetDeskIndex then return end
-                        
+
                         local targetRow = math.floor(targetDeskIndex / GameData.GRID_WIDTH)
                         local targetCol = targetDeskIndex % GameData.GRID_WIDTH
-                        
-                        -- Only amplify if target is in same row OR column
+
+                        -- Only amplify if target is in the same row OR column
                         if targetRow == organizerRow or targetCol == organizerCol then
-                            local amplifier = self.special.multiplier
-                            if self.special.scales_with_level then
-                                amplifier = 1 + ((amplifier - 1) * (self.level or 1))
-                            end
-                            
-                            -- Look through the log for positional bonuses applied in BaseApplication phase
-                            local amplifiedProductivity = 0
-                            local amplifiedFocus = 0
-                            
-                            for _, logEntry in ipairs(eventArgs.stats.log.productivity or {}) do
-                                local value = string.match(logEntry, "([%+%-]%d+) from")
-                                if value then
-                                    local bonus = tonumber(value)
-                                    if bonus then
-                                        local amplification = math.floor(bonus * (amplifier - 1))
-                                        amplifiedProductivity = amplifiedProductivity + amplification
-                                    end
+                            if eventArgs.bonusesApplied and eventArgs.bonusesApplied.positional then
+                                local amplifier = 1 + ((self.special.multiplier - 1) * (self.level or 1))
+                                
+                                local prodAmplification = math.floor(eventArgs.bonusesApplied.positional.prod * (amplifier - 1))
+                                local focusAmplification = eventArgs.bonusesApplied.positional.focus * (amplifier - 1)
+
+                                if prodAmplification ~= 0 then
+                                    eventArgs.stats.productivity = eventArgs.stats.productivity + prodAmplification
+                                    table.insert(eventArgs.stats.log.productivity, string.format("%s%d from Organizer", prodAmplification > 0 and "+" or "", prodAmplification))
                                 end
-                            end
-                            
-                            for _, logEntry in ipairs(eventArgs.stats.log.focus or {}) do
-                                local value = string.match(logEntry, "([%+%-][%d%.]+)x from")
-                                if value then
-                                    local bonus = tonumber(value)
-                                    if bonus then
-                                        local amplification = bonus * (amplifier - 1)
-                                        amplifiedFocus = amplifiedFocus + amplification
-                                    end
+
+                                if focusAmplification ~= 0 then
+                                    eventArgs.stats.focus = eventArgs.stats.focus + focusAmplification
+                                    table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from Organizer", focusAmplification > 0 and "+" or "", focusAmplification))
                                 end
-                            end
-                            
-                            -- Apply amplifications
-                            if amplifiedProductivity ~= 0 then
-                                eventArgs.stats.productivity = eventArgs.stats.productivity + amplifiedProductivity
-                                table.insert(eventArgs.stats.log.productivity, string.format("%s%d from Organizer amplification", amplifiedProductivity > 0 and "+" or "", amplifiedProductivity))
-                            end
-                            
-                            if amplifiedFocus ~= 0 then
-                                eventArgs.stats.focus = eventArgs.stats.focus + amplifiedFocus
-                                table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from Organizer amplification", amplifiedFocus > 0 and "+" or "", amplifiedFocus))
                             end
                         end
                     end
@@ -376,46 +353,28 @@ return {
             }
         }
     },
-    {
-        id = 'office_plant1', name = 'Office Plant (Sentient)', icon = 'assets/portraits/prt0010.png', rarity = 'Rare',
-        hiringBonus = 1500, weeklySalary = 50,
-        baseProductivity = 0, baseFocus = 1.0,
-        description = 'A low-maintenance, photosynthetic colleague. Passively clears 5 workload per level at the end of each round. Does not work otherwise.',
-        special = { type = 'passive_workload_clear', amount = 5, does_not_work = true, scales_with_level = true },
+    { 
+        id = 'office_plant', name = 'Office Plant', rarity = 'Rare', cost = 800, icon = '🌱',
+        description = 'A plant in the office boosts Focus by +0.5x for all employees.',
+        effect = { type = 'special_office_plant' },
         listeners = {
-            onEmployeeContextCheck = {
+            onCalculateStats = {
                 {
                     phase = 'BaseApplication',
-                    priority = 50,
-                    callback = function(self, gameState, eventArgs)
-                        if eventArgs.employee.instanceId == self.instanceId then
-                            eventArgs.context = "worker_training"
-                        end
-                    end
-                }
-            },
-            onEndOfRound = {
-                {
-                    phase = 'PostCalculation',
-                    priority = 50,
-                    callback = function(self, gameState, eventArgs)
-                        local amount = self.special.amount or 5
-                        if self.special.scales_with_level then amount = amount * (self.level or 1) end
-                        
+                    priority = 60, -- A bit later than employee-specific
+                    callback = function(self, gameState, services, eventArgs)
+                        -- Check if a watering can is owned and not disabled
                         local hasWateringCan = false
                         for _, upgId in ipairs(gameState.purchasedPermanentUpgrades) do
-                            if upgId == 'watering_can' then
+                            if upgId == 'watering_can' and not (gameState.temporaryEffectFlags.disabledUpgrades and gameState.temporaryEffectFlags.disabledUpgrades['watering_can']) then
                                 hasWateringCan = true
                                 break
                             end
                         end
 
-                        if hasWateringCan and not (gameState.temporaryEffectFlags.disabledUpgrades and gameState.temporaryEffectFlags.disabledUpgrades['watering_can']) then
-                            amount = amount * 2
-                        end
-                        
-                        gameState.currentWeekWorkload = gameState.currentWeekWorkload - amount
-                        print(self.fullName .. " cleared " .. amount .. " workload passively.")
+                        local focus_boost = hasWateringCan and 1.0 or 0.5
+                        eventArgs.stats.focus = eventArgs.stats.focus + focus_boost
+                        table.insert(eventArgs.stats.log.focus, string.format("+%.2fx from Office Plant %s", focus_boost, hasWateringCan and "(Watered)" or ""))
                     end
                 }
             }
@@ -432,7 +391,7 @@ return {
                 {
                     phase = 'BaseApplication',
                     priority = 50,
-                    callback = function(self, gameState, eventArgs)
+                    callback = function(self, gameState, services, eventArgs)
                         if eventArgs.employee.instanceId == self.instanceId and eventArgs.fromShop then
                             local occupantId = gameState.deskAssignments[eventArgs.targetDeskId]
                             if occupantId then
@@ -908,6 +867,17 @@ return {
                         end
                     end
                 }
+            },
+            onWorkItemComplete = {
+                {
+                    phase = 'BaseApplication',
+                    priority = 50,
+                    callback = function(self, gameState, services, eventArgs)
+                        -- Reset the mimic's copied state at the end of a work item
+                        self.copiedState = nil
+                        print("The Mimic has reverted to its original form.")
+                    end
+                }
             }
         }
     },
@@ -1007,6 +977,19 @@ return {
                         end
                     end
                 }
+            },
+            onCalculateUpgradeCost = {
+                {
+                    phase = 'BaseApplication',
+                    priority = 50,
+                    callback = function(self, gameState, eventArgs)
+                        local costMultiplier = self.special.upgrade_cost_increase
+                        if self.special.scales_with_level then
+                            costMultiplier = 1 + ((costMultiplier - 1) * (self.level or 1))
+                        end
+                        eventArgs.cost = eventArgs.cost * costMultiplier
+                    end
+                }
             }
         }
     },
@@ -1085,20 +1068,20 @@ return {
         baseProductivity = 60, baseFocus = 1.2,
         description = 'A fourth-wall-breaking employee. Their productivity is equal to the game\'s current frames-per-second.',
         special = { type = 'developer_fps_prod' },
-            listeners = {
-                onCalculateStats = {
-                    {
-                        phase = 'BaseApplication',
-                        priority = 10, -- High priority to run early
-                        callback = function(self, gameState, services, eventArgs)
-                            if eventArgs.employee.instanceId == self.instanceId then
-                                eventArgs.stats.productivity = love.timer.getFPS()
-                                eventArgs.stats.log.productivity = {"Base: " .. eventArgs.stats.productivity .. " (from FPS)"}
-                            end
+        listeners = {
+            onCalculateStats = {
+                {
+                    phase = 'BaseApplication',
+                    priority = 10, -- High priority to run early
+                    callback = function(self, gameState, services, eventArgs)
+                        if eventArgs.employee.instanceId == self.instanceId then
+                            eventArgs.stats.productivity = love.timer.getFPS()
+                            eventArgs.stats.log.productivity = {"Base: " .. eventArgs.stats.productivity .. " (from FPS)"}
                         end
-                    }
+                    end
                 }
             }
+        }
     },
     {
         id = 'benevolent_slime1', name = 'A Benevolent Slime', icon = 'assets/portraits/prt0031.png', rarity = 'Legendary',
@@ -1111,7 +1094,7 @@ return {
                 {
                     phase = 'BaseApplication',
                     priority = 50,
-                    callback = function(self, gameState, eventArgs)
+                    callback = function(self, gameState, services, eventArgs)
                         if eventArgs.employee.instanceId == self.instanceId and eventArgs.fromShop then
                             local occupantId = gameState.deskAssignments[eventArgs.targetDeskId]
                             if occupantId then
@@ -1242,7 +1225,7 @@ return {
                                 local focus_mult = 1 + ((effect.focus_mult - 1) * (effect.scales_with_level and (self.level or 1) or 1))
 
                                 if eventArgs.isPositionalInversionActive then
-                                   if focus_mult ~= 0 then focus_mult = 1 / focus_mult end
+                                if focus_mult ~= 0 then focus_mult = 1 / focus_mult end
                                 end
 
                                 eventArgs.stats.focus = eventArgs.stats.focus * focus_mult
@@ -1398,7 +1381,10 @@ return {
                                 end
 
                                 eventArgs.stats.productivity = eventArgs.stats.productivity + prod_add
-                                if prod_add ~= 0 then table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s", prod_add > 0 and "+" or "", prod_add, self.name)) end
+                                if prod_add ~= 0 then
+                                    table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s", prod_add > 0 and "+" or "", prod_add, self.name))
+                                    eventArgs.bonusesApplied.positional.prod = eventArgs.bonusesApplied.positional.prod + prod_add
+                                end
                                 break
                             end
                         end
@@ -1414,13 +1400,13 @@ return {
         description = 'Provides a +50% productivity boost to ALL employees. At the end of each work item, she will "test" you by forcing you to choose one of two negative modifiers for the next item.',
         special = { type = 'ai_test_on_win', prod_boost_all = 1.5, does_not_work = true },
         listeners = {
-            onApplyUpgradeModifiers = {
+            onCalculateStats = {
                 {
                     phase = 'BaseApplication',
-                    priority = 50,
-                    callback = function(self, gameState, eventArgs)
-                        eventArgs.productivity = eventArgs.productivity * 1.5
-                        table.insert(eventArgs.log.productivity, "*1.5x from GLaDOS")
+                    priority = 60, -- A bit later than employee-specific
+                    callback = function(self, gameState, services, eventArgs)
+                        eventArgs.stats.productivity = eventArgs.stats.productivity * self.special.prod_boost_all
+                        table.insert(eventArgs.stats.log.productivity, string.format("*%.1fx from GLaDOS", self.special.prod_boost_all))
                     end
                 }
             },
@@ -1428,7 +1414,7 @@ return {
                 {
                     phase = 'PostCalculation',
                     priority = 50,
-                    callback = function(self, gameState, eventArgs)
+                    callback = function(self, gameState, services, eventArgs)
                         local modifiers = require("data").GLADOS_NEGATIVE_MODIFIERS
                         if #modifiers >= 2 then
                             local mod1 = modifiers[love.math.random(#modifiers)]
@@ -1437,6 +1423,7 @@ return {
                                 mod2 = modifiers[love.math.random(#modifiers)]
                             end
                             
+                            -- Default to mod1, let user change it
                             gameState.temporaryEffectFlags.gladosModifierForNextItem = mod1
                             
                             services.modal:show(
@@ -1445,9 +1432,11 @@ return {
                             {
                                 {text = "Option A", onClick = function()
                                     gameState.temporaryEffectFlags.gladosModifierForNextItem = mod1
+                                    services.modal:hide()
                                 end},
                                 {text = "Option B", onClick = function()
                                     gameState.temporaryEffectFlags.gladosModifierForNextItem = mod2
+                                    services.modal:hide()
                                 end}
                             }
                             )
@@ -1499,8 +1488,14 @@ return {
 
                                 eventArgs.stats.productivity = eventArgs.stats.productivity + prod_add
                                 eventArgs.stats.focus = eventArgs.stats.focus + focus_add
-                                if prod_add ~= 0 then table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s", prod_add > 0 and "+" or "", prod_add, self.name)) end
-                                if focus_add ~= 0 then table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name)) end
+                                if prod_add ~= 0 then
+                                    table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s", prod_add > 0 and "+" or "", prod_add, self.name))
+                                    eventArgs.bonusesApplied.positional.prod = eventArgs.bonusesApplied.positional.prod + prod_add
+                                end
+                                if focus_add ~= 0 then
+                                    table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name))
+                                    eventArgs.bonusesApplied.positional.focus = eventArgs.bonusesApplied.positional.focus + focus_add
+                                end
                                 break
                             end
                         end
@@ -1619,7 +1614,7 @@ return {
             }
         }
     },
-    {
+    { 
         id = 'union_rep1', name = 'The Union Rep', icon = 'assets/portraits/prt0042.png', rarity = 'Uncommon',
         hiringBonus = 2000, weeklySalary = 450,
         baseProductivity = 2, baseFocus = 1.0,
@@ -1629,7 +1624,7 @@ return {
             onCalculateStats = {
                 {
                     phase = 'BaseApplication',
-                    priority = 50,
+                    priority = 60,
                     callback = function(self, gameState, services, eventArgs)
                         local bonus = self.special.value
                         if self.special.scales_with_level then
@@ -1740,8 +1735,14 @@ return {
 
                                 eventArgs.stats.productivity = eventArgs.stats.productivity + prod_add
                                 eventArgs.stats.focus = eventArgs.stats.focus + focus_add
-                                if prod_add ~= 0 then table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s", prod_add > 0 and "+" or "", prod_add, self.name)) end
-                                if focus_add ~= 0 then table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name)) end
+                                if prod_add ~= 0 then
+                                    table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s", prod_add > 0 and "+" or "", prod_add, self.name))
+                                    eventArgs.bonusesApplied.positional.prod = eventArgs.bonusesApplied.positional.prod + prod_add
+                                end
+                                if focus_add ~= 0 then
+                                    table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name))
+                                    eventArgs.bonusesApplied.positional.focus = eventArgs.bonusesApplied.positional.focus + focus_add
+                                end
                             end
                         end
                     end
@@ -1836,10 +1837,7 @@ return {
                             if Placement:getNeighboringDeskId(self.deskId, direction, GameData.GRID_WIDTH, GameData.TOTAL_DESK_SLOTS, gameState.desks) == targetDeskId then
                                 local effect = self.positionalEffects.all_adjacent
                                 
-                                -- Check condition
-                                if effect.condition_not_id and targetEmployee.id == effect.condition_not_id then
-                                    -- Condition met, do not apply effect
-                                else
+                                if not (effect.condition_not_id and targetEmployee.id == effect.condition_not_id) then
                                     local prod_add = (effect.productivity_add or 0) * (effect.scales_with_level and (self.level or 1) or 1)
                                     local focus_add = (effect.focus_add or 0) * (effect.scales_with_level and (self.level or 1) or 1)
 
@@ -1850,10 +1848,16 @@ return {
 
                                     eventArgs.stats.productivity = eventArgs.stats.productivity + prod_add
                                     eventArgs.stats.focus = eventArgs.stats.focus + focus_add
-                                    if prod_add ~= 0 then table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s", prod_add > 0 and "+" or "", prod_add, self.name)) end
-                                    if focus_add ~= 0 then table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name)) end
+                                    if prod_add ~= 0 then
+                                        table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s", prod_add > 0 and "+" or "", prod_add, self.name))
+                                        eventArgs.bonusesApplied.positional.prod = eventArgs.bonusesApplied.positional.prod + prod_add
+                                    end
+                                    if focus_add ~= 0 then
+                                        table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name))
+                                        eventArgs.bonusesApplied.positional.focus = eventArgs.bonusesApplied.positional.focus + focus_add
+                                    end
                                 end
-                                break -- Apply once for all_adjacent
+                                break
                             end
                         end
                     end
@@ -1916,7 +1920,10 @@ return {
                                 end
 
                                 eventArgs.stats.productivity = eventArgs.stats.productivity + prod_add
-                                if prod_add ~= 0 then table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s", prod_add > 0 and "+" or "", prod_add, self.name)) end
+                                if prod_add ~= 0 then
+                                    table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s", prod_add > 0 and "+" or "", prod_add, self.name))
+                                    eventArgs.bonusesApplied.positional.prod = eventArgs.bonusesApplied.positional.prod + prod_add
+                                end
                             end
                         end
                     end
@@ -1937,6 +1944,18 @@ return {
                     priority = 50,
                     callback = function(self, gameState, eventArgs)
                         self.weeklySalary = self.weeklySalary + (self.special.amount or 50)
+                    end
+                }
+            },
+            onCalculateStats = {
+                {
+                    phase = 'BaseApplication',
+                    priority = 20,
+                    callback = function(self, gameState, services, eventArgs)
+                        if eventArgs.employee.instanceId == self.instanceId then
+                            eventArgs.stats.focus = eventArgs.stats.focus * self.special.initial_focus_multiplier
+                            table.insert(eventArgs.stats.log.focus, string.format("*%.1fx from innate genius", self.special.initial_focus_multiplier))
+                        end
                     end
                 }
             }
@@ -2000,7 +2019,7 @@ return {
             onCalculateStats = {
                 {
                     phase = 'BaseApplication',
-                    priority = 50,
+                    priority = 60,
                     callback = function(self, gameState, services, eventArgs)
                         local cornerDeskIds = {"desk-0", "desk-2", "desk-6", "desk-8"}
                         local ownedCorners = 0
@@ -2112,8 +2131,8 @@ return {
                                 local focus_mult = 1 + ((effect.focus_mult - 1) * level_mult)
 
                                 if eventArgs.isPositionalInversionActive then
-                                   if prod_mult ~= 0 then prod_mult = 1 / prod_mult end
-                                   if focus_mult ~= 0 then focus_mult = 1 / focus_mult end
+                                if prod_mult ~= 0 then prod_mult = 1 / prod_mult end
+                                if focus_mult ~= 0 then focus_mult = 1 / focus_mult end
                                 end
 
                                 eventArgs.stats.productivity = eventArgs.stats.productivity * prod_mult
@@ -2270,7 +2289,10 @@ return {
                                 end
 
                                 eventArgs.stats.productivity = eventArgs.stats.productivity + prod_add
-                                if prod_add ~= 0 then table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s", prod_add > 0 and "+" or "", prod_add, self.name)) end
+                                if prod_add ~= 0 then
+                                    table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s", prod_add > 0 and "+" or "", prod_add, self.name))
+                                    eventArgs.bonusesApplied.positional.prod = eventArgs.bonusesApplied.positional.prod + prod_add
+                                end
                                 break -- Apply once for all_adjacent
                             end
                         end
@@ -2355,7 +2377,10 @@ return {
                                 end
 
                                 eventArgs.stats.focus = eventArgs.stats.focus + focus_add
-                                if focus_add ~= 0 then table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name)) end
+                                if focus_add ~= 0 then
+                                    table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name))
+                                    eventArgs.bonusesApplied.positional.focus = eventArgs.bonusesApplied.positional.focus + focus_add
+                                end
                             end
                         end
                     end
@@ -2391,7 +2416,10 @@ return {
                                 end
 
                                 eventArgs.stats.productivity = eventArgs.stats.productivity + prod_add
-                                if prod_add ~= 0 then table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s", prod_add > 0 and "+" or "", prod_add, self.name)) end
+                                if prod_add ~= 0 then
+                                    table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s", prod_add > 0 and "+" or "", prod_add, self.name))
+                                    eventArgs.bonusesApplied.positional.prod = eventArgs.bonusesApplied.positional.prod + prod_add
+                                end
                             end
                         end
                     end
@@ -2427,7 +2455,10 @@ return {
                                 end
 
                                 eventArgs.stats.focus = eventArgs.stats.focus + focus_add
-                                if focus_add ~= 0 then table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name)) end
+                                if focus_add ~= 0 then
+                                    table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name))
+                                    eventArgs.bonusesApplied.positional.focus = eventArgs.bonusesApplied.positional.focus + focus_add
+                                end
                             end
                         end
                     end
@@ -2475,7 +2506,10 @@ return {
                                 end
 
                                 eventArgs.stats.focus = eventArgs.stats.focus + focus_add
-                                if focus_add ~= 0 then table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name)) end
+                                if focus_add ~= 0 then
+                                    table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name))
+                                    eventArgs.bonusesApplied.positional.focus = eventArgs.bonusesApplied.positional.focus + focus_add
+                                end
                             end
                         end
                     end
@@ -2585,7 +2619,10 @@ return {
                                 end
 
                                 eventArgs.stats.focus = eventArgs.stats.focus + focus_add
-                                if focus_add ~= 0 then table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name)) end
+                                if focus_add ~= 0 then
+                                    table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name))
+                                    eventArgs.bonusesApplied.positional.focus = eventArgs.bonusesApplied.positional.focus + focus_add
+                                end
                             end
                         end
                     end
@@ -2685,60 +2722,11 @@ return {
                                 end
 
                                 eventArgs.stats.focus = eventArgs.stats.focus + focus_add
-                                if focus_add ~= 0 then table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name)) end
-                                break -- Apply once for all_adjacent
-                            end
-                        end
-                    end
-                }
-            }
-        }
-    },
-    {
-        id = 'organizer1', name = 'The Organizer', icon = 'assets/portraits/prt0076.png', rarity = 'Rare',
-        hiringBonus = 2400, weeklySalary = 480,
-        baseProductivity = 7, baseFocus = 1.2,
-        description = 'All positional effects (positive and negative) of employees in the same row AND column are increased by 25% per level.',
-        special = { type = 'amplify_positional_effects', multiplier = 1.25, scales_with_level = true },
-        listeners = {
-            onCalculatePositionalBonuses = {
-                {
-                    phase = 'Amplification',
-                    priority = 50,
-                    callback = function(self, gameState, eventArgs)
-                        if not self.deskId then return end
-                        
-                        local organizerDeskIndex = tonumber(string.match(self.deskId, "desk%-(%d+)"))
-                        if not organizerDeskIndex then return end
-                        
-                        local organizerRow = math.floor(organizerDeskIndex / require("data").GRID_WIDTH)
-                        local organizerCol = organizerDeskIndex % require("data").GRID_WIDTH
-                        
-                        local targetDeskIndex = tonumber(string.match(eventArgs.employee.deskId or "", "desk%-(%d+)"))
-                        if not targetDeskIndex then return end
-                        
-                        local targetRow = math.floor(targetDeskIndex / require("data").GRID_WIDTH)
-                        local targetCol = targetDeskIndex % require("data").GRID_WIDTH
-                        
-                        if targetRow == organizerRow or targetCol == organizerCol then
-                            local amplifier = self.special.multiplier
-                            if self.special.scales_with_level then
-                                amplifier = 1 + ((amplifier - 1) * (self.level or 1))
-                            end
-                            
-                            local originalApplyEffect = eventArgs.applyEffect
-                            eventArgs.applyEffect = function(effectDetails, sourceEmployee)
-                                local amplifiedEffect = {}
-                                for k, v in pairs(effectDetails) do
-                                    if k == 'productivity_add' or k == 'focus_add' then
-                                        amplifiedEffect[k] = v * amplifier
-                                    elseif k == 'focus_mult' then
-                                        amplifiedEffect[k] = 1 + ((v - 1) * amplifier)
-                                    else
-                                        amplifiedEffect[k] = v
-                                    end
+                                if focus_add ~= 0 then
+                                    table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s", focus_add > 0 and "+" or "", focus_add, self.name))
+                                    eventArgs.bonusesApplied.positional.focus = eventArgs.bonusesApplied.positional.focus + focus_add
                                 end
-                                originalApplyEffect(amplifiedEffect, sourceEmployee)
+                                break -- Apply once for all_adjacent
                             end
                         end
                     end
@@ -2871,34 +2859,32 @@ return {
                     callback = function(self, gameState, services, eventArgs)
                         if eventArgs.employee.instanceId ~= self.instanceId then return end
                         
-                        -- Look through the stat log to find the first negative effect
                         local firstNegativeFound = false
                         local negativeProductivity = 0
                         local negativeFocus = 0
                         
-                        -- Check productivity log for negative effects
-                        for _, logEntry in ipairs(eventArgs.stats.log.productivity or {}) do
-                            local negValue = string.match(logEntry, "^%-(%d+)")
+                        for i, logEntry in ipairs(eventArgs.stats.log.productivity or {}) do
+                            local negValue = string.match(logEntry, "^%-([%d%.]+)")
                             if negValue and not firstNegativeFound then
                                 negativeProductivity = tonumber(negValue)
+                                table.remove(eventArgs.stats.log.productivity, i)
                                 firstNegativeFound = true
                                 break
                             end
                         end
                         
-                        -- Check focus log for negative effects if no negative productivity found
                         if not firstNegativeFound then
-                            for _, logEntry in ipairs(eventArgs.stats.log.focus or {}) do
+                            for i, logEntry in ipairs(eventArgs.stats.log.focus or {}) do
                                 local negValue = string.match(logEntry, "^%-([%d%.]+)")
                                 if negValue and not firstNegativeFound then
                                     negativeFocus = tonumber(negValue)
+                                    table.remove(eventArgs.stats.log.focus, i)
                                     firstNegativeFound = true
                                     break
                                 end
                             end
                         end
                         
-                        -- Reverse the first negative effect found
                         if firstNegativeFound then
                             if negativeProductivity > 0 then
                                 eventArgs.stats.productivity = eventArgs.stats.productivity + negativeProductivity

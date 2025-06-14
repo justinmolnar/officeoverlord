@@ -108,13 +108,6 @@ function Battle:calculateEmployeeContribution(employeeInstance, gameState)
    individualProductivity = individualProductivity * eventArgs.productivityMultiplier
    individualFocus = individualFocus * eventArgs.focusMultiplier
 
-   if gameState.temporaryEffectFlags.officeDogActiveThisTurn and gameState.temporaryEffectFlags.officeDogTarget == employeeInstance.instanceId then
-       individualFocus = individualFocus * 2
-       print(employeeInstance.name .. " gets Office Dog focus boost! New Focus: " .. individualFocus)
-       gameState.temporaryEffectFlags.officeDogActiveThisTurn = false 
-       gameState.temporaryEffectFlags.officeDogTarget = nil
-   end
-   
    local employeeContribution = math.floor(individualProductivity * individualFocus)
    
    employeeContribution = math.floor(employeeContribution * eventArgs.contributionMultiplier)
@@ -234,70 +227,6 @@ function Battle:calculateTotalSalariesForRound(gameState)
     return totalSalariesThisRound
 end
 
-function Battle:calculatePyramidSchemeTransfers(gameState, roundContributions)
-    local transfers = {}
-    local middleRowBonusPool = 0
-    local apexBonusPool = 0
-
-    local bottomRowDeskIndices = {6, 7, 8}
-    local middleRowDeskIndices = {3, 4, 5}
-    local apexDeskId = "desk-1"
-    
-    local middleRowEmployees = {}
-    local apexEmployeeId = nil
-
-    for _, emp in ipairs(gameState.hiredEmployees) do
-        if emp.deskId then
-            local deskIndex = tonumber(string.match(emp.deskId, "desk%-(%d+)"))
-            if deskIndex then
-                for _, midIndex in ipairs(middleRowDeskIndices) do
-                    if deskIndex == midIndex then table.insert(middleRowEmployees, emp.instanceId) end
-                end
-                if emp.deskId == apexDeskId then
-                    apexEmployeeId = emp.instanceId
-                end
-            end
-        end
-    end
-
-    for instanceId, contribution in pairs(roundContributions) do
-        local emp = getEmployeeFromGameState(gameState, instanceId)
-        if emp and emp.deskId then
-            local deskIndex = tonumber(string.match(emp.deskId, "desk%-(%d+)"))
-            if deskIndex then
-                local isBottomRow = false
-                for _, botIndex in ipairs(bottomRowDeskIndices) do if deskIndex == botIndex then isBottomRow = true; break; end end
-                
-                local isMiddleRow = false
-                for _, midIndex in ipairs(middleRowDeskIndices) do if deskIndex == midIndex then isMiddleRow = true; break; end end
-
-                if isBottomRow then
-                    local transferAmount = math.floor(contribution * 0.1)
-                    transfers[instanceId] = (transfers[instanceId] or 0) - transferAmount
-                    middleRowBonusPool = middleRowBonusPool + transferAmount
-                elseif isMiddleRow then
-                    local transferAmount = math.floor(contribution * 0.1)
-                    transfers[instanceId] = (transfers[instanceId] or 0) - transferAmount
-                    apexBonusPool = apexBonusPool + transferAmount
-                end
-            end
-        end
-    end
-
-    if #middleRowEmployees > 0 and middleRowBonusPool > 0 then
-        local bonusPerMiddle = math.floor(middleRowBonusPool / #middleRowEmployees)
-        for _, empId in ipairs(middleRowEmployees) do
-            transfers[empId] = (transfers[empId] or 0) + bonusPerMiddle
-        end
-    end
-
-    if apexEmployeeId and apexBonusPool > 0 then
-        transfers[apexEmployeeId] = (transfers[apexEmployeeId] or 0) + apexBonusPool
-    end
-
-    return transfers
-end
-
 -- Processes logic at the end of a full work round.
 function Battle:endWorkCycleRound(gameState, totalSalariesThisRound, showMessage)
     require("effects_dispatcher").dispatchEvent("onEndOfRound", gameState, { totalSalaries = totalSalariesThisRound }, { modal = modal })
@@ -316,18 +245,9 @@ function Battle:endWorkCycleRound(gameState, totalSalariesThisRound, showMessage
         end
 
         if gameState.bailOutsRemaining > 0 then
-            local bailoutIsFree = false
-            if self:isUpgradePurchased(gameState.purchasedPermanentUpgrades, "legal_retainer", gameState) then
-                local upgData; for _, u in ipairs(GameData.ALL_UPGRADES) do if u.id == "legal_retainer" then upgData = u; break; end end
-                if upgData and love.math.random() < upgData.effect.chance then bailoutIsFree = true end
-            end
-            
-            if bailoutIsFree then 
-                showMessage("Legal Loophole!", "Your legal team found a loophole. The bailout is free! The current work item will restart.")
-            else 
-                gameState.bailOutsRemaining = gameState.bailOutsRemaining - 1
-                showMessage("Emergency Bailout!", "Budget crisis averted! Bailouts remaining: " .. gameState.bailOutsRemaining .. "\n\nThe current work item will restart with fresh funding.")
-            end
+            -- Note: The logic for a free bailout is now handled in the Legal Retainer's listener.
+            gameState.bailOutsRemaining = gameState.bailOutsRemaining - 1
+            showMessage("Emergency Bailout!", "Budget crisis averted! Bailouts remaining: " .. gameState.bailOutsRemaining .. "\n\nThe current work item will restart with fresh funding.")
             
             gameState.budget = GameData.BAILOUT_BUDGET_AMOUNT
             print("Budget depleted! Bailout used. Bailouts remaining: " .. gameState.bailOutsRemaining)

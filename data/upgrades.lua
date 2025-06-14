@@ -78,13 +78,13 @@ return {
         description = 'All employees gain +1.0x Focus, but have a 5% chance each turn to "break the build," contributing 0 and costing $100.',
         effect = { type = 'move_fast_break_things' },
         listeners = {
-            onApplyUpgradeModifiers = {
+            onCalculateStats = {
                 {
                     phase = 'BaseApplication',
-                    priority = 50,
+                    priority = 60,
                     callback = function(self, gameState, services, eventArgs)
-                        eventArgs.focus = eventArgs.focus + 1.0
-                        table.insert(eventArgs.log.focus, "+1.0x from Move Fast Memo")
+                        eventArgs.stats.focus = eventArgs.stats.focus + 1.0
+                        table.insert(eventArgs.stats.log.focus, "+1.0x from Move Fast Memo")
                     end
                 }
             },
@@ -329,13 +329,14 @@ return {
                     end
                 }
             },
-            onApplyGlobalFocusModifiers = {
+            onCalculateStats = {
                 {
                     phase = 'BaseApplication',
-                    priority = 50,
+                    priority = 60,
                     callback = function(self, gameState, services, eventArgs)
                         if gameState.temporaryEffectFlags.teamBuildingActiveThisWeek then
-                            eventArgs.focusMultiplier = eventArgs.focusMultiplier * self.effect.value
+                            eventArgs.stats.focus = eventArgs.stats.focus * self.effect.value
+                            table.insert(eventArgs.stats.log.focus, string.format("*%.1fx from Team Building", self.effect.value))
                         end
                     end
                 }
@@ -719,27 +720,53 @@ id = 'delorean_espresso', name = 'Espresso Machine (DeLorean-Powered)', rarity =
 
    -- RARE UPGRADES --
    { 
-       id = 'legal_retainer', name = 'Legal Retainer', rarity = 'Rare', cost = 2200, icon = '⚖️',
-       description = '25% chance bailouts are free due to legal loopholes.',
-       effect = { type = 'chance_avoid_bailout_cost', chance = 0.25 }
-   },  
-   { 
-       id = 'office_plant', name = 'Office Plant', rarity = 'Rare', cost = 800, icon = '🌱',
-       description = 'A plant in the office boosts Focus by +0.5x for all employees.',
-       effect = { type = 'special_office_plant' },
-       listeners = {
-           onApplyGlobalFocusModifiers = {
-               {
-                   phase = 'BaseApplication',
-                   priority = 50,
-                   callback = function(self, gameState, services, eventArgs)
-                       eventArgs.focusMultiplier = eventArgs.focusMultiplier * 1.5
-                   end
-               }
-           }
-       }
-   },
-   { 
+        id = 'legal_retainer', name = 'Legal Retainer', rarity = 'Rare', cost = 2200, icon = '⚖️',
+        description = '25% chance bailouts are free due to legal loopholes.',
+        effect = { type = 'chance_avoid_bailout_cost', chance = 0.25 },
+        listeners = {
+            onBudgetDepleted = {
+                {
+                    phase = 'BaseApplication',
+                    priority = 50,
+                    callback = function(self, gameState, services, eventArgs)
+                        if gameState.bailOutsRemaining > 0 and love.math.random() < self.effect.chance then
+                            eventArgs.gameOverPrevented = true
+                            eventArgs.message = "Legal Loophole!\nYour legal team found a loophole. The bailout is free! The current work item will restart."
+                            -- By setting gameOverPrevented, we stop the normal bailout cost.
+                        end
+                    end
+                }
+            }
+        }
+    },
+    { 
+        id = 'office_plant', name = 'Office Plant', rarity = 'Rare', cost = 800, icon = '🌱',
+        description = 'A plant in the office boosts Focus by +0.5x for all employees.',
+        effect = { type = 'special_office_plant' },
+        listeners = {
+            onCalculateStats = {
+                {
+                    phase = 'BaseApplication',
+                    priority = 60, -- A bit later than employee-specific
+                    callback = function(self, gameState, services, eventArgs)
+                        -- Check if a watering can is owned and not disabled
+                        local hasWateringCan = false
+                        for _, upgId in ipairs(gameState.purchasedPermanentUpgrades) do
+                            if upgId == 'watering_can' and not (gameState.temporaryEffectFlags.disabledUpgrades and gameState.temporaryEffectFlags.disabledUpgrades['watering_can']) then
+                                hasWateringCan = true
+                                break
+                            end
+                        end
+
+                        local focus_boost = hasWateringCan and 1.0 or 0.5
+                        eventArgs.stats.focus = eventArgs.stats.focus + focus_boost
+                        table.insert(eventArgs.stats.log.focus, string.format("+%.2fx from Office Plant %s", focus_boost, hasWateringCan and "(Watered)" or ""))
+                    end
+                }
+            }
+        }
+    },
+    { 
        id = 'automation_scripts', name = 'Automation Scripts', rarity = 'Rare', cost = 2000, icon = '📜🤖',
        description = 'On the first work cycle of any item, all employees have their total contribution multiplied by 1.5x.',
        effect = { type = 'automation_scripts', value = 1.5 },
@@ -758,55 +785,116 @@ id = 'delorean_espresso', name = 'Espresso Machine (DeLorean-Powered)', rarity =
        }
    },
    { 
-       id = 'positional_singularity', name = 'Positional Singularity', rarity = 'Rare', cost = 2500, icon = '⚫',
-       description = 'All positional bonuses are gathered and applied only to the employee in the center desk.',
-       effect = { type = 'positional_singularity' },
-       listeners = {
-           onCalculatePositionalBonuses = {
-               {
-                   phase = 'BaseApplication',
-                   priority = 50,
-                   callback = function(self, gameState, services, eventArgs)
-                       local targetEmployee = eventArgs.employee
-                       if targetEmployee.deskId ~= "desk-4" then
-                           eventArgs.override = true
-                           return
-                       end
-
-                       if not eventArgs.log.productivity then eventArgs.log.productivity = {} end
-                       table.insert(eventArgs.log.productivity, "Singularity: Receiving all bonuses")
-
-                       for _, sourceEmployee in ipairs(gameState.hiredEmployees) do
-                           if sourceEmployee.instanceId ~= targetEmployee.instanceId and sourceEmployee.deskId and sourceEmployee.positionalEffects then
-                               for _, effectDetails in pairs(sourceEmployee.positionalEffects) do
-                                   if not (effectDetails.condition_not_id and targetEmployee.id == effectDetails.condition_not_id) then
-                                       eventArgs.applyEffect(effectDetails, sourceEmployee)
-                                   end
-                               end
-                           end
-                       end
-                       eventArgs.override = true
-                   end
-               }
-           }
-       }
-   },
+        id = 'positional_singularity', name = 'Positional Singularity', rarity = 'Rare', cost = 2500, icon = '⚫',
+        description = 'All positional bonuses are gathered and applied only to the employee in the center desk.',
+        effect = { type = 'positional_singularity' },
+        listeners = {
+            onCalculateStats = {
+                {
+                    phase = 'BaseApplication',
+                    priority = 40, -- Run before normal positional effects
+                    callback = function(self, gameState, services, eventArgs)
+                        local targetEmployee = eventArgs.employee
+                        if not targetEmployee.deskId then return end
+                        
+                        eventArgs.isPositionalCalculationOverridden = true -- Prevent default adjacency checks
+                        
+                        if targetEmployee.deskId == "desk-4" then
+                            table.insert(eventArgs.stats.log.productivity, "Singularity: Receiving all bonuses")
+                            
+                            for _, sourceEmployee in ipairs(gameState.hiredEmployees) do
+                                if sourceEmployee.deskId and sourceEmployee.positionalEffects then
+                                    for _, effectDetails in pairs(sourceEmployee.positionalEffects) do
+                                        -- Manually apply effects from all other employees
+                                        local level_mult = (effectDetails.scales_with_level and (sourceEmployee.level or 1) or 1)
+                                        local prod_add = (effectDetails.productivity_add or 0) * level_mult
+                                        local focus_add = (effectDetails.focus_add or 0) * level_mult
+                                        
+                                        eventArgs.stats.productivity = eventArgs.stats.productivity + prod_add
+                                        eventArgs.stats.focus = eventArgs.stats.focus + focus_add
+                                        if prod_add ~= 0 then table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s (Singularity)", prod_add > 0 and "+" or "", prod_add, sourceEmployee.name)) end
+                                        if focus_add ~= 0 then table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s (Singularity)", focus_add > 0 and "+" or "", focus_add, sourceEmployee.name)) end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                }
+            }
+        }
+    },
    { 
-       id = 'pyramid_scheme', name = 'Pyramid Scheme License', rarity = 'Rare', cost = 2200, icon = '🔺',
-       description = 'Middle row employees give 10% of their contribution to the top-center "Apex." Bottom row gives 10% to the middle row.',
-       effect = { type = 'pyramid_scheme' },
-       listeners = {
-           onEndOfRound = {
-               {
-                   phase = 'BaseApplication',
-                   priority = 50,
-                   callback = function(self, gameState, services, eventArgs)
-                       eventArgs.pyramidSchemeActive = true
-                   end
-               }
-           }
-       }
-   },
+        id = 'pyramid_scheme', name = 'Pyramid Scheme License', rarity = 'Rare', cost = 2200, icon = '🔺',
+        description = 'Middle row employees give 10% of their contribution to the top-center "Apex." Bottom row gives 10% to the middle row.',
+        effect = { type = 'pyramid_scheme' },
+        listeners = {
+            onEndOfRound = {
+                {
+                    phase = 'PostCalculation', -- Run after all contributions are tallied
+                    priority = 50,
+                    callback = function(self, gameState, services, eventArgs)
+                        -- This is the logic from the old calculatePyramidSchemeTransfers function
+                        local transfers = {}
+                        local middleRowBonusPool = 0
+                        local apexBonusPool = 0
+                        local bottomRowDeskIndices = {6, 7, 8}
+                        local middleRowDeskIndices = {3, 4, 5}
+                        local apexDeskId = "desk-1"
+                        local middleRowEmployees = {}
+                        local apexEmployeeId = nil
+                        
+                        for _, emp in ipairs(gameState.hiredEmployees) do
+                            if emp.deskId then
+                                local deskIndex = tonumber(string.match(emp.deskId, "desk%-(%d+)"))
+                                if deskIndex then
+                                    for _, midIndex in ipairs(middleRowDeskIndices) do if deskIndex == midIndex then table.insert(middleRowEmployees, emp.instanceId) end end
+                                    if emp.deskId == apexDeskId then apexEmployeeId = emp.instanceId end
+                                end
+                            end
+                        end
+
+                        for instanceId, contribData in pairs(eventArgs.lastRoundContributions) do
+                            local emp = getEmployeeFromGameState(gameState, instanceId)
+                            if emp and emp.deskId then
+                                local deskIndex = tonumber(string.match(emp.deskId, "desk%-(%d+)"))
+                                if deskIndex then
+                                    local isBottomRow, isMiddleRow = false, false
+                                    for _, botIndex in ipairs(bottomRowDeskIndices) do if deskIndex == botIndex then isBottomRow = true; break; end end
+                                    for _, midIndex in ipairs(middleRowDeskIndices) do if deskIndex == midIndex then isMiddleRow = true; break; end end
+
+                                    if isBottomRow then
+                                        local transferAmount = math.floor(contribData.totalContribution * 0.1)
+                                        transfers[instanceId] = (transfers[instanceId] or 0) - transferAmount
+                                        middleRowBonusPool = middleRowBonusPool + transferAmount
+                                    elseif isMiddleRow then
+                                        local transferAmount = math.floor(contribData.totalContribution * 0.1)
+                                        transfers[instanceId] = (transfers[instanceId] or 0) - transferAmount
+                                        apexBonusPool = apexBonusPool + transferAmount
+                                    end
+                                end
+                            end
+                        end
+
+                        if #middleRowEmployees > 0 and middleRowBonusPool > 0 then
+                            local bonusPerMiddle = math.floor(middleRowBonusPool / #middleRowEmployees)
+                            for _, empId in ipairs(middleRowEmployees) do transfers[empId] = (transfers[empId] or 0) + bonusPerMiddle end
+                        end
+
+                        if apexEmployeeId and apexBonusPool > 0 then
+                            transfers[apexEmployeeId] = (transfers[apexEmployeeId] or 0) + apexBonusPool
+                        end
+
+                        -- Apply transfers back to the contributions for the round
+                        for instId, amount in pairs(transfers) do
+                            if eventArgs.lastRoundContributions[instId] then
+                                eventArgs.lastRoundContributions[instId].totalContribution = eventArgs.lastRoundContributions[instId].totalContribution + amount
+                            end
+                        end
+                    end
+                }
+            }
+        }
+    },
    { 
        id = 'vc_funding', name = 'Venture Capital Funding', rarity = 'Rare', cost = 500, icon = '🤑',
        description = 'Instantly gain $100,000. You can no longer gain budget from any other source for the rest of the run.',
@@ -894,37 +982,44 @@ id = 'delorean_espresso', name = 'Espresso Machine (DeLorean-Powered)', rarity =
        }
    },
    {
-       id = 'open_concept', name = 'Open-Concept Office Plan', rarity = 'Rare', cost = 3000, icon = '😮',
-       description = 'All desks are now considered adjacent to all other desks for positional effects.',
-       effect = { type = 'open_concept' },
-       listeners = {
-           onCalculatePositionalBonuses = {
-               {
-                   phase = 'BaseApplication',
-                   priority = 50,
-                   callback = function(self, gameState, services, eventArgs)
-                       local targetEmployee = eventArgs.employee
-                       
-                       if not eventArgs.log.productivity then eventArgs.log.productivity = {} end
-                       table.insert(eventArgs.log.productivity, "Open Concept: All desks are adjacent")
+        id = 'open_concept', name = 'Open-Concept Office Plan', rarity = 'Rare', cost = 3000, icon = '😮',
+        description = 'All desks are now considered adjacent to all other desks for positional effects.',
+        effect = { type = 'open_concept' },
+        listeners = {
+            onCalculateStats = {
+                {
+                    phase = 'BaseApplication',
+                    priority = 40, -- Run before normal positional effects
+                    callback = function(self, gameState, services, eventArgs)
+                        local targetEmployee = eventArgs.employee
+                        if not targetEmployee.deskId then return end -- Only affects placed employees
 
-                       for _, sourceEmployee in ipairs(gameState.hiredEmployees) do
-                           if sourceEmployee.instanceId ~= targetEmployee.instanceId and sourceEmployee.deskId and sourceEmployee.positionalEffects then
-                               if not (sourceEmployee.isSmithCopy and targetEmployee.isSmithCopy) then
-                                   for _, effectDetails in pairs(sourceEmployee.positionalEffects) do
-                                       if not (effectDetails.condition_not_id and targetEmployee.id == effectDetails.condition_not_id) then
-                                           eventArgs.applyEffect(effectDetails, sourceEmployee)
-                                       end
-                                   end
-                               end
-                           end
-                       end
-                       eventArgs.override = true
-                   end
-               }
-           }
-       }
-   },
+                        eventArgs.isPositionalCalculationOverridden = true -- Prevent default adjacency checks
+                        
+                        for _, sourceEmployee in ipairs(gameState.hiredEmployees) do
+                            if sourceEmployee.instanceId ~= targetEmployee.instanceId and sourceEmployee.deskId and sourceEmployee.positionalEffects then
+                                if not (sourceEmployee.isSmithCopy and targetEmployee.isSmithCopy) then
+                                    for _, effectDetails in pairs(sourceEmployee.positionalEffects) do
+                                        if not (effectDetails.condition_not_id and targetEmployee.id == effectDetails.condition_not_id) then
+                                            -- Manually apply the effects
+                                            local level_mult = (effectDetails.scales_with_level and (sourceEmployee.level or 1) or 1)
+                                            local prod_add = (effectDetails.productivity_add or 0) * level_mult
+                                            local focus_add = (effectDetails.focus_add or 0) * level_mult
+                                            
+                                            eventArgs.stats.productivity = eventArgs.stats.productivity + prod_add
+                                            eventArgs.stats.focus = eventArgs.stats.focus + focus_add
+                                            if prod_add ~= 0 then table.insert(eventArgs.stats.log.productivity, string.format("%s%d from %s (Open Concept)", prod_add > 0 and "+" or "", prod_add, sourceEmployee.name)) end
+                                            if focus_add ~= 0 then table.insert(eventArgs.stats.log.focus, string.format("%s%.2fx from %s (Open Concept)", focus_add > 0 and "+" or "", focus_add, sourceEmployee.name)) end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                }
+            }
+        }
+    },
    {
        id = 'onsite_daycare', name = 'On-Site Daycare', rarity = 'Rare', cost = 2000, icon = '🧸',
        description = 'All "Parent" employees have their stats doubled. (Requires Parent trait).',
@@ -936,99 +1031,99 @@ id = 'delorean_espresso', name = 'Espresso Machine (DeLorean-Powered)', rarity =
        effect = { type = 'hr_drone' }
    },
    {
-       id = 'the_reorg', name = 'The Re-Org', rarity = 'Rare', cost = 1200, icon = '🔄',
-       description = 'Once per sprint, you can swap a remote worker with an office worker.',
-       effect = { type = 'the_reorg' },
-       listeners = {
-           onActivate = {
-               {
-                   phase = 'BaseApplication',
-                   priority = 50,
-                   callback = function(self, gameState, services, eventArgs)
-                       if gameState.gamePhase == 'hiring_and_upgrades' and not gameState.temporaryEffectFlags.reOrgUsedThisSprint then
-                           gameState.temporaryEffectFlags.reOrgSwapModeActive = true
-                           services.modal:show(
-                               "Re-Org Started",
-                               "Select a remote worker and an office worker to swap their positions."
-                           )
-                           return true -- Indicate success
-                       end
-                       return false -- Indicate failure or non-activation
-                   end
-               }
-           }
-       }
-   },
+        id = 'the_reorg', name = 'The Re-Org', rarity = 'Rare', cost = 1200, icon = '🔄',
+        description = 'Once per sprint, you can swap a remote worker with an office worker.',
+        effect = { type = 'the_reorg' },
+        listeners = {
+            onActivate = {
+                {
+                    phase = 'BaseApplication',
+                    priority = 50,
+                    callback = function(self, gameState, services, eventArgs)
+                        if gameState.gamePhase == 'hiring_and_upgrades' and not gameState.temporaryEffectFlags.reOrgUsedThisSprint then
+                            gameState.temporaryEffectFlags.reOrgSwapModeActive = true
+                            services.modal:show(
+                                "Re-Org Started",
+                                "Select a remote worker and an office worker to swap their positions."
+                            )
+                            return true -- Indicate success
+                        end
+                        return false -- Indicate failure or non-activation
+                    end
+                }
+            }
+        }
+    },
    {
        id = 'unbreakable_ndas', name = 'Unbreakable NDAs', rarity = 'Rare', cost = 1600, icon = '📜',
        description = 'Employees cannot be "poached." The "Gossip" trait has no effect.',
        effect = { type = 'unbreakable_ndas' }
    },
    {
-       id = 'sentient_photocopier', name = 'Sentient Photocopier', rarity = 'Rare', cost = 2800, icon = '📠',
-       description = 'Once per Sprint, copy a non-Legendary employee. An identical, temporary clone appears for the next work item.',
-       effect = { type = 'sentient_photocopier' },
-       listeners = {
-           onActivate = {
-               {
-                   phase = 'BaseApplication',
-                   priority = 50,
-                   callback = function(self, gameState, services, eventArgs)
-                       if gameState.gamePhase == 'hiring_and_upgrades' and not gameState.temporaryEffectFlags.photocopierUsedThisSprint then
-                           gameState.temporaryEffectFlags.photocopierCopyModeActive = true
-                           services.modal:show(
-                               "Photocopier Warmed Up",
-                               "Select a non-Legendary office worker to duplicate for the next work item."
-                           )
-                           return true
-                       end
-                       return false
-                   end
-               }
-           },
-           onWorkItemStart = {
-               {
-                   phase = 'BaseApplication',
-                   priority = 50,
-                   callback = function(self, gameState, services, eventArgs)
-                       if gameState.temporaryEffectFlags.photocopierTargetForNextItem then
-                           local target = require("employee"):getFromState(gameState, gameState.temporaryEffectFlags.photocopierTargetForNextItem)
-                           local emptyDeskId = nil
-                           for _, desk in ipairs(gameState.desks) do
-                               if desk.status == 'owned' and not gameState.deskAssignments[desk.id] then
-                                   emptyDeskId = desk.id
-                                   break
-                               end
-                           end
+        id = 'sentient_photocopier', name = 'Sentient Photocopier', rarity = 'Rare', cost = 2800, icon = '📠',
+        description = 'Once per Sprint, copy a non-Legendary employee. An identical, temporary clone appears for the next work item.',
+        effect = { type = 'sentient_photocopier' },
+        listeners = {
+            onActivate = {
+                {
+                    phase = 'BaseApplication',
+                    priority = 50,
+                    callback = function(self, gameState, services, eventArgs)
+                        if gameState.gamePhase == 'hiring_and_upgrades' and not gameState.temporaryEffectFlags.photocopierUsedThisSprint then
+                            gameState.temporaryEffectFlags.photocopierCopyModeActive = true
+                            services.modal:show(
+                                "Photocopier Warmed Up",
+                                "Select a non-Legendary office worker to duplicate for the next work item."
+                            )
+                            return true
+                        end
+                        return false
+                    end
+                }
+            },
+            onWorkItemStart = {
+                {
+                    phase = 'BaseApplication',
+                    priority = 50,
+                    callback = function(self, gameState, services, eventArgs)
+                        if gameState.temporaryEffectFlags.photocopierTargetForNextItem then
+                            local target = require("employee"):getFromState(gameState, gameState.temporaryEffectFlags.photocopierTargetForNextItem)
+                            local emptyDeskId = nil
+                            for _, desk in ipairs(gameState.desks) do
+                                if desk.status == 'owned' and not gameState.deskAssignments[desk.id] then
+                                    emptyDeskId = desk.id
+                                    break
+                                end
+                            end
 
-                           if target and emptyDeskId then
-                               local Employee = require("employee")
-                               local Placement = require("placement")
-                               local clone = Employee:new(target.id, target.variant, "Clone of " .. target.fullName)
-                               clone.isTemporaryClone = true
-                               clone.weeklySalary = 0
-                               clone.level = target.level
-                               clone.baseProductivity = target.baseProductivity
-                               clone.baseFocus = target.baseFocus
-                               table.insert(gameState.hiredEmployees, clone)
-                               Placement:handleEmployeeDropOnDesk(gameState, clone, emptyDeskId, nil)
-                               services.modal:show(
-                                   "Photocopied!",
-                                   "A temporary clone of " .. target.name .. " has appeared for this work item!"
-                               )
-                           else
-                               services.modal:show(
-                                   "Photocopy Failed",
-                                   "Could not create a clone. Ensure there is an empty desk available."
-                               )
-                           end
-                           gameState.temporaryEffectFlags.photocopierTargetForNextItem = nil
-                       end
-                   end
-               }
-           }
-       }
-   },
+                            if target and emptyDeskId then
+                                local Employee = require("employee")
+                                local Placement = require("placement")
+                                local clone = Employee:new(target.id, target.variant, "Clone of " .. target.fullName)
+                                clone.isTemporaryClone = true
+                                clone.weeklySalary = 0
+                                clone.level = target.level
+                                clone.baseProductivity = target.baseProductivity
+                                clone.baseFocus = target.baseFocus
+                                table.insert(gameState.hiredEmployees, clone)
+                                Placement:handleEmployeeDropOnDesk(gameState, clone, emptyDeskId, nil)
+                                services.modal:show(
+                                    "Photocopied!",
+                                    "A temporary clone of " .. target.name .. " has appeared for this work item!"
+                                )
+                            else
+                                services.modal:show(
+                                    "Photocopy Failed",
+                                    "Could not create a clone. Ensure there is an empty desk available."
+                                )
+                            end
+                            gameState.temporaryEffectFlags.photocopierTargetForNextItem = nil
+                        end
+                    end
+                }
+            }
+        }
+    },
    {
        id = 'lead_lined_walls', name = 'Lead-Lined Walls', rarity = 'Rare', cost = 2500, icon = '🧱',
        description = 'Your office is immune to all external random events (positive and negative).',

@@ -989,16 +989,9 @@ function handleWinCondition()
     local currentWorkItem = currentSprint.workItems[gameState.currentWorkItemIndex]
     if not currentWorkItem then return end
 
-    for i = #gameState.hiredEmployees, 1, -1 do
-        local emp = gameState.hiredEmployees[i]
-        if emp.isTemporaryClone then
-            print("Removing temporary clone: " .. emp.fullName)
-            if emp.deskId and gameState.deskAssignments[emp.deskId] then
-                gameState.deskAssignments[emp.deskId] = nil
-            end
-            table.remove(gameState.hiredEmployees, i)
-        end
-    end
+    -- NEW: Dispatch generic event for any on-win effects
+    local workItemCompleteArgs = { isBossItem = currentWorkItem.id:find("boss") }
+    EffectsDispatcher.dispatchEvent("onWorkItemComplete", gameState, { modal = modal }, workItemCompleteArgs)
 
     battleState.currentWorkerId = nil
     battleState.lastContribution = nil
@@ -1023,11 +1016,9 @@ function handleWinCondition()
             end
         end
         
-        local eventArgs = { vampireDrain = 0, budgetBonus = 0, isBossItem = currentWorkItem.id:find("boss") }
-        EffectsDispatcher.dispatchEvent("onWorkItemComplete", gameState, { modal = modal }, eventArgs)
-        
-        totalBudgetBonus = totalBudgetBonus + eventArgs.budgetBonus
-        vampireBudgetDrain = eventArgs.vampireDrain
+        -- Use the values from the event args, which may have been modified by listeners
+        totalBudgetBonus = totalBudgetBonus + (workItemCompleteArgs.budgetBonus or 0)
+        vampireBudgetDrain = workItemCompleteArgs.vampireDrain or 0
 
         gameState.budget = gameState.budget + workItemReward + efficiencyBonus + totalBudgetBonus
 
@@ -1040,8 +1031,8 @@ function handleWinCondition()
         totalBudgetBonus = 0
         workItemReward = 0
         vampireBudgetDrain = 0
-        local eventArgs = { vampireDrain = 0, budgetBonus = 0, isBossItem = currentWorkItem.id:find("boss") }
-        EffectsDispatcher.dispatchEvent("onWorkItemComplete", gameState, { modal = modal }, eventArgs) 
+        -- Still dispatch the event even if no budget is rewarded
+        EffectsDispatcher.dispatchEvent("onWorkItemComplete", gameState, { modal = modal }, workItemCompleteArgs) 
         print("Venture Capital active: Forfeiting all budget rewards.")
     end
     
@@ -1082,7 +1073,6 @@ function handleWinCondition()
             gameState.temporaryEffectFlags.fourthWallUsedThisSprint = nil
 
             for _, emp in ipairs(gameState.hiredEmployees) do
-                emp.isSecretlyBuffed = nil; if emp.id == 'mimic1' then emp.copiedState = nil end; if emp.isSmithCopy then emp.isSmithCopy = nil end
                 emp.contributionThisSprint = 0
             end
 
@@ -1091,7 +1081,6 @@ function handleWinCondition()
                 modal:show("Project Complete!", "You have cleared all 8 Sprints! Congratulations!", { {text = "Play Again?", onClick = finalWinCallback, style = "primary"} })
                 return
             else
-                -- FIXED: Added nil check for upgData.effect
                 local permUpgrades = {}
                 for _, upgId in ipairs(gameState.purchasedPermanentUpgrades) do 
                     local isTemp = false

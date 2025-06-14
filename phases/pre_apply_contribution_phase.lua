@@ -13,24 +13,14 @@ function PreApplyContributionPhase:new(manager)
 end
 
 function PreApplyContributionPhase:enter(gameState, battleState)
-    local endOfRoundEventArgs = { pyramidSchemeActive = false }
+    local endOfRoundEventArgs = { 
+        lastRoundContributions = battleState.lastRoundContributions 
+    }
     EffectsDispatcher.dispatchEvent("onEndOfRound", gameState, { modal = self.manager.services.modal }, endOfRoundEventArgs)
 
-    if endOfRoundEventArgs.pyramidSchemeActive then
-        local contributions = {}
-        for instId, contribData in pairs(battleState.lastRoundContributions) do
-            contributions[instId] = contribData.totalContribution
-        end
-        
-        local transfers = Battle:calculatePyramidSchemeTransfers(gameState, contributions)
-        for instId, amount in pairs(transfers) do
-            if battleState.lastRoundContributions[instId] then
-                battleState.lastRoundContributions[instId].totalContribution = battleState.lastRoundContributions[instId].totalContribution + amount
-            end
-        end
-    end
+    -- The listener for pyramid scheme will modify the contributions table directly.
+    -- After the event, we just need to recalculate the total.
     
-    -- Recalculate the final total for the round after any modifications.
     battleState.roundTotalContribution = 0
     for _, contribData in pairs(battleState.lastRoundContributions) do
         battleState.roundTotalContribution = battleState.roundTotalContribution + contribData.totalContribution

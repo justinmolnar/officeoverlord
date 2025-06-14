@@ -7,19 +7,12 @@ local Names = require("names")
 local Shop = {}
 
 function Shop:getModifiedUpgradeCost(upgradeData, hiredEmployees)
-    local cost = upgradeData.cost
-    if hiredEmployees then
-        for _, emp in ipairs(hiredEmployees) do
-            if emp.special and emp.special.type == 'boost_other_remotes' and emp.special.upgrade_cost_increase then
-                local costMultiplier = emp.special.upgrade_cost_increase
-                if emp.special.scales_with_level then
-                    costMultiplier = 1 + ((costMultiplier - 1) * (emp.level or 1))
-                end
-                cost = math.floor(cost * costMultiplier)
-            end
-        end
-    end
-    return cost
+    local eventArgs = {
+        cost = upgradeData.cost,
+        upgradeData = upgradeData
+    }
+    require("effects_dispatcher").dispatchEvent("onCalculateUpgradeCost", {hiredEmployees = hiredEmployees}, eventArgs)
+    return math.floor(eventArgs.cost)
 end
 
 function Shop:populateOffers(gameState, currentShopOffers, purchasedPermanentUpgrades, forceRestock)

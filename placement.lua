@@ -212,32 +212,8 @@ function Placement:handleEmployeeDropOnRemote(gameState, employeeData, originalD
     if originalDeskId then gameState.deskAssignments[originalDeskId] = nil end
     employeeData.deskId = nil 
 
-    if fromShop and employeeData.special and employeeData.special.type == 'virus_on_hire' then
-        local potentialTargets = {}
-        for _, emp in ipairs(gameState.hiredEmployees) do 
-            if emp.instanceId ~= employeeData.instanceId and emp.rarity ~= 'Legendary' and not emp.isSmithCopy then 
-                table.insert(potentialTargets, emp) 
-            end 
-        end
-        
-        local smithData = nil
-        for _, card in ipairs(GameData.BASE_EMPLOYEE_CARDS) do 
-            if card.id == 'agent_smith1' then 
-                smithData = card
-                break 
-            end 
-        end
-
-        for i=1, 2 do
-            if #potentialTargets > 0 and smithData then
-                local targetIndex = love.math.random(#potentialTargets) 
-                local victim = potentialTargets[targetIndex]
-                victim.isSmithCopy = true 
-                victim.weeklySalary = smithData.weeklySalary
-                print(victim.name .. " has been assimilated by Agent Smith.")
-                table.remove(potentialTargets, targetIndex)
-            end
-        end
+    if fromShop then
+        require("effects_dispatcher").dispatchEvent("onHire", gameState, { modal = modal }, { employee = employeeData })
     end
 
     return true
