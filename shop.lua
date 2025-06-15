@@ -6,6 +6,13 @@ local Employee = require("employee") -- For creating new employee instances usin
 local Names = require("names")
 local Shop = {}
 
+local function tableContains(tbl, value)
+    for _, v in ipairs(tbl) do
+        if v == value then return true end
+    end
+    return false
+end
+
 local function _shallowCopy(sourceTable)
     if not sourceTable then return {} end
     local newTable = {}
@@ -292,11 +299,11 @@ function Shop:_generateRandomEmployeeOffer(gameState)
         variant = chosenBaseCardData.forceVariant
     else
         local rand = love.math.random() 
-        if rand < 0.075 and table.indexOf(eventArgs.possibleVariants, "holo") then
+        if rand < 0.075 and tableContains(eventArgs.possibleVariants, "holo") then
             variant = "holo"
-        elseif rand < 0.15 and table.indexOf(eventArgs.possibleVariants, "foil") then
+        elseif rand < 0.15 and tableContains(eventArgs.possibleVariants, "foil") then
             variant = "foil"
-        elseif rand < 0.30 and table.indexOf(eventArgs.possibleVariants, "remote") then
+        elseif rand < 0.30 and tableContains(eventArgs.possibleVariants, "remote") then
             variant = "remote"
         end
     end
