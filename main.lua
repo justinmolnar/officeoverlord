@@ -753,188 +753,233 @@ function love.mousereleased(x, y, button, istouch)
 end
 
 function love.draw()
-    love.graphics.setBackgroundColor(Drawing.UI.colors.background)
-    love.graphics.clear()
+   love.graphics.setBackgroundColor(Drawing.UI.colors.background)
+   love.graphics.clear()
 
-    local DebugManager = require("debug_manager")
+   local DebugManager = require("debug_manager")
 
-    tooltipsToDraw = {}
-    Drawing.tooltipsToDraw = tooltipsToDraw 
-    
-    local overlaysToDraw = {}
-    
-    uiElementRects.shopLockButtons = {}
+   tooltipsToDraw = {}
+   Drawing.tooltipsToDraw = tooltipsToDraw 
+   
+   local overlaysToDraw = {}
+   
+   uiElementRects.shopLockButtons = {}
 
-    local context = {
-        panelRects = panelRects,
-        uiElementRects = uiElementRects,
-        draggedItemState = draggedItemState,
-        sprintOverviewState = sprintOverviewState,
-        Placement = Placement,
-        Shop = Shop,
-        overlaysToDraw = overlaysToDraw,
-        modal = modal,
-    }
-    
-    stateManager:draw(gameState, battleState, context)
-    
-    for _, component in ipairs(uiComponents) do
-        if component.draw then 
-            component:draw(context) 
-        end
-    end
-    
-    if #overlaysToDraw > 0 then
-        for _, overlay in ipairs(overlaysToDraw) do
-            for _, deskRect in ipairs(uiElementRects.desks) do
-                if deskRect.id == overlay.targetDeskId then
-                    love.graphics.setColor(overlay.color)
-                    love.graphics.rectangle("fill", deskRect.x, deskRect.y, deskRect.w, deskRect.h, 3)
-                    
-                    love.graphics.setFont(Drawing.UI.titleFont or Drawing.UI.fontLarge)
-                    love.graphics.setColor(1, 1, 1, 0.9)
-                    love.graphics.printf(overlay.text, deskRect.x, deskRect.y + (deskRect.h - (Drawing.UI.titleFont or Drawing.UI.fontLarge):getHeight()) / 2, deskRect.w, "center")
-                    break
-                end
-            end
-        end
-    end
-    
-    if DebugManager:isVisible() then
-        DebugManager:draw()
-    end
-    
-    if draggedItemState.item then
-        local mouseX, mouseY = love.mouse.getPosition()
-        if draggedItemState.item.type == "shop_decoration" then
-            love.graphics.setFont(Drawing.UI.titleFont or Drawing.UI.fontLarge)
-            love.graphics.setColor(1, 1, 1, 0.75)
-            love.graphics.print(draggedItemState.item.data.icon or "?", mouseX - 16, mouseY - 16)
-            love.graphics.setColor(1, 1, 1, 1)
-        else
-            local itemDataToDraw = draggedItemState.item.data
-            if itemDataToDraw then 
-                local cardWidth = CardSizing.getCardWidth()
-                local cardHeight = CardSizing.getCardHeight()
-                
-                local sourceComponent = nil
-                for _, component in ipairs(uiComponents) do
-                    if component.data and component.data.instanceId == itemDataToDraw.instanceId then
-                        sourceComponent = component
-                        break
-                    end
-                end
-                
-                local cardX, cardY
-                
-                if sourceComponent and sourceComponent.animationState.isDropping then
-                    local anim = sourceComponent.animationState
-                    local progress = 1 - (1 - anim.dropProgress)^2
-                    
-                    cardX = anim.dropStartX + (anim.dropTargetX - anim.dropStartX) * progress - cardWidth/2
-                    cardY = anim.dropStartY + (anim.dropTargetY - anim.dropStartY) * progress - cardHeight/2
-                    
-                elseif sourceComponent and sourceComponent.animationState.initialX and sourceComponent.animationState.initialY and not sourceComponent.animationState.isDropping then
-                    local anim = sourceComponent.animationState
-                    local animationDuration = 0.3
-                    local progress = math.min(1.0, (anim.currentTime or 0) / animationDuration)
-                    progress = 1 - (1 - progress)^3
-                    
-                    cardX = anim.initialX + (mouseX - anim.initialX) * progress - cardWidth/2
-                    cardY = anim.initialY + (mouseY - anim.initialY) * progress - cardHeight/2
-                    
-                    if progress >= 1.0 then
-                        cardX = mouseX - cardWidth/2
-                        cardY = mouseY - cardHeight/2
-                    end
-                else
-                    cardX = mouseX - cardWidth/2
-                    cardY = mouseY - cardHeight/2
-                end
-                
-                local offsetY = -8
-                local shadowAlpha = 0.7
-                local shadowOffset = 8
-                
-                cardY = cardY + offsetY
-                
-                love.graphics.setColor(0, 0, 0, shadowAlpha)
-                love.graphics.rectangle("fill", cardX + shadowOffset, cardY + shadowOffset - offsetY, cardWidth, cardHeight, 3)
-                
-                -- Create a temporary EmployeeCard instance to render the dragged item
-                local draggedCard = EmployeeCard:new({
-                    data = itemDataToDraw,
-                    rect = {x = cardX, y = cardY, w = cardWidth, h = cardHeight},
-                    context = "dragged",
-                    gameState = gameState,
-                    battleState = battleState,
-                    draggedItemState = {item = nil}, -- Prevent recursion
-                    uiElementRects = uiElementRects
-                })
-                
-                love.graphics.push()
-                love.graphics.setColor(1, 1, 1, 0.9)
-                draggedCard:draw(context) -- Use the component's own draw method
-                love.graphics.pop()
-                love.graphics.setColor(1, 1, 1, 1)
-            end
-        end
-    end
-    
-    if #tooltipsToDraw > 0 then
-        for _, tip in ipairs(tooltipsToDraw) do
-            Drawing.drawPanel(tip.x, tip.y, tip.w, tip.h, {0.1, 0.1, 0.1, 0.95}, {0.3, 0.3, 0.3, 1})
-            
-            if tip.coloredLines then
-                love.graphics.setFont(Drawing.UI.font)
-                local currentY = tip.y + 8
-                local lineHeight = Drawing.UI.font:getHeight()
-                
-                for _, line in ipairs(tip.coloredLines) do
-                    if line:match("^%[") then
-                        local colorEnd = line:find("%]")
-                        if colorEnd then
-                            local colorStr = line:sub(2, colorEnd - 1)
-                            local text = line:sub(colorEnd + 1)
-                            local r, g, b = colorStr:match("([%d%.]+),([%d%.]+),([%d%.]+)")
-                            if r and g and b then
-                                love.graphics.setColor(tonumber(r), tonumber(g), tonumber(b), 1)
-                            else
-                                love.graphics.setColor(1, 1, 1, 1)
-                            end
-                            love.graphics.print(text, tip.x + 8, currentY)
-                        else
-                            love.graphics.setColor(1, 1, 1, 1)
-                            love.graphics.print(line, tip.x + 8, currentY)
-                        end
-                    else
-                        love.graphics.setColor(1, 1, 1, 1)
-                        love.graphics.print(line, tip.x + 8, currentY)
-                    end
-                    currentY = currentY + lineHeight
-                end
-            else
-                love.graphics.setFont(Drawing.UI.font)
-                love.graphics.setColor(1, 1, 1, 1)
-                Drawing.drawTextWrapped(tip.text, tip.x + 5, tip.y + 3, tip.w - 10, Drawing.UI.font, "left")
-            end
-        end
-    end
+   local context = {
+       panelRects = panelRects,
+       uiElementRects = uiElementRects,
+       draggedItemState = draggedItemState,
+       sprintOverviewState = sprintOverviewState,
+       Placement = Placement,
+       Shop = Shop,
+       overlaysToDraw = overlaysToDraw,
+       modal = modal,
+   }
+   
+   stateManager:draw(gameState, battleState, context)
+   
+   for _, component in ipairs(uiComponents) do
+       if component.draw then 
+           component:draw(context) 
+       end
+   end
+   
+   if #overlaysToDraw > 0 then
+       for _, overlay in ipairs(overlaysToDraw) do
+           for _, deskRect in ipairs(uiElementRects.desks) do
+               if deskRect.id == overlay.targetDeskId then
+                   love.graphics.setColor(overlay.color)
+                   love.graphics.rectangle("fill", deskRect.x, deskRect.y, deskRect.w, deskRect.h, 3)
+                   
+                   love.graphics.setFont(Drawing.UI.titleFont or Drawing.UI.fontLarge)
+                   love.graphics.setColor(1, 1, 1, 0.9)
+                   love.graphics.printf(overlay.text, deskRect.x, deskRect.y + (deskRect.h - (Drawing.UI.titleFont or Drawing.UI.fontLarge):getHeight()) / 2, deskRect.w, "center")
+                   break
+               end
+           end
+       end
+   end
+   
+   if DebugManager:isVisible() then
+       DebugManager:draw()
+   end
+   
+   if draggedItemState.item then
+       local mouseX, mouseY = love.mouse.getPosition()
+       if draggedItemState.item.type == "shop_decoration" then
+           love.graphics.setFont(Drawing.UI.titleFont or Drawing.UI.fontLarge)
+           love.graphics.setColor(1, 1, 1, 0.75)
+           love.graphics.print(draggedItemState.item.data.icon or "?", mouseX - 16, mouseY - 16)
+           love.graphics.setColor(1, 1, 1, 1)
+       else
+           local itemDataToDraw = draggedItemState.item.data
+           if itemDataToDraw then 
+               local cardWidth = CardSizing.getCardWidth()
+               local cardHeight = CardSizing.getCardHeight()
+               
+               local sourceComponent = nil
+               for _, component in ipairs(uiComponents) do
+                   if component.data and component.data.instanceId == itemDataToDraw.instanceId then
+                       sourceComponent = component
+                       break
+                   end
+               end
+               
+               local cardX, cardY
+               
+               if sourceComponent and sourceComponent.animationState.isDropping then
+                   local anim = sourceComponent.animationState
+                   local progress = 1 - (1 - anim.dropProgress)^2
+                   
+                   cardX = anim.dropStartX + (anim.dropTargetX - anim.dropStartX) * progress - cardWidth/2
+                   cardY = anim.dropStartY + (anim.dropTargetY - anim.dropStartY) * progress - cardHeight/2
+                   
+               elseif sourceComponent and sourceComponent.animationState.initialX and sourceComponent.animationState.initialY and not sourceComponent.animationState.isDropping then
+                   local anim = sourceComponent.animationState
+                   local animationDuration = 0.3
+                   local progress = math.min(1.0, (anim.currentTime or 0) / animationDuration)
+                   progress = 1 - (1 - progress)^3
+                   
+                   cardX = anim.initialX + (mouseX - anim.initialX) * progress - cardWidth/2
+                   cardY = anim.initialY + (mouseY - anim.initialY) * progress - cardHeight/2
+                   
+                   if progress >= 1.0 then
+                       cardX = mouseX - cardWidth/2
+                       cardY = mouseY - cardHeight/2
+                   end
+               else
+                   cardX = mouseX - cardWidth/2
+                   cardY = mouseY - cardHeight/2
+               end
+               
+               local offsetY = -8
+               local shadowAlpha = 0.7
+               local shadowOffset = 8
+               
+               cardY = cardY + offsetY
+               
+               love.graphics.setColor(0, 0, 0, shadowAlpha)
+               love.graphics.rectangle("fill", cardX + shadowOffset, cardY + shadowOffset - offsetY, cardWidth, cardHeight, 3)
+               
+               -- Create a temporary EmployeeCard instance to render the dragged item
+               local draggedCard = EmployeeCard:new({
+                   data = itemDataToDraw,
+                   rect = {x = cardX, y = cardY, w = cardWidth, h = cardHeight},
+                   context = "dragged",
+                   gameState = gameState,
+                   battleState = battleState,
+                   draggedItemState = {item = nil}, -- Prevent recursion
+                   uiElementRects = uiElementRects
+               })
+               
+               love.graphics.push()
+               love.graphics.setColor(1, 1, 1, 0.9)
+               draggedCard:draw(context) -- Use the component's own draw method
+               love.graphics.pop()
+               love.graphics.setColor(1, 1, 1, 1)
+           end
+       end
+   end
+   
+   if #tooltipsToDraw > 0 then
+       for _, tip in ipairs(tooltipsToDraw) do
+           Drawing.drawPanel(tip.x, tip.y, tip.w, tip.h, {0.1, 0.1, 0.1, 0.95}, {0.3, 0.3, 0.3, 1})
+           
+           if tip.coloredLines then
+               love.graphics.setFont(Drawing.UI.font)
+               local currentY = tip.y + 8
+               local lineHeight = Drawing.UI.font:getHeight()
+               
+               for _, line in ipairs(tip.coloredLines) do
+                   if line:match("^%[") then
+                       local colorEnd = line:find("%]")
+                       if colorEnd then
+                           local colorStr = line:sub(2, colorEnd - 1)
+                           local text = line:sub(colorEnd + 1)
+                           local r, g, b = colorStr:match("([%d%.]+),([%d%.]+),([%d%.]+)")
+                           if r and g and b then
+                               love.graphics.setColor(tonumber(r), tonumber(g), tonumber(b), 1)
+                           else
+                               love.graphics.setColor(1, 1, 1, 1)
+                           end
+                           love.graphics.print(text, tip.x + 8, currentY)
+                       else
+                           love.graphics.setColor(1, 1, 1, 1)
+                           love.graphics.print(line, tip.x + 8, currentY)
+                       end
+                   else
+                       love.graphics.setColor(1, 1, 1, 1)
+                       love.graphics.print(line, tip.x + 8, currentY)
+                   end
+                   currentY = currentY + lineHeight
+               end
+           else
+               love.graphics.setFont(Drawing.UI.font)
+               love.graphics.setColor(1, 1, 1, 1)
+               Drawing.drawTextWrapped(tip.text, tip.x + 5, tip.y + 3, tip.w - 10, Drawing.UI.font, "left")
+           end
+       end
+   end
 
-    Drawing.drawSprintOverviewPanel(sprintOverviewRects, sprintOverviewState.isVisible, gameState)
-    
-    if sprintOverviewState.isVisible then
-        for _, component in ipairs(sprintOverviewComponents) do
-            if sprintOverviewRects.backButton then
-                component.rect = sprintOverviewRects.backButton
-            end
-            if component.draw then
-                component:draw()
-            end
-        end
-    end
-    
-    modal:draw()
+   -- NEW: Draw modifier tooltips
+   if uiElementRects.modifierTooltipArea then
+       local modArea = uiElementRects.modifierTooltipArea
+       local mouseX, mouseY = love.mouse.getPosition()
+       
+       if Drawing.isMouseOver(mouseX, mouseY, modArea.x, modArea.y, modArea.w, modArea.h) then
+           local modifier = modArea.modifier
+           if modifier then
+               local tooltipText = modifier.name .. " (" .. modifier.rarity .. ")\n\n" .. modifier.description
+               
+               local textWidthForWrap = 250
+               local wrappedHeight = Drawing.drawTextWrapped(tooltipText, 0, 0, textWidthForWrap, Drawing.UI.font, "left", nil, false)
+               local tooltipWidth = textWidthForWrap + 16
+               local tooltipHeight = wrappedHeight + 16
+               local tipX = mouseX + 15
+               local tipY = mouseY - tooltipHeight - 10
+               
+               -- Reposition if off screen
+               if tipX + tooltipWidth > love.graphics.getWidth() then
+                   tipX = mouseX - tooltipWidth - 15
+               end
+               if tipY < 0 then
+                   tipY = mouseY + 15
+               end
+               
+               -- Draw modifier tooltip with rarity-colored border
+               local rarityColors = {
+                   Common = {0.6, 0.6, 0.6, 1},
+                   Uncommon = {0.2, 0.8, 0.2, 1},
+                   Rare = {0.2, 0.4, 1, 1},
+                   Legendary = {1, 0.8, 0.2, 1},
+                   ["Cosmic Horror"] = {0.8, 0.2, 0.8, 1},
+                   Experimental = {0.2, 0.8, 0.8, 1}
+               }
+               
+               local borderColor = rarityColors[modifier.rarity] or {0.5, 0.5, 0.5, 1}
+               Drawing.drawPanel(tipX, tipY, tooltipWidth, tooltipHeight, {0.1, 0.1, 0.1, 0.95}, borderColor, 5)
+               
+               love.graphics.setFont(Drawing.UI.font)
+               love.graphics.setColor(1, 1, 1, 1)
+               Drawing.drawTextWrapped(tooltipText, tipX + 8, tipY + 8, textWidthForWrap, Drawing.UI.font, "left")
+           end
+       end
+   end
+
+   Drawing.drawSprintOverviewPanel(sprintOverviewRects, sprintOverviewState.isVisible, gameState)
+   
+   if sprintOverviewState.isVisible then
+       for _, component in ipairs(sprintOverviewComponents) do
+           if sprintOverviewRects.backButton then
+               component.rect = sprintOverviewRects.backButton
+           end
+           if component.draw then
+               component:draw()
+           end
+       end
+   end
+   
+   modal:draw()
 end
 
 function advanceToNextWorkItem()

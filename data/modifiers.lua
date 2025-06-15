@@ -3138,6 +3138,3 @@ return {
     --]]
 
 }
-
-
-return Modifiers

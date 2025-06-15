@@ -49,6 +49,11 @@ function GameState:new()
         -- Miscellaneous
         runId = "run-" .. os.time() .. "-" .. love.math.random(1000,9999) -- A unique ID for this game run
     }
+    
+    -- Initialize modifier manager (but don't assign modifiers yet)
+    local ModifierManager = require("modifier_manager")
+    ModifierManager:initializeSprintModifiers(state)
+    
     return state
 end
 

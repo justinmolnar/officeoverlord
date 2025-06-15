@@ -598,8 +598,9 @@ end
 
 -- local helper to draw phase-specific information and action buttons.
 local function _drawPhaseSpecificInfo(rect, currentY, gameState, uiElementRects)
-    local sprint = GameData.ALL_SPRINTS[gameState.currentSprintIndex]
-    local workItem = sprint and sprint.workItems[gameState.currentWorkItemIndex]
+    -- Use modifier manager to get work item data
+    local ModifierManager = require("modifier_manager")
+    local workItem = ModifierManager:getWorkItemWithModifier(gameState, gameState.currentSprintIndex, gameState.currentWorkItemIndex)
 
     if gameState.gamePhase == "hiring_and_upgrades" then
         if workItem then
@@ -701,10 +702,8 @@ function Drawing.drawGameInfoPanel(rect, gameState, uiElementRects, sprintOvervi
     local currentY = _drawGameInfoPanelFrame(rect)
     currentY = _drawCoreStats(rect, currentY, gameState, battleState)
     
-    -- This was previously _drawPhaseSpecificInfo, but buttons are now components
-    -- and special intel is handled by the new event dispatch below.
-    local sprint = GameData.ALL_SPRINTS[gameState.currentSprintIndex]
-    local workItem = sprint and sprint.workItems[gameState.currentWorkItemIndex]
+    local ModifierManager = require("modifier_manager")
+    local workItem = ModifierManager:getWorkItemWithModifier(gameState, gameState.currentSprintIndex, gameState.currentWorkItemIndex)
 
     if gameState.gamePhase == "hiring_and_upgrades" then
         if workItem then
@@ -716,7 +715,18 @@ function Drawing.drawGameInfoPanel(rect, gameState, uiElementRects, sprintOvervi
             currentY = currentY + 20
             if workItem.modifier then
                 love.graphics.setColor(0.8, 0.1, 0.1, 1)
-                love.graphics.print("Modifier:", rect.x + 10, currentY); currentY = currentY + 20
+                love.graphics.print("Modifier:", rect.x + 10, currentY); 
+                
+                -- Store modifier tooltip area
+                uiElementRects.modifierTooltipArea = {
+                    x = rect.x + 10,
+                    y = currentY,
+                    w = rect.width - 20,
+                    h = Drawing.UI.fontSmall:getHeight() * 3,
+                    modifier = workItem.modifier
+                }
+                
+                currentY = currentY + 20
                 love.graphics.setColor(Drawing.UI.colors.text)
                 currentY = currentY + Drawing.drawTextWrapped(workItem.modifier.description, rect.x + 10, currentY, rect.width - 20, Drawing.UI.fontSmall, "left") + 5
             end
@@ -726,15 +736,21 @@ function Drawing.drawGameInfoPanel(rect, gameState, uiElementRects, sprintOvervi
         if workItem then
             love.graphics.print("Workload: " .. gameState.currentWeekWorkload .. "/" .. gameState.initialWorkloadForBar, rect.x + 10, currentY)
             currentY = currentY + 20
+            
+            -- Show active modifier during battle
+            if workItem.modifier then
+                love.graphics.setColor(1, 0.3, 0.3, 1)
+                love.graphics.print("Active: " .. workItem.modifier.name, rect.x + 10, currentY)
+                currentY = currentY + 15
+                love.graphics.setColor(Drawing.UI.colors.text)
+            end
         end
         love.graphics.print("Cycle: " .. gameState.currentWeekCycles + 1, rect.x + 10, currentY); currentY = currentY + 20
     end
 
-    -- NEW: Dispatch an event to let listeners draw special intel
-    local intelArgs = { x = rect.x + 10, y = currentY + 15, width = rect.width - 20 }
+    -- Dispatch intel panel event
+    local intelArgs = { x = rect.x + 10, y = currentY + 15, width = rect.width - 20, currentY = currentY + 15 }
     require("effects_dispatcher").dispatchEvent("onDrawIntelPanel", gameState, {fontSmall = Drawing.UI.fontSmall, colors = Drawing.UI.colors}, intelArgs)
-    
-    -- The old _drawSpecialIntel function is no longer needed here.
 end
 
 -- local helper to calculate the progress percentage of the workload bar.
@@ -794,7 +810,6 @@ local function _drawVerticalLabel(rect)
 end
 
 
---- Draws the vertical workload progress bar.
 function Drawing.drawWorkloadBar(rect, gameState, battleState)
     if gameState.gamePhase == "loading" or gameState.gamePhase == "game_over" or gameState.gamePhase == "game_won" then
         return -- Don't draw the bar in these states
@@ -811,6 +826,23 @@ function Drawing.drawWorkloadBar(rect, gameState, battleState)
     _drawProgressMarkers(rect, battleState)
     _drawRoundTotalText(rect, gameState, battleState)
     
+    -- NEW: Draw modifier indicator if active
+    if gameState.gamePhase == "battle_active" then
+        local ModifierManager = require("modifier_manager")
+        local currentWorkItem = ModifierManager:getWorkItemWithModifier(gameState, gameState.currentSprintIndex, gameState.currentWorkItemIndex)
+        if currentWorkItem and currentWorkItem.modifier then
+            -- Draw modifier indicator
+            love.graphics.setColor(1, 0.3, 0.3, 0.8)
+            love.graphics.setFont(Drawing.UI.fontLarge)
+            love.graphics.print("⚠", rect.x - 25, rect.y + 10)
+            
+            -- Add pulsing effect
+            local pulseAlpha = 0.5 + 0.3 * math.sin(love.timer.getTime() * 3)
+            love.graphics.setColor(1, 0.3, 0.3, pulseAlpha)
+            love.graphics.rectangle("line", rect.x - 3, rect.y - 3, rect.width + 6, rect.height + 6, 8)
+        end
+    end
+    
     -- 4. Draw a more readable title and value
     love.graphics.setFont(Drawing.UI.font)
     love.graphics.setColor(1, 1, 1, 0.8)
@@ -819,14 +851,13 @@ function Drawing.drawWorkloadBar(rect, gameState, battleState)
     love.graphics.setFont(Drawing.UI.fontSmall)
     local workloadText = gameState.currentWeekWorkload .. " / " .. gameState.initialWorkloadForBar
     if gameState.gamePhase == "hiring_and_upgrades" then
-        local sprint = GameData.ALL_SPRINTS[gameState.currentSprintIndex]
-        local workItem = sprint and sprint.workItems[gameState.currentWorkItemIndex]
+        local ModifierManager = require("modifier_manager")
+        local workItem = ModifierManager:getWorkItemWithModifier(gameState, gameState.currentSprintIndex, gameState.currentWorkItemIndex)
         if workItem then
             workloadText = workItem.workload
         end
     end
     love.graphics.printf(workloadText, rect.x, rect.y + rect.height - Drawing.UI.fontSmall:getHeight() - 5, rect.width, "center")
-
 end
 
 --- Draws the shop panel frame and titles. The actual content is drawn by components.

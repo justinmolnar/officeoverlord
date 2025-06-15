@@ -935,6 +935,93 @@ id = 'delorean_espresso', name = 'Espresso Machine (DeLorean-Powered)', rarity =
             }
         }
     },
+    {
+        id = "chaos_catalyst",
+        name = "Chaos Catalyst",
+        icon = "🌪️",
+        cost = 800,
+        rarity = "Rare",
+        description = "Increases the chance of work item modifiers appearing by 50%",
+        listeners = {
+            onCalculateModifierProbability = {
+                {
+                    phase = 'BaseApplication',
+                    priority = 50,
+                    callback = function(self, gameState, services, eventArgs)
+                        eventArgs.probabilityMultiplier = eventArgs.probabilityMultiplier * 1.5
+                    end
+                }
+            }
+        }
+    },
+    {
+        id = "crystal_ball",
+        name = "Crystal Ball",
+        icon = "🔮",
+        cost = 1200,
+        rarity = "Rare",
+        description = "Reveals all modifiers for the current sprint and provides probability information",
+        listeners = {
+            onDrawIntelPanel = {
+                {
+                    phase = 'BaseApplication',
+                    priority = 60,
+                    callback = function(self, gameState, services, eventArgs)
+                        local ModifierManager = require("modifier_manager")
+                        local currentY = eventArgs.currentY + 10
+                        
+                        love.graphics.setColor(0.6, 0.2, 0.8, 1)
+                        love.graphics.setFont(services.fontSmall)
+                        love.graphics.print("Crystal Ball Vision:", eventArgs.x, currentY)
+                        currentY = currentY + services.fontSmall:getHeight() + 5
+                        
+                        -- Show modifier statistics
+                        local stats = ModifierManager:getModifierStatistics(gameState)
+                        love.graphics.setColor(services.colors.text)
+                        local statsText = string.format("Modifier Rate: %.1f%% (%d/%d items)", 
+                            stats.modificationRate * 100, stats.modifiedWorkItems, stats.totalWorkItems)
+                        currentY = currentY + Drawing.drawTextWrapped(statsText, eventArgs.x, currentY, eventArgs.width, services.fontSmall, "left") + 3
+                        
+                        -- Show probability for next work item
+                        if gameState.currentSprintIndex <= #GameData.ALL_SPRINTS then
+                            local nextWorkItemIndex = gameState.currentWorkItemIndex + 1
+                            if nextWorkItemIndex <= 3 then
+                                local sprint = GameData.ALL_SPRINTS[gameState.currentSprintIndex]
+                                if sprint and sprint.workItems[nextWorkItemIndex] then
+                                    local isBoss = sprint.workItems[nextWorkItemIndex].id and sprint.workItems[nextWorkItemIndex].id:find("boss") ~= nil
+                                    local probability = ModifierManager:calculateModifierProbability(gameState, gameState.currentSprintIndex, nextWorkItemIndex, isBoss)
+                                    
+                                    local probText = string.format("Next Item Modifier Chance: %.1f%%", probability * 100)
+                                    currentY = currentY + Drawing.drawTextWrapped(probText, eventArgs.x, currentY, eventArgs.width, services.fontSmall, "left") + 3
+                                end
+                            end
+                        end
+                        
+                        eventArgs.currentY = currentY
+                    end
+                }
+            }
+        }
+    },
+    {
+        id = "order_preservation_field",
+        name = "Order Preservation Field", 
+        icon = "🛡️",
+        cost = 1200,
+        rarity = "Rare",
+        description = "Reduces the chance of work item modifiers appearing by 75%",
+        listeners = {
+            onCalculateModifierProbability = {
+                {
+                    phase = 'BaseApplication',
+                    priority = 50,
+                    callback = function(self, gameState, services, eventArgs)
+                        eventArgs.probabilityMultiplier = eventArgs.probabilityMultiplier * 0.25
+                    end
+                }
+            }
+        }
+    },
     { 
         id = 'vc_funding', name = 'Venture Capital Funding', rarity = 'Rare', cost = 500, icon = '🤑',
         description = 'Instantly gain $100,000. You can no longer gain budget from any other source for the rest of the run.',

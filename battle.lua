@@ -33,12 +33,10 @@ function Battle:startChallenge(gameState, showMessage)
         gameState.temporaryEffectFlags.gladosModifierForNextItem = nil 
     end
 
-    local currentSprintData = GameData.ALL_SPRINTS[gameState.currentSprintIndex]
-    if not currentSprintData then
-        print("Error or All Sprints Cleared: CurrentSprintIndex is " .. tostring(gameState.currentSprintIndex))
-        return "game_won"
-    end
-    local currentWorkItemData = currentSprintData.workItems[gameState.currentWorkItemIndex]
+    -- Use modifier manager to get work item with dynamically assigned modifier
+    local ModifierManager = require("modifier_manager")
+    local currentWorkItemData = ModifierManager:getWorkItemWithModifier(gameState, gameState.currentSprintIndex, gameState.currentWorkItemIndex)
+    
     if not currentWorkItemData then
         print("Error: Could not find Work Item " .. gameState.currentWorkItemIndex .. " in Sprint " .. gameState.currentSprintIndex)
         return "game_over" 
@@ -48,8 +46,11 @@ function Battle:startChallenge(gameState, showMessage)
 
     if currentWorkItemData.modifier then
         local mod = currentWorkItemData.modifier
-        require("effects_dispatcher").dispatchEvent("onApply", gameState, { modal = modal }, { modifier = mod })
-        print("APPLIED SPRINT MODIFIER: " .. mod.type)
+        
+        -- Register the modifier as a temporary source for the effects dispatcher
+        gameState.activeWorkItemModifier = mod
+        
+        print("APPLIED SPRINT MODIFIER: " .. (mod.id or mod.name or "Unknown Modifier"))
     end
     
     gameState.initialWorkloadForBar = gameState.currentWeekWorkload

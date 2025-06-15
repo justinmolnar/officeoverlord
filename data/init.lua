@@ -15,7 +15,9 @@ data.BASE_EMPLOYEE_CARDS = require("data.employees")
 data.ALL_UPGRADES = require("data.upgrades")
 data.ALL_SPRINTS = require("data.sprints")
 data.ALL_GADGETS = require("data.gadgets")
-data.GLADOS_NEGATIVE_MODIFIERS = require("data.modifiers")
+data.GLADOS_NEGATIVE_MODIFIERS = require("data.glados")
+data.ALL_MODIFIERS = require("data.modifiers")
 data.ALL_DESK_DECORATIONS = require("data.desk_decorations") 
 
 return data
+

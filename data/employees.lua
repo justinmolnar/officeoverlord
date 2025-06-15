@@ -448,6 +448,7 @@ return {
             }
         }
     },
+
     -- {
     --     id = 'time_traveling_intern1', name = 'Time-Traveling Intern', icon = 'assets/portraits/prt0013.png', rarity = 'Rare',
     --     hiringBonus = 1800, weeklySalary = 350,
@@ -745,6 +746,85 @@ return {
                             end
                             gameState.temporaryEffectFlags.penTesterUsedInSprint = gameState.currentSprintIndex
                         end
+                    end
+                }
+            }
+        }
+    },
+    {
+        id = "time_traveler",
+        name = "Time Traveler",
+        description = "Reveals upcoming work item modifiers and boss fight details. Can see the challenges that lie ahead.",
+        icon = "assets/portraits/time_traveler.png",
+        rarity = "Legendary",
+        baseProductivity = 25,
+        baseFocus = 2.8,
+        hiringBonus = 2500,
+        weeklySalary = 400,
+        special = {
+            type = 'reveals_modifier',
+            description = "Shows upcoming modifiers for this sprint and next sprint's boss"
+        },
+        listeners = {
+            onDrawIntelPanel = {
+                {
+                    phase = 'BaseApplication',
+                    priority = 50,
+                    callback = function(self, gameState, services, eventArgs)
+                        local ModifierManager = require("modifier_manager")
+                        local currentY = eventArgs.currentY
+                        
+                        -- Show current sprint's remaining modifiers
+                        love.graphics.setColor(0.2, 0.6, 0.8, 1)
+                        love.graphics.setFont(services.fontSmall)
+                        love.graphics.print("Time Traveler Intel:", eventArgs.x, currentY)
+                        currentY = currentY + services.fontSmall:getHeight() + 5
+                        
+                        love.graphics.setColor(services.colors.text)
+                        
+                        -- Show remaining work items in current sprint
+                        local sprint = GameData.ALL_SPRINTS[gameState.currentSprintIndex]
+                        if sprint then
+                            for i = gameState.currentWorkItemIndex + 1, #sprint.workItems do
+                                local workItem = ModifierManager:getWorkItemWithModifier(gameState, gameState.currentSprintIndex, i)
+                                if workItem then
+                                    local itemText = "Item " .. i .. ": " .. workItem.name
+                                    if workItem.modifier then
+                                        itemText = itemText .. " [" .. workItem.modifier.name .. "]"
+                                        love.graphics.setColor(0.9, 0.4, 0.4, 1)
+                                    else
+                                        itemText = itemText .. " [No Modifier]"
+                                        love.graphics.setColor(0.4, 0.8, 0.4, 1)
+                                    end
+                                    
+                                    currentY = currentY + Drawing.drawTextWrapped(itemText, eventArgs.x, currentY, eventArgs.width, services.fontSmall, "left") + 2
+                                    love.graphics.setColor(services.colors.text)
+                                end
+                            end
+                        end
+                        
+                        -- Show next sprint's boss if available
+                        if gameState.currentSprintIndex < #GameData.ALL_SPRINTS then
+                            local nextSprint = GameData.ALL_SPRINTS[gameState.currentSprintIndex + 1]
+                            if nextSprint and nextSprint.workItems[3] then
+                                currentY = currentY + 5
+                                love.graphics.setColor(0.8, 0.2, 0.6, 1)
+                                love.graphics.print("Next Sprint Boss:", eventArgs.x, currentY)
+                                currentY = currentY + services.fontSmall:getHeight() + 2
+                                
+                                local bossItem = ModifierManager:getWorkItemWithModifier(gameState, gameState.currentSprintIndex + 1, 3)
+                                if bossItem then
+                                    local bossText = bossItem.name
+                                    if bossItem.modifier then
+                                        bossText = bossText .. " [" .. bossItem.modifier.name .. "]"
+                                    end
+                                    love.graphics.setColor(services.colors.text)
+                                    currentY = currentY + Drawing.drawTextWrapped(bossText, eventArgs.x, currentY, eventArgs.width, services.fontSmall, "left")
+                                end
+                            end
+                        end
+                        
+                        eventArgs.currentY = currentY
                     end
                 }
             }
@@ -1283,26 +1363,33 @@ return {
                         if eventArgs.employee.instanceId == self.instanceId then
                             local potentialTargets = {}
                             for _, emp in ipairs(gameState.hiredEmployees) do 
-                                if emp.instanceId ~= self.instanceId and emp.rarity ~= 'Legendary' and not emp.isSmithCopy then 
+                                if emp.instanceId ~= self.instanceId and emp.rarity ~= 'Legendary' and not emp.isCopyPastaCopy then 
                                     table.insert(potentialTargets, emp) 
                                 end 
                             end
                             
-                            local smithData = nil
+                            local copypastaData = nil
                             for _, card in ipairs(require("data").BASE_EMPLOYEE_CARDS) do 
-                                if card.id == 'agent_smith1' then 
-                                    smithData = card
+                                if card.id == 'copypasta' then 
+                                    copypastaData = card
                                     break 
                                 end 
                             end
 
                             for i=1, 2 do
-                                if #potentialTargets > 0 and smithData then
+                                if #potentialTargets > 0 and copypastaData then
                                     local targetIndex = love.math.random(#potentialTargets)
                                     local victim = potentialTargets[targetIndex]
-                                    victim.isSmithCopy = true
-                                    victim.weeklySalary = smithData.weeklySalary
-                                    print(victim.name .. " has been assimilated by Agent Smith.")
+                                    victim.isCopyPastaCopy = true
+                                    victim.copypastaOriginalData = {
+                                        name = victim.name,
+                                        description = victim.description,
+                                        baseProductivity = victim.baseProductivity,
+                                        baseFocus = victim.baseFocus,
+                                        positionalEffects = victim.positionalEffects
+                                    }
+                                    victim.weeklySalary = copypastaData.weeklySalary
+                                    print(victim.name .. " has been assimilated by Copypasta.")
                                     table.remove(potentialTargets, targetIndex)
                                 end
                             end
@@ -1314,18 +1401,27 @@ return {
                 {
                     phase = 'BaseApplication',
                     priority = 50,
-                    callback = function(self, gameState, eventArgs)
-                        if eventArgs.employee.isSmithCopy then
-                            local smithData = self
-                            local effectiveData = {}
-                            for k, v in pairs(eventArgs.employee) do effectiveData[k] = v end
-                            for k, v in pairs(smithData) do
-                                if k ~= 'id' and k ~= 'instanceId' and k ~= 'fullName' and k ~= 'level' then
-                                    effectiveData[k] = v
-                                end
+                    callback = function(self, gameState, services, eventArgs)
+                        if eventArgs.employee and eventArgs.employee.isCopyPastaCopy then
+                            local copypastaData = nil
+                            for _, card in ipairs(require("data").BASE_EMPLOYEE_CARDS) do 
+                                if card.id == 'copypasta' then 
+                                    copypastaData = card
+                                    break 
+                                end 
                             end
-                            effectiveData.weeklySalary = smithData.weeklySalary
-                            eventArgs.effectiveData = effectiveData
+                            
+                            if copypastaData then
+                                local effectiveData = {}
+                                for k, v in pairs(eventArgs.employee) do effectiveData[k] = v end
+                                for k, v in pairs(copypastaData) do
+                                    if k ~= 'id' and k ~= 'instanceId' and k ~= 'fullName' and k ~= 'level' then
+                                        effectiveData[k] = v
+                                    end
+                                end
+                                effectiveData.weeklySalary = copypastaData.weeklySalary
+                                eventArgs.effectiveData = effectiveData
+                            end
                         end
                     end
                 }
@@ -1335,22 +1431,31 @@ return {
                     phase = 'BaseApplication',
                     priority = 50,
                     callback = function(self, gameState, services, eventArgs)
-                        if eventArgs.employee.isSmithCopy then
-                            local smithData = self
-                            local effectiveInstance = {}
-                            for k, v in pairs(eventArgs.employee) do effectiveInstance[k] = v end
-                            for k, v in pairs(smithData) do
-                                if k ~= 'id' and k ~= 'instanceId' and k ~= 'fullName' then
-                                    effectiveInstance[k] = v
-                                end
+                        if eventArgs.employee and eventArgs.employee.isCopyPastaCopy then
+                            local copypastaData = nil
+                            for _, card in ipairs(require("data").BASE_EMPLOYEE_CARDS) do 
+                                if card.id == 'copypasta' then 
+                                    copypastaData = card
+                                    break 
+                                end 
                             end
-                            eventArgs.employee = effectiveInstance
+                            
+                            if copypastaData then
+                                local effectiveInstance = {}
+                                for k, v in pairs(eventArgs.employee) do effectiveInstance[k] = v end
+                                for k, v in pairs(copypastaData) do
+                                    if k ~= 'id' and k ~= 'instanceId' and k ~= 'fullName' then
+                                        effectiveInstance[k] = v
+                                    end
+                                end
+                                eventArgs.employee = effectiveInstance
+                            end
                         end
                     end
                 }
             }
         }
-    },
+        },
     {
         id = 'glados1', name = 'GLaDOS', icon = 'assets/portraits/prt0036.png', rarity = 'Legendary',
         hiringBonus = 5000, weeklySalary = 0,

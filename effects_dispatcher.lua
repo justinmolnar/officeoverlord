@@ -23,7 +23,8 @@ local function collectListeners(eventName, gameState)
     local sources = {
         hiredEmployees = gameState.hiredEmployees or {},
         purchasedPermanentUpgrades = gameState.purchasedPermanentUpgrades or {},
-        deskDecorations = gameState.deskDecorations or {}
+        deskDecorations = gameState.deskDecorations or {},
+        activeWorkItemModifier = gameState.activeWorkItemModifier -- NEW: Add active modifier
     }
 
     -- Collect from employees
@@ -57,11 +58,17 @@ local function collectListeners(eventName, gameState)
             end
             if decorationData and decorationData.listeners and decorationData.listeners[eventName] then
                 for _, handler in ipairs(decorationData.listeners[eventName]) do
-                    -- Add deskId to the source so the listener knows where it is
                     local sourceWithDeskId = { data = decorationData, deskId = deskId }
                     table.insert(allListeners, { handler = handler, source = sourceWithDeskId })
                 end
             end
+        end
+    end
+
+    -- NEW: Collect from active work item modifier
+    if sources.activeWorkItemModifier and sources.activeWorkItemModifier.listeners and sources.activeWorkItemModifier.listeners[eventName] then
+        for _, handler in ipairs(sources.activeWorkItemModifier.listeners[eventName]) do
+            table.insert(allListeners, { handler = handler, source = sources.activeWorkItemModifier })
         end
     end
 
