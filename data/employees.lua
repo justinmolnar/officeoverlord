@@ -73,8 +73,8 @@ return {
                 {
                     phase = 'BaseApplication',
                     priority = 50,
-                    callback = function(self, gameState, eventArgs)
-                        if eventArgs.employee.instanceId == self.instanceId then
+                    callback = function(self, gameState, services, eventArgs)
+                        if eventArgs and eventArgs.employee and eventArgs.employee.instanceId == self.instanceId then
                             eventArgs.context = "worker_training"
                         end
                     end
@@ -1418,7 +1418,8 @@ return {
         baseProductivity = 0, baseFocus = 1.0,
         description = 'The company itself, manifest. Its power grows with your assets. Provides massive bonuses to all adjacent employees.',
         positionalEffects = { all_adjacent = { productivity_add = 50, focus_add = 1.0 } },
-        special = { type = 'corporate_personhood_special' } -- This is a temporary battle entity
+        special = { type = 'corporate_personhood_special' }, -- This is a temporary battle entity
+        isNotPurchasable = true
     },
     -- UNCOMMON EMPLOYEES
     {

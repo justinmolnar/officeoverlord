@@ -172,9 +172,9 @@ function _buildHiringPhaseUI()
     end
     
     -- Upgrade card in shop
-    if gameState.currentShopOffers and gameState.currentShopOffers.upgrade then
+    if gameState.currentShopOffers and gameState.currentShopOffers.upgrades and gameState.currentShopOffers.upgrades[1] then
         currentY = shopRect.y + shopRect.height - 35 - 10 - 110 - 15 -- Align from bottom
-        table.insert(uiComponents, UpgradeCard:new({ data = gameState.currentShopOffers.upgrade, rect = {x=shopRect.x+shopCardPadding, y=currentY, w=cardWidth, h=110}, gameState = gameState, uiElementRects = uiElementRects, modal = modal }))
+        table.insert(uiComponents, UpgradeCard:new({ data = gameState.currentShopOffers.upgrades[1], rect = {x=shopRect.x+shopCardPadding, y=currentY, w=cardWidth, h=110}, gameState = gameState, uiElementRects = uiElementRects, modal = modal }))
     end
     
     -- Restock button
@@ -201,7 +201,11 @@ function _buildCommonUIElements()
         if empId then
             local empData = Employee:getFromState(gameState, empId)
             if empData then
-                local contextArgs = { employee = empData, context = "desk_placed" }
+                local cardContext = "desk_placed"
+                if empData.isTraining then
+                    cardContext = "worker_training"
+                end
+                local contextArgs = { employee = empData, context = cardContext }
                 EffectsDispatcher.dispatchEvent("onEmployeeContextCheck", gameState, { modal = modal }, contextArgs)
                 table.insert(uiComponents, EmployeeCard:new({data = empData, rect = {x = deskRect.x+2, y=deskRect.y+2, w=deskRect.w-4, h=deskRect.h-4}, context = contextArgs.context, gameState=gameState, battleState=battleState, draggedItemState=draggedItemState, uiElementRects=uiElementRects, battlePhaseManager = battlePhaseManager, modal = modal}))
             end
@@ -221,7 +225,11 @@ function _buildCommonUIElements()
     local remoteWorkerPositions = calculateRemoteWorkerPositions(gameState, draggedItemState)
     for _, empData in ipairs(gameState.hiredEmployees) do
         if empData.variant == 'remote' then
-            local contextArgs = { employee = empData, context = "remote_worker" }
+            local cardContext = "remote_worker"
+            if empData.isTraining then
+                cardContext = "worker_training"
+            end
+            local contextArgs = { employee = empData, context = cardContext }
             EffectsDispatcher.dispatchEvent("onEmployeeContextCheck", gameState, { modal = modal }, contextArgs)
             local workerRect = remoteWorkerPositions[empData.instanceId] or {x = 0, y = 0, w = cardWidth, h = cardHeight}
             table.insert(uiComponents, EmployeeCard:new({data = empData, rect = workerRect, context = contextArgs.context, gameState=gameState, battleState=battleState, draggedItemState=draggedItemState, uiElementRects=uiElementRects, battlePhaseManager = battlePhaseManager, modal = modal}))
@@ -971,7 +979,7 @@ function advanceToNextWorkItem()
             gameState.purchasedPermanentUpgrades = permUpgrades
         end
     end
-    gameState.currentShopOffers = {employees={}, upgrade=nil, decorations={}, restockCountThisWeek=0}
+    gameState.currentShopOffers = {employees={}, upgrades={}, decorations={}, restockCountThisWeek=0}
     setGamePhase("hiring_and_upgrades")
 end
 

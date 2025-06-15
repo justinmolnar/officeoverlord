@@ -29,7 +29,7 @@ function GameState:new()
         -- Shop State
         currentShopOffers = {
             employees = {}, -- Table of employee data for current shop offers (copies with instanceId)
-            upgrade = nil,  -- Current single upgrade offer data (a copy with instanceId if needed)
+            upgrades = {},  -- Current upgrade offers (now a list)
             decorations = {}, -- NEW: Table of decoration data for current shop offers
             restockCountThisWeek = 0
         },

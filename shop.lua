@@ -27,6 +27,35 @@ local function _shallowCopy(sourceTable)
     return newTable
 end
 
+local function _populateOfferList(self, offerList, numSlots, forceRestock, generator, ...)
+    local generatorArgs = {...}
+    local newOffers = {}
+    if forceRestock then
+        for i = 1, numSlots do
+            local existingOffer = offerList and offerList[i]
+            if existingOffer and (existingOffer.sold or existingOffer.isLocked) then
+                table.insert(newOffers, existingOffer)
+            else
+                table.insert(newOffers, generator(self, unpack(generatorArgs)))
+            end
+        end
+    else -- New week logic
+        local preservedOffers = {}
+        if offerList then
+            for _, offer in ipairs(offerList) do
+                if offer and offer.isLocked then
+                    table.insert(preservedOffers, offer)
+                end
+            end
+        end
+        newOffers = preservedOffers
+        while #newOffers < numSlots do
+            table.insert(newOffers, generator(self, unpack(generatorArgs)))
+        end
+    end
+    return newOffers
+end
+
 function Shop:forceAddItemOffer(itemType, itemId, currentShopOffers, variant)
     local masterList
     if itemType == 'employee' then
@@ -62,7 +91,8 @@ function Shop:forceAddItemOffer(itemType, itemId, currentShopOffers, variant)
         local upgradeOffer = _shallowCopy(itemData)
         upgradeOffer.sold = false
         upgradeOffer.instanceId = "shop-upgrade-" .. upgradeOffer.id .. "-" ..love.timer.getTime()
-        currentShopOffers.upgrade = upgradeOffer
+        if not currentShopOffers.upgrades then currentShopOffers.upgrades = {} end
+        currentShopOffers.upgrades[1] = upgradeOffer
         print("DEBUG: Forced upgrade '" .. upgradeOffer.name .. "' into shop.")
     elseif itemType == 'decoration' then
         local decorationOffer = self:_generateDecorationOfferFromData(itemData)
@@ -121,47 +151,16 @@ function Shop:getModifiedUpgradeCost(upgradeData, hiredEmployees)
 end
 
 function Shop:_populateEmployeeOffers(gameState, currentShopOffers, numEmployeeSlots, forceRestock)
-    local preservedOffers = {}
-    if not forceRestock and currentShopOffers.employees then
-        for _, offer in ipairs(currentShopOffers.employees) do
-            if offer and offer.isLocked then
-                table.insert(preservedOffers, offer)
-            end
-        end
-    end
-    
-    currentShopOffers.employees = preservedOffers
-    while #currentShopOffers.employees < numEmployeeSlots do
-        table.insert(currentShopOffers.employees, self:_generateRandomEmployeeOffer(gameState))
-    end
+    currentShopOffers.employees = _populateOfferList(self, currentShopOffers.employees, numEmployeeSlots, forceRestock, self._generateRandomEmployeeOffer, gameState)
 end
 
 function Shop:_populateDecorationOffers(gameState, currentShopOffers, numDecorationSlots, forceRestock)
-    local preservedOffers = {}
-    if not forceRestock and currentShopOffers.decorations then
-        for _, offer in ipairs(currentShopOffers.decorations) do
-            if offer and offer.isLocked then
-                table.insert(preservedOffers, offer)
-            end
-        end
-    end
-
-    currentShopOffers.decorations = preservedOffers
-    while #currentShopOffers.decorations < numDecorationSlots do
-        table.insert(currentShopOffers.decorations, self:_generateRandomDecorationOffer(gameState))
-    end
+    currentShopOffers.decorations = _populateOfferList(self, currentShopOffers.decorations, numDecorationSlots, forceRestock, self._generateRandomDecorationOffer, gameState)
 end
 
-function Shop:_populateUpgradeOffer(gameState, currentShopOffers, forceRestock)
-    if forceRestock then
-        if not (currentShopOffers.upgrade and (currentShopOffers.upgrade.sold or currentShopOffers.upgrade.isLocked)) then
-            currentShopOffers.upgrade = self:_generateRandomUpgradeOffer(gameState.purchasedPermanentUpgrades)
-        end
-    else
-        if not (currentShopOffers.upgrade and currentShopOffers.upgrade.isLocked) then
-            currentShopOffers.upgrade = self:_generateRandomUpgradeOffer(gameState.purchasedPermanentUpgrades)
-        end
-    end
+function Shop:_populateUpgradesOffer(gameState, currentShopOffers, forceRestock)
+    local numUpgradeSlots = 1 -- Define the number of slots here for clarity
+    currentShopOffers.upgrades = _populateOfferList(self, currentShopOffers.upgrades, numUpgradeSlots, forceRestock, self._generateRandomUpgradeOffer, gameState.purchasedPermanentUpgrades)
 end
 
 function Shop:populateOffers(gameState, currentShopOffers, purchasedPermanentUpgrades, forceRestock)
@@ -179,7 +178,7 @@ function Shop:populateOffers(gameState, currentShopOffers, purchasedPermanentUpg
 
     self:_populateEmployeeOffers(gameState, currentShopOffers, numEmployeeSlots, forceRestock)
     self:_populateDecorationOffers(gameState, currentShopOffers, numDecorationSlots, forceRestock)
-    self:_populateUpgradeOffer(gameState, currentShopOffers, forceRestock)
+    self:_populateUpgradesOffer(gameState, currentShopOffers, forceRestock)
     
     -- After populating, dispatch event for listeners like Headhunter to potentially modify the offers.
     local eventArgs = { offers = currentShopOffers.employees, guaranteeRareOrLegendary = false }
@@ -410,13 +409,17 @@ function Shop:markOfferSold(currentShopOffers, employeeShopInstanceIdToMark, upg
             end
         end
         return -- Explicitly return after handling
-    elseif upgradeDataToMark and currentShopOffers.upgrade then
-        if currentShopOffers.upgrade.instanceId == upgradeDataToMark.instanceId or currentShopOffers.upgrade.id == upgradeDataToMark.id then
-             print("Shop:markOfferSold: Found upgrade offer: " .. currentShopOffers.upgrade.name .. ". Current sold: " .. tostring(currentShopOffers.upgrade.sold))
-            currentShopOffers.upgrade.sold = true
-            print("Shop:markOfferSold: Marked as sold. New status: " .. tostring(currentShopOffers.upgrade.sold))
-        else
-            print("ERROR (Shop:markOfferSold): Upgrade shop offer ID did not match. Sought based on passed data, current shop upgrade ID: " .. (currentShopOffers.upgrade.instanceId or currentShopOffers.upgrade.id))
+    elseif upgradeDataToMark and currentShopOffers.upgrades then
+        if not _findAndMarkSold(currentShopOffers.upgrades, upgradeDataToMark.instanceId, "upgrade") then
+             -- Fallback for old calls that might pass the whole object without a proper instanceId
+            for i, offer in ipairs(currentShopOffers.upgrades) do
+                if offer and offer.id == upgradeDataToMark.id then
+                    offer.sold = true
+                    print("Shop:markOfferSold: Marked upgrade as sold via ID fallback.")
+                    return
+                end
+            end
+            print("ERROR (Shop:markOfferSold): Upgrade shop offer ID did not match.")
         end
     elseif decorationInstanceIdToMark and currentShopOffers.decorations then
         if not _findAndMarkSold(currentShopOffers.decorations, decorationInstanceIdToMark, "decoration") then
@@ -481,8 +484,10 @@ function Shop:attemptRestock(gameState)
             if empOffer and not empOffer.sold and not empOffer.isLocked then hasUnsoldItem = true; break end
         end
     end
-    if not hasUnsoldItem and gameState.currentShopOffers.upgrade and not gameState.currentShopOffers.upgrade.sold and not gameState.currentShopOffers.upgrade.isLocked then
-        hasUnsoldItem = true
+    if not hasUnsoldItem and gameState.currentShopOffers.upgrades then
+        for _, upgOffer in ipairs(gameState.currentShopOffers.upgrades) do
+            if upgOffer and not upgOffer.sold and not upgOffer.isLocked then hasUnsoldItem = true; break end
+        end
     end
     -- NEW: Check decorations for unsold items
     if not hasUnsoldItem and gameState.currentShopOffers.decorations then
@@ -505,8 +510,13 @@ end
 function Shop:buyUpgrade(gameState, upgradeIdToBuy) 
     local upgradeData = nil
     
-    if gameState.currentShopOffers.upgrade and gameState.currentShopOffers.upgrade.id == upgradeIdToBuy then
-        upgradeData = gameState.currentShopOffers.upgrade
+    if gameState.currentShopOffers.upgrades then
+        for _, offer in ipairs(gameState.currentShopOffers.upgrades) do
+            if offer and offer.id == upgradeIdToBuy then
+                upgradeData = offer
+                break
+            end
+        end
     end
 
     if not upgradeData or upgradeData.sold then
