@@ -197,7 +197,7 @@ return {
                         -- Bonus for adjacent desks
                         local directions = {"up", "down", "left", "right"}
                         for _, dir in ipairs(directions) do
-                            if require("placement"):getNeighboringDeskId(deskId, dir, gameState.GRID_WIDTH, gameState.TOTAL_DESK_SLOTS, gameState.desks) == empDeskId then
+                            if require("placement"):getNeighboringDeskId(deskId, dir, require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks) == empDeskId then
                                 eventArgs.stats.focus = eventArgs.stats.focus + (self.effect.adjacent_focus_add or 0.1)
                                 table.insert(eventArgs.stats.log.focus, string.format("+%.2fx from adjacent %s", self.effect.adjacent_focus_add or 0.1, self.name))
                                 break -- Apply only once
@@ -230,7 +230,7 @@ return {
 
                         local directions = {"up", "down", "left", "right"}
                         for _, dir in ipairs(directions) do
-                            if require("placement"):getNeighboringDeskId(deskId, dir, gameState.GRID_WIDTH, gameState.TOTAL_DESK_SLOTS, gameState.desks) == empDeskId then
+                            if require("placement"):getNeighboringDeskId(deskId, dir, require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks) == empDeskId then
                                 eventArgs.stats.productivity = eventArgs.stats.productivity + (self.effect.adjacent_productivity_add or 2)
                                 table.insert(eventArgs.stats.log.productivity, string.format("+%d from adjacent %s", self.effect.adjacent_productivity_add or 2, self.name))
                                 break -- Apply only once
@@ -391,7 +391,7 @@ return {
                         -- Bonus for adjacent desks
                         local directions = {"up", "down", "left", "right"}
                         for _, dir in ipairs(directions) do
-                            if require("placement"):getNeighboringDeskId(deskId, dir, gameState.GRID_WIDTH, gameState.TOTAL_DESK_SLOTS, gameState.desks) == empDeskId then
+                            if require("placement"):getNeighboringDeskId(deskId, dir, require("data").GRID_WIDTH, require("data").TOTAL_DESK_SLOTS, gameState.desks) == empDeskId then
                                 eventArgs.stats.focus = eventArgs.stats.focus + (self.effect.adjacent_focus_add or 0.2)
                                 table.insert(eventArgs.stats.log.focus, string.format("+%.2fx from adjacent %s", self.effect.adjacent_focus_add or 0.2, self.name))
                                 break

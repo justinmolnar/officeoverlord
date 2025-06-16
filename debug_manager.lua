@@ -232,34 +232,20 @@ function DebugManager:handleKeyPress(key)
     if not self:isVisible() then return false end
 
     -- Page up/down for dropdown navigation (like pageup/pagedown)
-    local d_emp = self._state.employeeDropdown
-    local d_upg = self._state.upgradeDropdown
-    
-    if key == "up" or key == "pageup" then
-        if d_emp.isOpen then
-            local optionHeight = 20
-            local listVisibleHeight = math.min(#d_emp.options * optionHeight, 200)
-            d_emp.scrollOffset = math.max(0, d_emp.scrollOffset - listVisibleHeight)
-            return true
-        elseif d_upg.isOpen then
-            local optionHeight = 20
-            local listVisibleHeight = math.min(#d_upg.options * optionHeight, 200)
-            d_upg.scrollOffset = math.max(0, d_upg.scrollOffset - listVisibleHeight)
-            return true
-        end
-    elseif key == "down" or key == "pagedown" then
-        if d_emp.isOpen then
-            local optionHeight = 20
-            local listVisibleHeight = math.min(#d_emp.options * optionHeight, 200)
-            local maxScroll = math.max(0, (#d_emp.options * optionHeight) - listVisibleHeight)
-            d_emp.scrollOffset = math.min(maxScroll, d_emp.scrollOffset + listVisibleHeight)
-            return true
-        elseif d_upg.isOpen then
-            local optionHeight = 20
-            local listVisibleHeight = math.min(#d_upg.options * optionHeight, 200)
-            local maxScroll = math.max(0, (#d_upg.options * optionHeight) - listVisibleHeight)
-            d_upg.scrollOffset = math.min(maxScroll, d_upg.scrollOffset + listVisibleHeight)
-            return true
+    if key == "up" or key == "pageup" or key == "down" or key == "pagedown" then
+        for _, dropdownState in ipairs({self._state.employeeDropdown, self._state.upgradeDropdown, self._state.decorationDropdown, self._state.modifierDropdown}) do
+            if dropdownState.isOpen then
+                local optionHeight = 20
+                local listVisibleHeight = math.min(#dropdownState.options * optionHeight, 200)
+                
+                if key == "up" or key == "pageup" then
+                    dropdownState.scrollOffset = math.max(0, dropdownState.scrollOffset - listVisibleHeight)
+                else -- down or pagedown
+                    local maxScroll = math.max(0, (#dropdownState.options * optionHeight) - listVisibleHeight)
+                    dropdownState.scrollOffset = math.min(maxScroll, dropdownState.scrollOffset + listVisibleHeight)
+                end
+                return true -- Input handled
+            end
         end
     end
 
