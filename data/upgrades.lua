@@ -14,13 +14,13 @@ return {
                         local log = eventArgs.stats.log
                         if gameState.hiredEmployees then
                             for _, emp in ipairs(gameState.hiredEmployees) do
-                                if emp.variant == 'foil' then 
+                                if emp.variant == 'laminated' then 
                                     globalBonusProductivity = globalBonusProductivity + 5
-                                    table.insert(log.productivity, "+5 from a Foil employee") 
+                                    table.insert(log.productivity, "+5 from a Laminated employee") 
                                 end
-                                if emp.variant == 'holo' then 
+                                if emp.variant == 'embossed' then 
                                     globalBonusFocusAdd = globalBonusFocusAdd + 0.5
-                                    table.insert(log.focus, "+0.5x from a Holo employee") 
+                                    table.insert(log.focus, "+0.5x from a Embossed employee") 
                                 end
                             end
                         end

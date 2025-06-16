@@ -18,8 +18,8 @@ DebugManager._state = {
     decorationDropdown = { options = {}, selected = 1, isOpen = false, rect = {}, scrollOffset = 0 },
     checkboxes = {
         remote = { checked = false, rect = {} },
-        foil = { checked = false, rect = {} },
-        holo = { checked = false, rect = {} }
+        laminated = { checked = false, rect = {} },
+        embossed = { checked = false, rect = {} }
     },
     hotkeyState = {
         plus = { timer = 0, initial = 0.4, repeatDelay = 0.1 },
@@ -83,11 +83,11 @@ function DebugManager:init(services)
    table.insert(self._components, Dropdown:new({ rect = {x = dbgX, y = currentY, w = dbgW, h = 25}, state = self._state.employeeDropdown }))
    currentY = currentY + 35
    local chkW = 80
-   table.insert(self._components, Checkbox:new({ rect = {x=dbgX, y=currentY, w=chkW, h=20}, label="Remote", state=self._state.checkboxes.remote, onToggle=function(c) if c then self._state.checkboxes.foil.checked=false; self._state.checkboxes.holo.checked=false end end }))
-   table.insert(self._components, Checkbox:new({ rect = {x=dbgX + chkW + 10, y=currentY, w=chkW, h=20}, label="Foil", state=self._state.checkboxes.foil, onToggle=function(c) if c then self._state.checkboxes.remote.checked=false; self._state.checkboxes.holo.checked=false end end }))
-   table.insert(self._components, Checkbox:new({ rect = {x=dbgX + (chkW + 10) * 2, y=currentY, w=chkW, h=20}, label="Holo", state=self._state.checkboxes.holo, onToggle=function(c) if c then self._state.checkboxes.remote.checked=false; self._state.checkboxes.foil.checked=false end end }))
+   table.insert(self._components, Checkbox:new({ rect = {x=dbgX, y=currentY, w=chkW, h=20}, label="Remote", state=self._state.checkboxes.remote, onToggle=function(c) if c then self._state.checkboxes.laminated.checked=false; self._state.checkboxes.embossed.checked=false end end }))
+   table.insert(self._components, Checkbox:new({ rect = {x=dbgX + chkW + 10, y=currentY, w=chkW, h=20}, label="Laminated", state=self._state.checkboxes.laminated, onToggle=function(c) if c then self._state.checkboxes.remote.checked=false; self._state.checkboxes.embossed.checked=false end end }))
+   table.insert(self._components, Checkbox:new({ rect = {x=dbgX + (chkW + 10) * 2, y=currentY, w=chkW, h=20}, label="Embossed", state=self._state.checkboxes.embossed, onToggle=function(c) if c then self._state.checkboxes.remote.checked=false; self._state.checkboxes.laminated.checked=false end end }))
    currentY = currentY + 30
-   table.insert(self._components, Button:new({ rect = {x=dbgX, y=currentY, w=dbgW, h=30}, text="Spawn Employee in Shop", style="secondary", onClick=function() local sel=self._state.employeeDropdown.options[self._state.employeeDropdown.selected].id; local v="standard"; if self._state.checkboxes.remote.checked then v="remote" elseif self._state.checkboxes.foil.checked then v="foil" elseif self._state.checkboxes.holo.checked then v="holo" end; self._services.shop:forceAddItemOffer('employee', sel, self._services.gameState.currentShopOffers, v); _G.buildUIComponents() end }))
+   table.insert(self._components, Button:new({ rect = {x=dbgX, y=currentY, w=dbgW, h=30}, text="Spawn Employee in Shop", style="secondary", onClick=function() local sel=self._state.employeeDropdown.options[self._state.employeeDropdown.selected].id; local v="standard"; if self._state.checkboxes.remote.checked then v="remote" elseif self._state.checkboxes.laminated.checked then v="laminated" elseif self._state.checkboxes.embossed.checked then v="embossed" end; self._services.shop:forceAddItemOffer('employee', sel, self._services.gameState.currentShopOffers, v); _G.buildUIComponents() end }))
    currentY = currentY + 50
 
    -- Upgrade Spawner
@@ -282,8 +282,8 @@ function DebugManager:handleKeyPress(key)
         if nextEmployee then
             local variant = "standard"
             if self._state.checkboxes.remote.checked then variant = "remote"
-            elseif self._state.checkboxes.foil.checked then variant = "foil"
-            elseif self._state.checkboxes.holo.checked then variant = "holo" end
+            elseif self._state.checkboxes.laminated.checked then variant = "laminated"
+            elseif self._state.checkboxes.embossed.checked then variant = "embossed" end
             self._services.shop:forceAddItemOffer('employee', nextEmployee.id, self._services.gameState.currentShopOffers, variant)
             print("DEBUG: Spawned employee #" .. dropdown.selected .. ": " .. nextEmployee.name .. " (" .. variant .. ")")
             _G.buildUIComponents()
@@ -361,27 +361,27 @@ function DebugManager:handleKeyPress(key)
     -- Variant toggle hotkeys
     if key == "1" then
         self._state.checkboxes.remote.checked = false
-        self._state.checkboxes.foil.checked = false
-        self._state.checkboxes.holo.checked = false
+        self._state.checkboxes.laminated.checked = false
+        self._state.checkboxes.embossed.checked = false
         print("DEBUG: Variant set to Standard")
         return true
     elseif key == "2" then
         self._state.checkboxes.remote.checked = true
-        self._state.checkboxes.foil.checked = false
-        self._state.checkboxes.holo.checked = false
+        self._state.checkboxes.laminated.checked = false
+        self._state.checkboxes.embossed.checked = false
         print("DEBUG: Variant set to Remote")
         return true
     elseif key == "3" then
         self._state.checkboxes.remote.checked = false
-        self._state.checkboxes.foil.checked = true
-        self._state.checkboxes.holo.checked = false
-        print("DEBUG: Variant set to Foil")
+        self._state.checkboxes.laminated.checked = true
+        self._state.checkboxes.embossed.checked = false
+        print("DEBUG: Variant set to Laminated")
         return true
     elseif key == "4" then
         self._state.checkboxes.remote.checked = false
-        self._state.checkboxes.foil.checked = false
-        self._state.checkboxes.holo.checked = true
-        print("DEBUG: Variant set to Holo")
+        self._state.checkboxes.laminated.checked = false
+        self._state.checkboxes.embossed.checked = true
+        print("DEBUG: Variant set to Embossed")
         return true
     end
 

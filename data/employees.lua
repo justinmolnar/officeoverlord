@@ -68,19 +68,6 @@ return {
         description = 'Does not contribute to workload. Instead, all adjacent employees have their Focus multiplied by 1.5x per level.',
         special = { does_not_work = true },
         positionalEffects = { all_adjacent = { focus_mult = 1.5, scales_with_level = true } },
-        listeners = {
-            onEmployeeContextCheck = {
-                {
-                    phase = 'BaseApplication',
-                    priority = 50,
-                    callback = function(self, gameState, services, eventArgs)
-                        if eventArgs and eventArgs.employee and eventArgs.employee.instanceId == self.instanceId then
-                            eventArgs.context = "worker_training"
-                        end
-                    end
-                }
-            }
-        }
     },
     {
         id = 'wfh_advocate1', name = 'Work from Home Advocate', icon = 'assets/portraits/prt0004.png', rarity = 'Rare',

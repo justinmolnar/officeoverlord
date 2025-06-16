@@ -9,7 +9,7 @@ Employee.__index = Employee
 
 -- Constructor for a new employee instance.
 -- @param baseId (string): The ID of the employee from GameData.BASE_EMPLOYEE_CARDS.
--- @param variant (string, optional): "remote", "foil", or "holo".
+-- @param variant (string, optional): "remote", "laminated", or "embossed".
 -- @return (table): A new employee instance table, or nil if baseId is not found.
 function Employee:new(baseId, variant, fullName)
     local baseCard = nil
@@ -53,16 +53,16 @@ function Employee:new(baseId, variant, fullName)
     instance.contributionThisSprint = 0 -- NEW: Track performance over a whole sprint
     instance.fullName = fullName or "Unnamed" -- Use provided name or a fallback
     
-    -- MODIFIED: Use the new 'variant' system, accepting remote, foil, holo, or standard
+    -- MODIFIED: Use the new 'variant' system, accepting remote, laminated, embossed, or standard
     instance.variant = variant or "standard"
 
     -- Adjust hiringBonus and weeklySalary if this instance is remote
     if instance.variant == 'remote' then
         instance.hiringBonus = math.floor(baseCard.hiringBonus * GameData.REMOTE_HIRING_BONUS_MODIFIER)
         instance.weeklySalary = math.floor(baseCard.weeklySalary * GameData.REMOTE_SALARY_MODIFIER)
-    -- Foil and Holo variants do not have inherent stat changes, their effects are global or cosmetic.
+    -- laminated and embossed variants do not have inherent stat changes, their effects are global or cosmetic.
     else
-        -- Keep original salary/bonus for standard, foil, and holo
+        -- Keep original salary/bonus for standard, laminated, and embossed
         instance.hiringBonus = baseCard.hiringBonus
         instance.weeklySalary = baseCard.weeklySalary
     end

@@ -222,8 +222,8 @@ local function _drawCardTextContent(cardData, width, height, context, gameState)
     
     love.graphics.setFont(Drawing.UI.fontMedium)
     if cardData.variant == 'remote' then love.graphics.setColor(0.6,0.3,0.8,1); love.graphics.print("REMOTE", padding, bottomY)
-    elseif cardData.variant == 'foil' then love.graphics.setColor(0.8, 0.7, 0.1, 1); love.graphics.print("FOIL", padding, bottomY)
-    elseif cardData.variant == 'holo' then love.graphics.setColor(0.2, 0.7, 0.9, 1); love.graphics.print("HOLO", padding, bottomY)
+    elseif cardData.variant == 'laminated' then love.graphics.setColor(0.8, 0.7, 0.1, 1); love.graphics.print("LAMINATED", padding, bottomY)
+    elseif cardData.variant == 'embossed' then love.graphics.setColor(0.2, 0.7, 0.9, 1); love.graphics.print("EMBOSSED", padding, bottomY)
     end
 
     local stats = Employee:calculateStatsWithPosition(cardData, gameState.hiredEmployees, gameState.deskAssignments, gameState.purchasedPermanentUpgrades, gameState.desks, gameState)
@@ -277,7 +277,7 @@ local function _getEffectiveCardData(employeeData, gameState)
     return cardData
 end
 
-local function _drawCardBackgroundAndShaders(cardData, width, height, context, foilShader, holoShader)
+local function _drawCardBackgroundAndShaders(cardData, width, height, context, laminatedShader, embossedShader)
     local rarity = cardData.rarity or 'Common'
     local bgColor
 
@@ -296,12 +296,15 @@ local function _drawCardBackgroundAndShaders(cardData, width, height, context, f
     
     local borderColor = cardData.isNepotismBaby and {1, 0.84, 0, 1} or Drawing.UI.colors.card_border
 
-    if cardData.variant == 'foil' and foilShader then
-        love.graphics.setShader(foilShader)
-        foilShader:send("time", love.timer.getTime())
-    elseif cardData.variant == 'holo' and holoShader then
-        love.graphics.setShader(holoShader)
-        holoShader:send("time", love.timer.getTime())
+    if cardData.variant == 'laminated' and Drawing.laminatedShader then
+        love.graphics.setShader(Drawing.laminatedShader)
+        -- Send the 'time' variable to the laminated shader
+        Drawing.laminatedShader:send("time", love.timer.getTime())
+
+    elseif cardData.variant == 'embossed' and Drawing.embossedShader then
+        love.graphics.setShader(Drawing.embossedShader)
+        -- Send the 'cardSize' variable to the embossed shader
+        Drawing.embossedShader:send("cardSize", {width, height})
     end
     
     Drawing.drawPanel(0, 0, width, height, bgColor, borderColor, 5)
@@ -463,6 +466,10 @@ function EmployeeCard:update(dt)
     if anim.currentTime then
         anim.currentTime = anim.currentTime + dt
     end
+
+    if Drawing.laminatedShader then
+        Drawing.laminatedShader:send("time", love.timer.getTime())
+    end
     
     -- Handle pickup animation
     local pickupSpeed = 8.0
@@ -571,7 +578,7 @@ function EmployeeCard:draw(context)
     local cardData = _getEffectiveCardData(self.data, self.gameState)
     
     -- This local helper was defined at the top of the file
-    _drawCardBackgroundAndShaders(cardData, rect.w, rect.h, self.context, Drawing.foilShader, Drawing.holoShader)
+    _drawCardBackgroundAndShaders(cardData, rect.w, rect.h, self.context, Drawing.laminatedShader, Drawing.embossedShader)
     
     local isSelected = (not self.draggedItemState.item and self.gameState.selectedEmployeeForPlacementInstanceId == cardData.instanceId)
     local isCombineTarget = false

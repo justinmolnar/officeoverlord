@@ -289,7 +289,7 @@ function Shop:_generateRandomEmployeeOffer(gameState)
         return nil
     end
     
-    local possibleVariants = {"standard", "holo", "foil", "remote"}
+    local possibleVariants = {"standard", "embossed", "laminated", "remote"}
     local eventArgs = { possibleVariants = possibleVariants, baseCard = chosenBaseCardData }
     require("effects_dispatcher").dispatchEvent("onGenerateEmployeeVariant", gameState, {}, eventArgs)
     
@@ -298,10 +298,10 @@ function Shop:_generateRandomEmployeeOffer(gameState)
         variant = chosenBaseCardData.forceVariant
     else
         local rand = love.math.random() 
-        if rand < 0.075 and tableContains(eventArgs.possibleVariants, "holo") then
-            variant = "holo"
-        elseif rand < 0.15 and tableContains(eventArgs.possibleVariants, "foil") then
-            variant = "foil"
+        if rand < 0.075 and tableContains(eventArgs.possibleVariants, "embossed") then
+            variant = "embossed"
+        elseif rand < 0.15 and tableContains(eventArgs.possibleVariants, "laminated") then
+            variant = "laminated"
         elseif rand < 0.30 and tableContains(eventArgs.possibleVariants, "remote") then
             variant = "remote"
         end

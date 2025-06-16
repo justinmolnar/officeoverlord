@@ -480,8 +480,8 @@ local function drawPositionalOverlays()
 end
 
 function love.load()
-   Drawing.foilShader = love.graphics.newShader("foil.fs") 
-   Drawing.holoShader = love.graphics.newShader("holo.fs") 
+    Drawing.laminatedShader = love.graphics.newShader("laminated.fs") 
+    Drawing.embossedShader = love.graphics.newShader("embossed.fs")
 
    -- Require the new manager
    local DebugManager = require("debug_manager")
