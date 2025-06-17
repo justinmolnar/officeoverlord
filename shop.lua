@@ -158,14 +158,15 @@ function Shop:_populateDecorationOffers(gameState, currentShopOffers, numDecorat
     currentShopOffers.decorations = _populateOfferList(self, currentShopOffers.decorations, numDecorationSlots, forceRestock, self._generateRandomDecorationOffer, gameState)
 end
 
-function Shop:_populateUpgradesOffer(gameState, currentShopOffers, forceRestock)
-    local numUpgradeSlots = 1 -- Define the number of slots here for clarity
+function Shop:_populateUpgradesOffer(gameState, currentShopOffers, forceRestock, numUpgradeSlots)
+    numUpgradeSlots = numUpgradeSlots or 1 -- Default to 1 for backward compatibility
     currentShopOffers.upgrades = _populateOfferList(self, currentShopOffers.upgrades, numUpgradeSlots, forceRestock, self._generateRandomUpgradeOffer, gameState.purchasedPermanentUpgrades)
 end
 
 function Shop:populateOffers(gameState, currentShopOffers, purchasedPermanentUpgrades, forceRestock)
-    local numEmployeeSlots = 2
-    local numDecorationSlots = 1
+    local numEmployeeSlots = 3
+    local numDecorationSlots = 2
+    local numUpgradeSlots = 2
 
     -- If this is the first population of the week, there's no need to force a restock.
     -- The helpers will generate fresh items for any non-locked slots.
@@ -178,7 +179,7 @@ function Shop:populateOffers(gameState, currentShopOffers, purchasedPermanentUpg
 
     self:_populateEmployeeOffers(gameState, currentShopOffers, numEmployeeSlots, forceRestock)
     self:_populateDecorationOffers(gameState, currentShopOffers, numDecorationSlots, forceRestock)
-    self:_populateUpgradesOffer(gameState, currentShopOffers, forceRestock)
+    self:_populateUpgradesOffer(gameState, currentShopOffers, forceRestock, numUpgradeSlots)
     
     -- After populating, dispatch event for listeners like Headhunter to potentially modify the offers.
     local eventArgs = { offers = currentShopOffers.employees, guaranteeRareOrLegendary = false }

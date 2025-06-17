@@ -341,65 +341,6 @@ local function _drawCardIndicatorsAndRings(cardData, width, height, isSelected, 
     love.graphics.setLineWidth(1)
 end
 
--- private helper to generate and queue the tooltip for this specific card.
-function EmployeeCard:_createTooltip()
-    local mouseX, mouseY = love.mouse.getPosition()
-    -- FIX: This now correctly calls the local _getEffectiveCardData function
-    local cardData = _getEffectiveCardData(self.data, self.gameState)
-    local stats = Employee:calculateStatsWithPosition(cardData, self.gameState.hiredEmployees, self.gameState.deskAssignments, self.gameState.purchasedPermanentUpgrades, self.gameState.desks, self.gameState)
-    local log = stats.calculationLog
-
-    local description = cardData.description or "No description."
-    if cardData.variant == 'remote' and cardData.remoteDescription then
-        description = cardData.remoteDescription
-    end
-    if cardData.isSmithCopy then
-        description = description .. "\n\n(This employee has been assimilated by Agent Smith)"
-    end
-    
-    local tooltipLines = {}
-    local function addTooltipLine(text, color)
-        local colorStr = color and string.format("[%.1f,%.1f,%.1f]", color[1], color[2], color[3]) or ""
-        table.insert(tooltipLines, colorStr .. text)
-    end
-    
-    local textWidthForWrap = 280
-    local _, wrappedDescText = Drawing.UI.font:getWrap(description, textWidthForWrap - 16)
-    for _, line in ipairs(wrappedDescText) do addTooltipLine(line, {1, 1, 1}) end
-    addTooltipLine("", nil); addTooltipLine("", nil)
-    
-    addTooltipLine("PRODUCTIVITY:", {0.1, 0.65, 0.35})
-    for _, line in ipairs(log.productivity) do addTooltipLine(line, {1, 1, 1}) end
-    if #log.productivity > 1 then 
-        addTooltipLine("──────", {0.7, 0.7, 0.7})
-        addTooltipLine(tostring(stats.currentProductivity), {0.1, 0.65, 0.35})
-    end
-    
-    addTooltipLine("", nil); addTooltipLine("", nil)
-    
-    addTooltipLine("FOCUS:", {0.25, 0.55, 0.9})
-    for _, line in ipairs(log.focus) do addTooltipLine(line, {1, 1, 1}) end
-    if #log.focus > 1 then
-        addTooltipLine("──────", {0.7, 0.7, 0.7})
-        addTooltipLine(string.format("%.2fx", stats.currentFocus), {0.25, 0.55, 0.9})
-    end
-
-    local tooltipText = ""
-    for _, line in ipairs(tooltipLines) do
-        if line:match("^%[") then local colorEnd = line:find("%]"); if colorEnd then tooltipText = tooltipText .. line:sub(colorEnd + 1) .. "\n" else tooltipText = tooltipText .. line .. "\n" end
-        else tooltipText = tooltipText .. line .. "\n" end
-    end
-    
-    local lineHeight = Drawing.UI.font:getHeight()
-    local tooltipHeight = (#tooltipLines * lineHeight) + 16
-    local tooltipWidth = textWidthForWrap + 16
-    local tipX = mouseX + 15; local tipY = mouseY
-    if tipX + tooltipWidth > love.graphics.getWidth() then tipX = mouseX - tooltipWidth - 15 end
-    if tipY + tooltipHeight > love.graphics.getHeight() then tipY = love.graphics.getHeight() - tooltipHeight end
-    
-    table.insert(Drawing.tooltipsToDraw, { text = tooltipText, x = tipX, y = tipY, w = tooltipWidth, h = tooltipHeight, coloredLines = tooltipLines })
-end
-
 -- This function is now just a wrapper around the centralized Placement function
 function EmployeeCard:_generatePositionalOverlaysForDesk(sourceEmployee, sourceDeskId)
     return Placement:generatePositionalOverlays(sourceEmployee, sourceDeskId, self.gameState)
@@ -574,10 +515,8 @@ function EmployeeCard:draw(context)
     end
     love.graphics.translate(rect.x, rect.y + offsetY)
 
-    -- FIX: This now correctly calls the local function, not the one from Drawing
     local cardData = _getEffectiveCardData(self.data, self.gameState)
     
-    -- This local helper was defined at the top of the file
     _drawCardBackgroundAndShaders(cardData, rect.w, rect.h, self.context, Drawing.laminatedShader, Drawing.embossedShader)
     
     local isSelected = (not self.draggedItemState.item and self.gameState.selectedEmployeeForPlacementInstanceId == cardData.instanceId)
@@ -588,7 +527,6 @@ function EmployeeCard:draw(context)
         if sourceEmp and sourceEmp.instanceId ~= cardData.instanceId then isCombineTarget = Placement:isPotentialCombineTarget(self.gameState, cardData, sourceEmp) end
     end
     
-    -- Calling the other local helper functions
     _drawCardIndicatorsAndRings(cardData, rect.w, rect.h, isSelected, isCombineTarget)
     _drawCardTextContent(cardData, rect.w, rect.h, self.context, self.gameState)
     _drawCardContextualOverlays(cardData, rect.w, rect.h, self.context)
@@ -598,7 +536,46 @@ function EmployeeCard:draw(context)
     
     if Drawing.isMouseOver(mouseX, mouseY, rect.x, rect.y + offsetY, rect.w, rect.h) then
         if not self.draggedItemState.item and self.gameState.gamePhase ~= "battle_active" then
-            self:_createTooltip()
+            local Tooltip = require("components/tooltip")
+            local stats = Employee:calculateStatsWithPosition(cardData, self.gameState.hiredEmployees, self.gameState.deskAssignments, self.gameState.purchasedPermanentUpgrades, self.gameState.desks, self.gameState)
+            local log = stats.calculationLog
+
+            local description = cardData.description or "No description."
+            if cardData.variant == 'remote' and cardData.remoteDescription then
+                description = cardData.remoteDescription
+            end
+            if cardData.isSmithCopy then
+                description = description .. "\n\n(This employee has been assimilated by Agent Smith)"
+            end
+
+            local tooltipContent = {}
+            local function addLine(text, color) table.insert(tooltipContent, {text=text, color=color}) end
+            
+            local _, wrappedDesc = Drawing.UI.font:getWrap(description, 280-16)
+            for _, line in ipairs(wrappedDesc) do addLine(line, {1,1,1}) end
+            addLine("")
+
+            addLine("PRODUCTIVITY:", {0.1, 0.65, 0.35})
+            for _, line in ipairs(log.productivity or {}) do addLine(line, {1,1,1}) end
+            if log.productivity and #log.productivity > 1 then
+                addLine("──────", {0.7,0.7,0.7})
+                addLine(tostring(stats.currentProductivity), {0.1, 0.65, 0.35})
+            end
+            addLine("")
+
+            addLine("FOCUS:", {0.25, 0.55, 0.9})
+            for _, line in ipairs(log.focus or {}) do addLine(line, {1,1,1}) end
+            if log.focus and #log.focus > 1 then
+                addLine("──────", {0.7,0.7,0.7})
+                addLine(string.format("%.2fx", stats.currentFocus), {0.25, 0.55, 0.9})
+            end
+
+            table.insert(Drawing.tooltipsToDraw, Tooltip:new({
+                x = mouseX,
+                y = mouseY,
+                width = 280,
+                content = tooltipContent
+            }))
         end
     end
 end

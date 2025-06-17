@@ -160,21 +160,30 @@ function _buildHiringPhaseUI()
         end
     end
     
-    -- Decoration cards in shop
-    if gameState.currentShopOffers and gameState.currentShopOffers.decorations then
-        currentY = currentY + 15
-        for _, decoData in ipairs(gameState.currentShopOffers.decorations) do
-            if decoData then
-                table.insert(uiComponents, DecorationCard:new({ data = decoData, rect = {x = shopRect.x + shopCardPadding, y = currentY, w = cardWidth, h = 90}, gameState = gameState, draggedItemState = draggedItemState }))
-                currentY = currentY + 90 + 5
+    -- Small cards for upgrades and decorations
+    local smallCardWidth = (cardWidth - 5) / 2
+    local smallCardHeight = smallCardWidth * 0.75 -- Make them shorter
+    local smallCardY = currentY + 10 -- Reduced top margin
+
+    -- Upgrade cards
+    if gameState.currentShopOffers and gameState.currentShopOffers.upgrades then
+        for i, upgData in ipairs(gameState.currentShopOffers.upgrades) do
+            if upgData then
+                local cardX = shopRect.x + shopCardPadding + (i - 1) * (smallCardWidth + 5)
+                table.insert(uiComponents, UpgradeCard:new({ data = upgData, rect = {x=cardX, y=smallCardY, w=smallCardWidth, h=smallCardHeight}, gameState = gameState, uiElementRects = uiElementRects, modal = modal }))
             end
         end
     end
     
-    -- Upgrade card in shop
-    if gameState.currentShopOffers and gameState.currentShopOffers.upgrades and gameState.currentShopOffers.upgrades[1] then
-        currentY = shopRect.y + shopRect.height - 35 - 10 - 110 - 15 -- Align from bottom
-        table.insert(uiComponents, UpgradeCard:new({ data = gameState.currentShopOffers.upgrades[1], rect = {x=shopRect.x+shopCardPadding, y=currentY, w=cardWidth, h=110}, gameState = gameState, uiElementRects = uiElementRects, modal = modal }))
+    -- Decoration cards
+    if gameState.currentShopOffers and gameState.currentShopOffers.decorations then
+        local decorationY = smallCardY + smallCardHeight + 5
+        for i, decoData in ipairs(gameState.currentShopOffers.decorations) do
+            if decoData then
+                local cardX = shopRect.x + shopCardPadding + (i - 1) * (smallCardWidth + 5)
+                table.insert(uiComponents, DecorationCard:new({ data = decoData, rect = {x = cardX, y = decorationY, w = smallCardWidth, h = smallCardHeight}, gameState = gameState, draggedItemState = draggedItemState }))
+            end
+        end
     end
     
     -- Restock button
@@ -882,42 +891,8 @@ function love.draw()
    end
    
    if #tooltipsToDraw > 0 then
-       for _, tip in ipairs(tooltipsToDraw) do
-           Drawing.drawPanel(tip.x, tip.y, tip.w, tip.h, {0.1, 0.1, 0.1, 0.95}, {0.3, 0.3, 0.3, 1})
-           
-           if tip.coloredLines then
-               love.graphics.setFont(Drawing.UI.font)
-               local currentY = tip.y + 8
-               local lineHeight = Drawing.UI.font:getHeight()
-               
-               for _, line in ipairs(tip.coloredLines) do
-                   if line:match("^%[") then
-                       local colorEnd = line:find("%]")
-                       if colorEnd then
-                           local colorStr = line:sub(2, colorEnd - 1)
-                           local text = line:sub(colorEnd + 1)
-                           local r, g, b = colorStr:match("([%d%.]+),([%d%.]+),([%d%.]+)")
-                           if r and g and b then
-                               love.graphics.setColor(tonumber(r), tonumber(g), tonumber(b), 1)
-                           else
-                               love.graphics.setColor(1, 1, 1, 1)
-                           end
-                           love.graphics.print(text, tip.x + 8, currentY)
-                       else
-                           love.graphics.setColor(1, 1, 1, 1)
-                           love.graphics.print(line, tip.x + 8, currentY)
-                       end
-                   else
-                       love.graphics.setColor(1, 1, 1, 1)
-                       love.graphics.print(line, tip.x + 8, currentY)
-                   end
-                   currentY = currentY + lineHeight
-               end
-           else
-               love.graphics.setFont(Drawing.UI.font)
-               love.graphics.setColor(1, 1, 1, 1)
-               Drawing.drawTextWrapped(tip.text, tip.x + 5, tip.y + 3, tip.w - 10, Drawing.UI.font, "left")
-           end
+       for _, tooltip in ipairs(tooltipsToDraw) do
+           tooltip:draw()
        end
    end
 

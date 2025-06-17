@@ -71,16 +71,58 @@ end
 function UpgradeCard:draw()
     if not self.data then return end
 
-    -- This component now orchestrates its own drawing using its local helpers
-    _drawUpgradeCardFrame(self.data, self.rect.x, self.rect.y, self.rect.w, self.rect.h)
-    
-    _drawUpgradeCardContent(self.data, self.rect.w, self.rect.h, self.gameState, Shop)
-    
-    if self.data.sold then
-        _drawUpgradeCardSoldOverlay(self.rect.w, self.rect.h)
+    local cardData = self.data
+    local x, y, w, h = self.rect.x, self.rect.y, self.rect.w, self.rect.h
+    local mouseX, mouseY = love.mouse.getPosition()
+    local isHovered = Drawing.isMouseOver(mouseX, mouseY, x, y, w, h)
+
+    -- Draw small card frame
+    local bgColor = cardData.sold and {0.6,0.6,0.6,1} or (isHovered and {0.9, 0.9, 0.9, 1} or Drawing.UI.colors.card_bg)
+    love.graphics.push()
+    love.graphics.translate(x, y)
+    Drawing.drawPanel(0, 0, w, h, bgColor, Drawing.UI.colors.card_border, 5)
+
+    -- Draw Icon
+    love.graphics.setFont(Drawing.UI.titleFont)
+    love.graphics.setColor(Drawing.UI.colors.text)
+    love.graphics.printf(cardData.icon or "?", 0, 5, w, "center")
+
+    -- Draw Price
+    local finalCost = Shop:getModifiedUpgradeCost(cardData, self.gameState.hiredEmployees)
+    love.graphics.setFont(Drawing.UI.font)
+    love.graphics.setColor(0.1, 0.65, 0.35, 1) -- Green for cost
+    love.graphics.printf("$" .. finalCost, 0, h - Drawing.UI.font:getHeight() - 5, w, "center")
+
+    -- Draw Sold Overlay
+    if cardData.sold then
+        love.graphics.setColor(Drawing.UI.colors.card_sold_overlay_bg)
+        love.graphics.rectangle("fill",0,0,w,h,5,5)
+        love.graphics.setFont(Drawing.UI.fontLarge)
+        love.graphics.setColor(Drawing.UI.colors.card_sold_overlay_text)
+        love.graphics.printf("SOLD", 0, h/2 - Drawing.UI.fontLarge:getHeight()/2, w, "center")
     end
-    
+
     love.graphics.pop()
+
+    -- Create Tooltip
+    if isHovered and not cardData.sold then
+        local Tooltip = require("components/tooltip")
+        
+        local tooltipContent = {
+            { text = self.data.name, color = {1, 1, 1} },
+            { text = "" },
+            { text = self.data.description, color = {0.8, 0.8, 0.8} },
+            { text = "" },
+            { text = "Cost: $" .. finalCost, color = {0.1, 0.65, 0.35} },
+        }
+
+        table.insert(Drawing.tooltipsToDraw, Tooltip:new({
+            x = mouseX,
+            y = mouseY,
+            width = 200,
+            content = tooltipContent
+        }))
+    end
 end
 
 function UpgradeCard:handleMousePress(x, y, button)
