@@ -69,13 +69,12 @@ function GameState:initializeDeskData()
         local deskEntry = {
             id = "desk-" .. i,
             status = "locked", -- "locked", "purchasable", "owned"
-            cost = GameData.DESK_PURCHASE_COST,
+            cost = 0, -- Cost is now calculated dynamically, this value is no longer used
             uiRect = { x = 0, y = 0, width = 0, height = 0 } 
         }
 
         if i == 0 or i == 1 or i == 3 or i == 4 then
             deskEntry.status = "owned"
-            deskEntry.cost = 0
         elseif i == 2 or i == 5 or i == 6 or i == 7 then
             deskEntry.status = "purchasable"
         end

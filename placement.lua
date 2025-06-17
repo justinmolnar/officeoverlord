@@ -315,17 +315,30 @@ function Placement:attemptBuyDesk(gameState, deskIdToBuy)
     if not desk or desk.status ~= "purchasable" then
         return false, "This desk is not available for purchase or already owned."
     end
-    if gameState.budget < desk.cost then
-        return false, "Not enough budget to buy this desk. Need $" .. desk.cost
+
+    -- Get the dynamic cost instead of using a static one
+    local purchaseCost = self:getDeskPurchaseCost(gameState)
+
+    if gameState.budget < purchaseCost then
+        return false, "Not enough budget to buy this desk. Need $" .. purchaseCost
     end
 
-    gameState.budget = gameState.budget - desk.cost
+    gameState.budget = gameState.budget - purchaseCost
     desk.status = "owned"
     desk.cost = 0 
     
     self:updateDeskAvailability(gameState.desks) 
     
     return true, desk.id .. " purchased and now available!"
+end
+
+function Placement:getDeskPurchaseCost(gameState)
+    local initialOwnedDesks = 4 -- Desks 0, 1, 3, 4 start as owned
+    local currentlyOwnedDesks = self:getOwnedDeskCount(gameState)
+    local desksPurchased = currentlyOwnedDesks - initialOwnedDesks
+    
+    local cost = GameData.BASE_DESK_PURCHASE_COST + (desksPurchased * 1000)
+    return cost
 end
 
 function Placement:getNeighboringDeskId(deskId, direction, gridWidth, totalDeskSlots, desksData)

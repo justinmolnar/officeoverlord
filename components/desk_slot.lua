@@ -46,10 +46,11 @@ function DeskSlot:draw(context)
 
     Drawing.drawPanel(x, y, width, height, bgColor, borderColor, 3)
 
-    love.graphics.setFont(Drawing.UI.fontSmall)
+    -- Use the standard font size for better readability
+    love.graphics.setFont(Drawing.UI.font)
     if isDeskDisabled then
         love.graphics.setColor(1,0.2,0.2,1)
-        love.graphics.printf("DISABLED", x, y + height/2 - Drawing.UI.fontSmall:getHeight()/2, width, "center")
+        love.graphics.printf("DISABLED", x, y + height/2 - Drawing.UI.font:getHeight()/2, width, "center")
     elseif not self.gameState.deskAssignments[deskData.id] then
         love.graphics.setColor(Drawing.UI.colors.desk_text)
         if deskData.status == "owned" then
@@ -57,12 +58,14 @@ function DeskSlot:draw(context)
             if context.draggedItemState and context.draggedItemState.item and context.draggedItemState.item.originalDeskId == self.data.id then
                 Drawing.drawPanel(x, y, width, height, {0.5, 0.5, 0.5, 0.2}, {0.7, 0.7, 0.7, 0.5}, 3)
             else
-                love.graphics.printf("Empty", x, y + height/2 - Drawing.UI.fontSmall:getHeight()/2, width, "center")
+                love.graphics.printf("Empty", x, y + height/2 - Drawing.UI.font:getHeight()/2, width, "center")
             end
         elseif deskData.status == "purchasable" then
-            love.graphics.printf("Buy\n$" .. deskData.cost, x, y + height/2 - Drawing.UI.fontSmall:getHeight(), width, "center")
+            local currentCost = Placement:getDeskPurchaseCost(self.gameState)
+            -- Adjust Y position for the larger font
+            love.graphics.printf("Buy\n$" .. currentCost, x, y + height/2 - Drawing.UI.font:getHeight(), width, "center")
         elseif deskData.status == "locked" then
-            love.graphics.printf("Locked", x, y + height/2 - Drawing.UI.fontSmall:getHeight()/2, width, "center")
+            love.graphics.printf("Locked", x, y + height/2 - Drawing.UI.font:getHeight()/2, width, "center")
         end
     end
 
