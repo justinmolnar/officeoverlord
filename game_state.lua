@@ -33,6 +33,11 @@ function GameState:new()
             decorations = {}, -- NEW: Table of decoration data for current shop offers
             restockCountThisWeek = 0
         },
+        shopSlots = {
+            employees = { unlocked = 2, total = 3, cost = 2500 },
+            upgrades = { unlocked = 1, total = 2, cost = 1500 },
+            decorations = { unlocked = 1, total = 2, cost = 1500 }
+        },
         purchasedPermanentUpgrades = { 'base_game_effects' }, -- Add the base effects upgrade
 
         -- Transient State for Current Operations

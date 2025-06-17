@@ -164,9 +164,9 @@ function Shop:_populateUpgradesOffer(gameState, currentShopOffers, forceRestock,
 end
 
 function Shop:populateOffers(gameState, currentShopOffers, purchasedPermanentUpgrades, forceRestock)
-    local numEmployeeSlots = 3
-    local numDecorationSlots = 2
-    local numUpgradeSlots = 2
+    local numEmployeeSlots = gameState.shopSlots.employees.unlocked
+    local numDecorationSlots = gameState.shopSlots.decorations.unlocked
+    local numUpgradeSlots = gameState.shopSlots.upgrades.unlocked
 
     -- If this is the first population of the week, there's no need to force a restock.
     -- The helpers will generate fresh items for any non-locked slots.
@@ -201,6 +201,41 @@ function Shop:populateOffers(gameState, currentShopOffers, purchasedPermanentUpg
     end
     
     currentShopOffers.employees = eventArgs.offers
+end
+
+function Shop:unlockSlot(gameState, slotType)
+    local slotData = gameState.shopSlots[slotType]
+    if not slotData then
+        return false, "Invalid slot type."
+    end
+
+    if slotData.unlocked >= slotData.total then
+        return false, "All slots of this type are already unlocked."
+    end
+
+    if gameState.budget < slotData.cost then
+        return false, "Not enough budget. Need $" .. slotData.cost .. "."
+    end
+
+    -- Deduct cost and unlock slot
+    gameState.budget = gameState.budget - slotData.cost
+    slotData.unlocked = slotData.unlocked + 1
+
+    -- Immediately stock the new slot
+    if slotType == 'employees' then
+        local newOffer = self:_generateRandomEmployeeOffer(gameState)
+        table.insert(gameState.currentShopOffers.employees, newOffer)
+    elseif slotType == 'upgrades' then
+        local newOffer = self:_generateRandomUpgradeOffer(gameState.purchasedPermanentUpgrades)
+        table.insert(gameState.currentShopOffers.upgrades, newOffer)
+    elseif slotType == 'decorations' then
+        local newOffer = self:_generateRandomDecorationOffer(gameState)
+        table.insert(gameState.currentShopOffers.decorations, newOffer)
+    end
+    
+    _G.buildUIComponents() -- Rebuild UI to show the new card
+
+    return true, "Slot unlocked and stocked!"
 end
 
 function Shop:getFinalRestockCost(gameState)

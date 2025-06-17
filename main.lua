@@ -150,7 +150,7 @@ function _buildHiringPhaseUI()
 
     local currentY = shopRect.y + Drawing.UI.fontLarge:getHeight() + 20
     
-    -- Employee cards in shop
+    -- Employee cards in shop (up to 3)
     if gameState.currentShopOffers and gameState.currentShopOffers.employees then
         for i, empData in ipairs(gameState.currentShopOffers.employees) do
             if empData then
@@ -159,33 +159,61 @@ function _buildHiringPhaseUI()
             end
         end
     end
+    -- Locked Employee Slot
+    if gameState.shopSlots.employees.unlocked < gameState.shopSlots.employees.total then
+        local cost = gameState.shopSlots.employees.cost
+        local LockedSlotCard = require("components/locked_slot_card")
+        table.insert(uiComponents, LockedSlotCard:new({
+            rect = {x=shopRect.x+shopCardPadding, y=currentY, w=cardWidth, h=cardHeight},
+            text = "Unlock Employee Slot",
+            cost = cost,
+            isEnabled = function() return gameState.budget >= cost end,
+            onClick = function() Shop:unlockSlot(gameState, 'employees') end
+        }))
+        currentY = currentY + cardHeight + 5
+    end
     
-    -- Small cards for upgrades and decorations
+    -- Small cards layout
     local smallCardWidth = (cardWidth - 5) / 2
-    local smallCardHeight = smallCardWidth * 0.75 -- Make them shorter
-    local smallCardY = currentY + 10 -- Reduced top margin
+    local smallCardHeight = smallCardWidth * 0.75
+    local col1X = shopRect.x + shopCardPadding
+    local col2X = col1X + smallCardWidth + 5
+    
+    local row1Y = currentY + 10
+    local row2Y = row1Y + smallCardHeight + 5
 
-    -- Upgrade cards
-    if gameState.currentShopOffers and gameState.currentShopOffers.upgrades then
-        for i, upgData in ipairs(gameState.currentShopOffers.upgrades) do
-            if upgData then
-                local cardX = shopRect.x + shopCardPadding + (i - 1) * (smallCardWidth + 5)
-                table.insert(uiComponents, UpgradeCard:new({ data = upgData, rect = {x=cardX, y=smallCardY, w=smallCardWidth, h=smallCardHeight}, gameState = gameState, uiElementRects = uiElementRects, modal = modal }))
-            end
-        end
+    -- Row 1, Col 1: First Upgrade Slot (Unlocked)
+    local upg1 = gameState.currentShopOffers.upgrades and gameState.currentShopOffers.upgrades[1]
+    if upg1 then
+        table.insert(uiComponents, UpgradeCard:new({ data = upg1, rect = {x=col1X, y=row1Y, w=smallCardWidth, h=smallCardHeight}, gameState = gameState, uiElementRects = uiElementRects, modal = modal }))
     end
-    
-    -- Decoration cards
-    if gameState.currentShopOffers and gameState.currentShopOffers.decorations then
-        local decorationY = smallCardY + smallCardHeight + 5
-        for i, decoData in ipairs(gameState.currentShopOffers.decorations) do
-            if decoData then
-                local cardX = shopRect.x + shopCardPadding + (i - 1) * (smallCardWidth + 5)
-                table.insert(uiComponents, DecorationCard:new({ data = decoData, rect = {x = cardX, y = decorationY, w = smallCardWidth, h = smallCardHeight}, gameState = gameState, draggedItemState = draggedItemState }))
-            end
-        end
+
+    -- Row 1, Col 2: First Decoration Slot (Unlocked)
+    local deco1 = gameState.currentShopOffers.decorations and gameState.currentShopOffers.decorations[1]
+    if deco1 then
+        table.insert(uiComponents, DecorationCard:new({ data = deco1, rect = {x=col2X, y=row1Y, w=smallCardWidth, h=smallCardHeight}, gameState = gameState, draggedItemState = draggedItemState }))
     end
-    
+
+    -- Row 2, Col 1: Second Upgrade Slot (Locked or Unlocked)
+    local upg2 = gameState.currentShopOffers.upgrades and gameState.currentShopOffers.upgrades[2]
+    if upg2 then
+        table.insert(uiComponents, UpgradeCard:new({ data = upg2, rect = {x=col1X, y=row2Y, w=smallCardWidth, h=smallCardHeight}, gameState = gameState, uiElementRects = uiElementRects, modal = modal }))
+    elseif gameState.shopSlots.upgrades.unlocked < gameState.shopSlots.upgrades.total then
+        local cost = gameState.shopSlots.upgrades.cost
+        local LockedSlotCard = require("components/locked_slot_card")
+        table.insert(uiComponents, LockedSlotCard:new({ rect = {x=col1X, y=row2Y, w=smallCardWidth, h=smallCardHeight}, text = "Unlock Upgrade", cost = cost, isEnabled = function() return gameState.budget >= cost end, onClick = function() Shop:unlockSlot(gameState, 'upgrades') end }))
+    end
+
+    -- Row 2, Col 2: Second Decoration Slot (Locked or Unlocked)
+    local deco2 = gameState.currentShopOffers.decorations and gameState.currentShopOffers.decorations[2]
+    if deco2 then
+        table.insert(uiComponents, DecorationCard:new({ data = deco2, rect = {x=col2X, y=row2Y, w=smallCardWidth, h=smallCardHeight}, gameState = gameState, draggedItemState = draggedItemState }))
+    elseif gameState.shopSlots.decorations.unlocked < gameState.shopSlots.decorations.total then
+        local cost = gameState.shopSlots.decorations.cost
+        local LockedSlotCard = require("components/locked_slot_card")
+        table.insert(uiComponents, LockedSlotCard:new({ rect = {x=col2X, y=row2Y, w=smallCardWidth, h=smallCardHeight}, text = "Unlock Decor", cost = cost, isEnabled = function() return gameState.budget >= cost end, onClick = function() Shop:unlockSlot(gameState, 'decorations') end }))
+    end
+
     -- Restock button
     local restockBtnY = shopRect.y + shopRect.height - 35 - 10
     local restockButton = Button:new({ rect = {x = shopRect.x + shopCardPadding, y = restockBtnY, w = cardWidth, h = 35}, text = "Restock", style = "warning", isEnabled = function() local cost = Shop:getFinalRestockCost(gameState); return gameState.budget >= cost and not draggedItemState.item end, onClick = function() local success, msg = Shop:attemptRestock(gameState); if not success then modal:show("Restock Failed", msg) end; buildUIComponents() end })
